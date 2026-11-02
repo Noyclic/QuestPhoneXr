@@ -57,7 +57,7 @@ data class SandboxSceneSnapshot(
 /**
  * Lightweight deterministic sandbox simulation for phone-VR input testing.
  *
- * The current controller cursors are a 2D reach plane driven by Joy-Con sticks.
+ * Camera wrist landmarks and Joy-Con sticks both map to a 2D reach plane.
  * This is deliberately not presented as calibrated 6DoF hand/controller tracking.
  */
 class SandboxSimulation {
