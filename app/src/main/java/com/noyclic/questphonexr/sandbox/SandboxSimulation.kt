@@ -98,6 +98,7 @@ class SandboxSimulation {
     private var rightCameraTracked = false
     private var leftLandmarks: List<SandboxVector3> = emptyList()
     private var rightLandmarks: List<SandboxVector3> = emptyList()
+    private var handCalibration = SandboxHandCalibration.DEFAULT
     private var nextObjectId = 1
     private var score = 0
 
@@ -128,6 +129,17 @@ class SandboxSimulation {
         rightCursorSmoother.reset()
         leftHandPoseSmoother.reset()
         rightHandPoseSmoother.reset()
+    }
+
+    @Synchronized
+    fun setHandCalibration(calibration: SandboxHandCalibration) {
+        handCalibration = calibration.normalized()
+        leftHandPoseSmoother.reset()
+        rightHandPoseSmoother.reset()
+        leftCursorSmoother.reset()
+        rightCursorSmoother.reset()
+        leftLandmarks = emptyList()
+        rightLandmarks = emptyList()
     }
 
     @Synchronized
@@ -238,7 +250,7 @@ class SandboxSimulation {
     ): ControllerState {
         val physical = controllers.firstOrNull { it.hand == hand }
         val cameraLandmarks = trackedHand?.points
-            ?.let { SandboxHandPoseMapper.map(it) }
+            ?.let { SandboxHandPoseMapper.map(it, handCalibration) }
             .orEmpty()
         val cameraCursor = cameraLandmarks.firstOrNull()
         val baseX = if (hand == HandSide.LEFT) -0.65f else 0.65f

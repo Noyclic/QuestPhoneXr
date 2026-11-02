@@ -29,6 +29,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
+import android.widget.SeekBar
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -61,6 +62,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private lateinit var sensorManager: SensorManager
     private lateinit var statusView: TextView
     private lateinit var viewerProfileStore: ViewerProfileStore
+    private lateinit var handCalibrationStore: SandboxHandCalibrationStore
+    private var handCalibration = SandboxHandCalibration.DEFAULT
     private var viewerProfile = ViewerProfile()
     private lateinit var performancePreset: DevicePerformancePreset
     private var rotationSensor: Sensor? = null
@@ -134,6 +137,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
         viewerProfileStore = ViewerProfileStore(this)
         viewerProfile = viewerProfileStore.load()
+        handCalibrationStore = SandboxHandCalibrationStore(this)
+        handCalibration = handCalibrationStore.load()
+        simulation.setHandCalibration(handCalibration)
         // One lightweight capability read per sandbox entry; no background benchmarking.
         performancePreset = DevicePerformancePolicy.recommend(
             AndroidDeviceProfiler.read(this)
@@ -212,6 +218,13 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             )
             addView(buttons)
+            addView(
+                controlButton("Калибровка рук") { showHandCalibrationDialog() },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
             addView(
                 controlButton("Разрешение камеры") { showCameraResolutionDialog() },
                 LinearLayout.LayoutParams(
@@ -316,6 +329,122 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         if (viewerProfile.cameraHeightPx == ViewerProfile.AUTO_CAMERA_SIZE) {
             performancePreset.cameraHeightPx
         } else viewerProfile.cameraHeightPx
+
+
+    private fun showHandCalibrationDialog() {
+        val current = handCalibration.normalized()
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+        }
+
+        fun sliderRow(title: String, progress: Int): Pair<TextView, SeekBar> {
+            val label = TextView(this).apply {
+                setTextColor(Color.DKGRAY)
+                textSize = 13f
+                setPadding(0, dp(5), 0, 0)
+                text = title
+            }
+            val slider = SeekBar(this).apply {
+                max = 100
+                this.progress = progress.coerceIn(0, 100)
+            }
+            content.addView(label)
+            content.addView(slider)
+            return label to slider
+        }
+
+        fun offsetProgress(value: Float): Int =
+            (((value + SandboxHandCalibration.MAX_OFFSET_METERS) /
+                (SandboxHandCalibration.MAX_OFFSET_METERS * 2f)) * 100f).toInt()
+
+        fun scaleProgress(value: Float): Int =
+            (((value - SandboxHandCalibration.MIN_SCALE) /
+                (SandboxHandCalibration.MAX_SCALE - SandboxHandCalibration.MIN_SCALE)) * 100f).toInt()
+
+        fun depthProgress(value: Float): Int =
+            (value / SandboxHandCalibration.MAX_DEPTH_SCALE * 100f).toInt()
+
+        val offsetX = sliderRow("Смещение X", offsetProgress(current.horizontalOffset))
+        val offsetY = sliderRow("Смещение Y", offsetProgress(current.verticalOffset))
+        val scaleX = sliderRow("Ширина движения", scaleProgress(current.horizontalScale))
+        val scaleY = sliderRow("Высота движения", scaleProgress(current.verticalScale))
+        val depth = sliderRow("Влияние относительной глубины", depthProgress(current.relativeDepthScale))
+
+        fun offsetValue(progress: Int): Float =
+            (progress / 100f * SandboxHandCalibration.MAX_OFFSET_METERS * 2f) -
+                SandboxHandCalibration.MAX_OFFSET_METERS
+
+        fun scaleValue(progress: Int): Float =
+            SandboxHandCalibration.MIN_SCALE +
+                (progress / 100f) *
+                (SandboxHandCalibration.MAX_SCALE - SandboxHandCalibration.MIN_SCALE)
+
+        fun depthValue(progress: Int): Float =
+            progress / 100f * SandboxHandCalibration.MAX_DEPTH_SCALE
+
+        fun selectedCalibration() = SandboxHandCalibration(
+            horizontalOffset = offsetValue(offsetX.second.progress),
+            verticalOffset = offsetValue(offsetY.second.progress),
+            horizontalScale = scaleValue(scaleX.second.progress),
+            verticalScale = scaleValue(scaleY.second.progress),
+            relativeDepthScale = depthValue(depth.second.progress)
+        ).normalized()
+
+        fun updateLabels() {
+            val value = selectedCalibration()
+            offsetX.first.text = String.format(Locale.US, "Смещение X: %+.2f м", value.horizontalOffset)
+            offsetY.first.text = String.format(Locale.US, "Смещение Y: %+.2f м", value.verticalOffset)
+            scaleX.first.text = String.format(Locale.US, "Ширина движения: %.2f×", value.horizontalScale)
+            scaleY.first.text = String.format(Locale.US, "Высота движения: %.2f×", value.verticalScale)
+            depth.first.text = String.format(Locale.US, "Влияние относительной глубины: %.2f×", value.relativeDepthScale)
+        }
+
+        listOf(offsetX, offsetY, scaleX, scaleY, depth).forEach { pair ->
+            pair.second.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    updateLabels()
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+            })
+        }
+        updateLabels()
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Калибровка рук")
+            .setMessage("Подстрой положение и размер рабочей зоны под камеру. Настройки применятся к обеим рукам.")
+            .setView(content)
+            .setNegativeButton("Отмена", null)
+            .setNeutralButton("По умолчанию", null)
+            .setPositiveButton("Применить", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                saveHandCalibration(selectedCalibration())
+                dialog.dismiss()
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                saveHandCalibration(SandboxHandCalibration.DEFAULT)
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
+    }
+
+    private fun saveHandCalibration(value: SandboxHandCalibration) {
+        val safeValue = value.normalized()
+        handCalibration = safeValue
+        handCalibrationStore.save(safeValue)
+        glView.queueEvent {
+            simulation.setHandCalibration(safeValue)
+            renderer.updateScene(simulation.snapshot())
+            glView.requestRender()
+        }
+        Toast.makeText(this, "Калибровка рук сохранена.", Toast.LENGTH_SHORT).show()
+        updateStatus()
+    }
 
     private fun showCameraResolutionDialog() {
         val fields = LinearLayout(this).apply {

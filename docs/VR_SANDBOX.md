@@ -93,3 +93,12 @@ get a warm highlight while pinching. A low-pass pose filter reduces frame-to-fra
 when tracking is lost, the hand geometry disappears and the existing safe object-release behavior
 is retained. MediaPipe z is only relative to the camera image, so depth is visual approximation,
 not calibrated physical hand position.
+
+
+## Hand reach calibration
+
+The sandbox adds a separate saved hand-calibration profile. Horizontal and vertical offsets move
+the camera interaction area, width and height scaling adjust reach, and relative-depth gain
+controls how much MediaPipe image-relative z affects the rendered hand. Values are clamped to
+conservative bounds and are applied to both hands. This is a visual / interaction calibration,
+not physical room-scale calibration: the camera does not provide reliable metric world depth.

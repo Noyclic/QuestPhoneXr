@@ -7,18 +7,29 @@ internal object SandboxHandPoseMapper {
     private const val CURSOR_WIDTH = 3.0f
     private const val CURSOR_HEIGHT = 2.15f
     private const val CURSOR_DEPTH = -2.55f
-    private const val RELATIVE_DEPTH_SCALE = 0.55f
     private const val MAX_RELATIVE_DEPTH = 0.45f
 
-    fun map(points: List<HandPoint>): List<SandboxVector3> =
-        points.take(HAND_LANDMARK_COUNT).map { point ->
+    fun map(
+        points: List<HandPoint>,
+        calibration: SandboxHandCalibration = SandboxHandCalibration.DEFAULT
+    ): List<SandboxVector3> {
+        val safeCalibration = calibration.normalized()
+        return points.take(HAND_LANDMARK_COUNT).map { point ->
             SandboxVector3(
-                x = ((point.x - 0.5f) * CURSOR_WIDTH).coerceIn(-1.65f, 1.65f),
-                y = ((0.5f - point.y) * CURSOR_HEIGHT).coerceIn(-1.15f, 1.15f),
+                x = (
+                    (point.x - 0.5f) * CURSOR_WIDTH * safeCalibration.horizontalScale +
+                        safeCalibration.horizontalOffset
+                    ).coerceIn(-1.65f, 1.65f),
+                y = (
+                    (0.5f - point.y) * CURSOR_HEIGHT * safeCalibration.verticalScale +
+                        safeCalibration.verticalOffset
+                    ).coerceIn(-1.15f, 1.15f),
                 z = CURSOR_DEPTH +
-                    point.z.coerceIn(-MAX_RELATIVE_DEPTH, MAX_RELATIVE_DEPTH) * RELATIVE_DEPTH_SCALE
+                    point.z.coerceIn(-MAX_RELATIVE_DEPTH, MAX_RELATIVE_DEPTH) *
+                    safeCalibration.relativeDepthScale
             )
         }
+    }
 
     private const val HAND_LANDMARK_COUNT = 21
 }
