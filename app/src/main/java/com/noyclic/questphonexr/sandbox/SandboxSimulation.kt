@@ -81,6 +81,8 @@ class SandboxSimulation {
     )
 
     private val objects = mutableListOf<MutableObject>()
+    private val leftCursorSmoother = SandboxCursorSmoother()
+    private val rightCursorSmoother = SandboxCursorSmoother()
     private var leftCursor = DEFAULT_LEFT_CURSOR
     private var rightCursor = DEFAULT_RIGHT_CURSOR
     private var leftGrabbing = false
@@ -113,6 +115,8 @@ class SandboxSimulation {
         rightConnected = false
         leftCameraTracked = false
         rightCameraTracked = false
+        leftCursorSmoother.reset()
+        rightCursorSmoother.reset()
     }
 
     @Synchronized
@@ -140,8 +144,20 @@ class SandboxSimulation {
         val handsBySide = handFrame.hands
             .filter { it.side != HandSide.UNKNOWN }
             .associateBy { it.side }
-        val left = controllerFor(HandSide.LEFT, controllers, handsBySide[HandSide.LEFT])
-        val right = controllerFor(HandSide.RIGHT, controllers, handsBySide[HandSide.RIGHT])
+        val leftRaw = controllerFor(HandSide.LEFT, controllers, handsBySide[HandSide.LEFT])
+        val rightRaw = controllerFor(HandSide.RIGHT, controllers, handsBySide[HandSide.RIGHT])
+        val left = if (leftRaw.cameraTracked) {
+            leftRaw.copy(cursor = leftCursorSmoother.update(leftRaw.cursor))
+        } else {
+            leftCursorSmoother.reset()
+            leftRaw
+        }
+        val right = if (rightRaw.cameraTracked) {
+            rightRaw.copy(cursor = rightCursorSmoother.update(rightRaw.cursor))
+        } else {
+            rightCursorSmoother.reset()
+            rightRaw
+        }
 
         leftCursor = left.cursor
         rightCursor = right.cursor
