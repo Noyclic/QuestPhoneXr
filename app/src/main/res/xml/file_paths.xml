@@ -3,4 +3,5 @@
     <files-path
         name="imported_apks"
         path="imported-apks/" />
+    <files-path name="crash_reports" path="crash-reports/" />
 </paths>
