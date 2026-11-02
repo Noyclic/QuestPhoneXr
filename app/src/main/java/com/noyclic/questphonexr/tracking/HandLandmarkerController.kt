@@ -17,12 +17,7 @@ import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
-/**
- * Phone-camera MediaPipe implementation.
- *
- * CameraX sends RGBA_8888 frames. Each accepted frame is copied before its ImageProxy is
- * released, and LIVE_STREAM inference is limited to one in-flight image to avoid queue growth.
- */
+/** Phone-camera MediaPipe implementation with bounded LIVE_STREAM inference. */
 class HandLandmarkerController(
     context: Context,
     private val mirrorFrontCamera: Boolean,
@@ -33,6 +28,7 @@ class HandLandmarkerController(
     private val closed = AtomicBoolean(false)
     private val processing = AtomicBoolean(false)
     private val inFlightImage = AtomicReference<MPImage?>(null)
+    private val pinchEstimators = mutableListOf<PinchEstimator>()
     private val landmarker: HandLandmarker
 
     init {
@@ -40,7 +36,6 @@ class HandLandmarkerController(
             .setModelAssetPath(MODEL_ASSET)
             .setDelegate(Delegate.CPU)
             .build()
-
         val options = HandLandmarker.HandLandmarkerOptions.builder()
             .setBaseOptions(baseOptions)
             .setRunningMode(RunningMode.LIVE_STREAM)
@@ -51,7 +46,6 @@ class HandLandmarkerController(
             .setResultListener(::onResult)
             .setErrorListener(::onTaskError)
             .build()
-
         landmarker = HandLandmarker.createFromOptions(context, options)
     }
 
@@ -60,22 +54,15 @@ class HandLandmarkerController(
             imageProxy.close()
             return
         }
-
         var mpImage: MPImage? = null
         try {
             val source = imageProxyToBitmap(imageProxy)
             val transform = Matrix().apply {
                 postRotate(imageProxy.imageInfo.rotationDegrees.toFloat())
-                if (mirrorFrontCamera) {
-                    postScale(-1f, 1f, source.width / 2f, source.height / 2f)
-                }
+                if (mirrorFrontCamera) postScale(-1f, 1f, source.width / 2f, source.height / 2f)
             }
-
-            val rotated = Bitmap.createBitmap(
-                source, 0, 0, source.width, source.height, transform, true
-            )
+            val rotated = Bitmap.createBitmap(source, 0, 0, source.width, source.height, transform, true)
             if (rotated !== source) source.recycle()
-
             mpImage = BitmapImageBuilder(rotated).build()
             inFlightImage.set(mpImage)
             landmarker.detectAsync(mpImage, SystemClock.uptimeMillis())
@@ -96,18 +83,15 @@ class HandLandmarkerController(
         require(plane.pixelStride == BYTES_PER_PIXEL) {
             "Expected RGBA_8888 frames; received pixel stride ${plane.pixelStride}."
         }
-
         val width = image.width
         val height = image.height
         val rowBytes = width * BYTES_PER_PIXEL
         val packedBytes = ByteArray(rowBytes * height)
         val buffer = plane.buffer.duplicate()
-
         for (row in 0 until height) {
             buffer.position(row * plane.rowStride)
             buffer.get(packedBytes, row * rowBytes, rowBytes)
         }
-
         return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
             it.copyPixelsFromBuffer(ByteBuffer.wrap(packedBytes))
         }
@@ -116,13 +100,13 @@ class HandLandmarkerController(
     private fun onResult(result: HandLandmarkerResult, input: MPImage) {
         try {
             if (closed.get()) return
-
-            val hands = result.landmarks().map { landmarks ->
-                TrackedHand(
-                    landmarks.map { landmark ->
-                        HandPoint(landmark.x(), landmark.y(), landmark.z())
-                    }
-                )
+            val landmarkLists = result.landmarks()
+            while (pinchEstimators.size < landmarkLists.size) pinchEstimators.add(PinchEstimator())
+            while (pinchEstimators.size > landmarkLists.size) pinchEstimators.removeAt(pinchEstimators.lastIndex)
+            val hands = landmarkLists.mapIndexed { index, landmarks ->
+                val points = landmarks.map { HandPoint(it.x(), it.y(), it.z()) }
+                val pinch = pinchEstimators[index].update(points)
+                TrackedHand(points, pinch.strength, pinch.isPinching)
             }
             onFrame(HandTrackingFrame(result.timestampMs(), hands))
         } catch (error: Exception) {
@@ -137,6 +121,7 @@ class HandLandmarkerController(
 
     private fun onTaskError(error: RuntimeException) {
         inFlightImage.getAndSet(null)?.close()
+        pinchEstimators.forEach { it.reset() }
         processing.set(false)
         if (!closed.get()) {
             Log.e(TAG, "MediaPipe task error", error)
@@ -147,6 +132,7 @@ class HandLandmarkerController(
     override fun close() {
         if (closed.compareAndSet(false, true)) {
             inFlightImage.getAndSet(null)?.close()
+            pinchEstimators.forEach { it.reset() }
             landmarker.close()
         }
     }
