@@ -167,6 +167,18 @@ class SandboxSimulationTest {
     }
 
     @Test
+    fun cameraCursorSmoothingReducesSuddenLandmarkJitter() {
+        val smoother = SandboxCursorSmoother(response = 0.5f)
+        val first = SandboxVector3(0f, 0f, -2.5f)
+        val second = SandboxVector3(1f, 0f, -2.5f)
+
+        assertEquals(first, smoother.update(first))
+        assertEquals(0.5f, smoother.update(second).x, 0.001f)
+        smoother.reset()
+        assertEquals(second, smoother.update(second))
+    }
+
+    @Test
     fun spawnCubeAddsAnotherObject() {
         val simulation = SandboxSimulation()
         simulation.spawnCube()
