@@ -10,7 +10,7 @@ The published SDK is a Unity package and its documented API is exposed through E
 
 ## QuestPhoneXR approach
 
-1. Landmark provider: MediaPipe phone-camera tracking is the current baseline, behind a stable provider boundary so a compatible tracker can replace it later.
+1. Landmark provider: MediaPipe phone-camera tracking is the current baseline. A provider abstraction is a planned next step, so another technically compatible tracker can replace it without changing sandbox interaction code.
 2. Normalized hand data: preserve all 21 points, image-relative coordinates, timestamps, and add confidence/handedness when the provider exposes them.
 3. Pinch interaction: normalize thumb/index distance by palm width instead of using a fixed pixel distance; smooth the signal and use separate press/release thresholds.
 4. Hand identity: use provider handedness labels when available; do not permanently identify hands only by list order.

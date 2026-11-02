@@ -1,6 +1,6 @@
 package com.noyclic.questphonexr.tracking
 
-import kotlin.math.hypot
+import kotlin.math.sqrt
 
 /** Device-independent hand data. x/y are normalized image coordinates; z is image-relative. */
 data class HandPoint(val x: Float, val y: Float, val z: Float)
@@ -24,12 +24,10 @@ class PinchEstimator(
         if (thumb == null || index == null || indexMcp == null || pinkyMcp == null) {
             return PinchSignal(filteredStrength, isPinching)
         }
-
         val palmWidth = distance(indexMcp, pinkyMcp).coerceAtLeast(MIN_PALM_WIDTH)
         val normalizedPinchDistance = distance(thumb, index) / palmWidth
         val rawStrength = ((OPEN_RATIO - normalizedPinchDistance) / RATIO_RANGE).coerceIn(0f, 1f)
         filteredStrength += (rawStrength - filteredStrength) * smoothing
-
         if (!isPinching && filteredStrength >= pinchOnThreshold) {
             isPinching = true
         } else if (isPinching && filteredStrength <= pinchOffThreshold) {
@@ -43,7 +41,11 @@ class PinchEstimator(
         isPinching = false
     }
 
-    private fun distance(a: HandPoint, b: HandPoint): Float = hypot(a.x - b.x, a.y - b.y)
+    private fun distance(a: HandPoint, b: HandPoint): Float {
+        val dx = a.x - b.x
+        val dy = a.y - b.y
+        return sqrt(dx * dx + dy * dy)
+    }
 
     private companion object {
         const val MIN_PALM_WIDTH = 0.015f
