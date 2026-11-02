@@ -49,6 +49,7 @@ class AndroidGamepadInputAdapter(
     fun refreshConnectedDevices(): List<PhysicalControllerSnapshot> {
         val snapshot = synchronized(lock) {
             val connected = InputDevice.getDeviceIds()
+                .asSequence()
                 .mapNotNull { id -> InputDevice.getDevice(id) }
                 .filter { isGamepad(it.sources) }
             val connectedIds = connected.map { it.id }.toSet()
