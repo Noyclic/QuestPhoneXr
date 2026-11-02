@@ -43,6 +43,8 @@ import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
 import com.noyclic.questphonexr.vr.ViewerProfile
 import com.noyclic.questphonexr.vr.ViewerProfileStore
 import com.noyclic.questphonexr.performance.AndroidDeviceProfiler
+import com.noyclic.questphonexr.performance.AdaptivePerformanceController
+import com.noyclic.questphonexr.performance.AdaptivePerformanceState
 import com.noyclic.questphonexr.performance.DevicePerformancePolicy
 import com.noyclic.questphonexr.performance.DevicePerformancePreset
 
@@ -68,6 +70,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private lateinit var statusView: TextView
     private lateinit var viewerProfileStore: ViewerProfileStore
     private lateinit var handCalibrationStore: SandboxHandCalibrationStore
+    private lateinit var adaptivePerformance: AdaptivePerformanceController
+    private var adaptivePerformanceState = AdaptivePerformanceState(30, 66L, 0)
     private var handCalibration = SandboxHandCalibration.DEFAULT
     private var viewerProfile = ViewerProfile()
     private lateinit var performancePreset: DevicePerformancePreset
@@ -95,10 +99,22 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         override fun doFrame(frameTimeNanos: Long) {
             if (isFinishing || !::glView.isInitialized) return
 
-            val targetFps = DevicePerformancePolicy.effectiveRenderFps(
-                viewerProfile.targetFps,
-                performancePreset
+            val nowMs = SystemClock.uptimeMillis()
+            val updatedAdaptiveState = adaptivePerformance.observe(
+                nowMs = nowMs,
+                renderFps = renderer.measuredFps,
+                handTrackingFps = measuredHandTrackingFps,
+                pipelineLatencyMs = latestHandPipelineLatencyMs
             )
+            if (updatedAdaptiveState != adaptivePerformanceState) {
+                adaptivePerformanceState = updatedAdaptiveState
+                handTracker?.updateMinimumInferenceIntervalMs(
+                    updatedAdaptiveState.minimumInferenceIntervalMs
+                )
+                updateStatus()
+            }
+
+            val targetFps = adaptivePerformanceState.renderFpsCap
             val intervalNanos = NANOS_PER_SECOND / targetFps
             if (lastFrameNanos == 0L || frameTimeNanos - lastFrameNanos >= intervalNanos) {
                 val deltaSeconds = if (lastFrameNanos == 0L) {
@@ -124,7 +140,6 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     renderer.updateScene(simulation.snapshot())
                     glView.requestRender()
                 }
-                val nowMs = SystemClock.uptimeMillis()
                 if (nowMs - lastStatusUpdateMs >= STATUS_REFRESH_INTERVAL_MS) {
                     lastStatusUpdateMs = nowMs
                     updateStatus()
@@ -149,6 +164,11 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         performancePreset = DevicePerformancePolicy.recommend(
             AndroidDeviceProfiler.read(this)
         )
+        adaptivePerformance = AdaptivePerformanceController(
+            preset = performancePreset,
+            userRequestedFps = viewerProfile.targetFps
+        )
+        adaptivePerformanceState = adaptivePerformance.currentState()
 
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
@@ -291,7 +311,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                         }
                     },
                     maxHands = performancePreset.maxTrackedHands,
-                    minimumInferenceIntervalMs = performancePreset.minimumInferenceIntervalMs,
+                    minimumInferenceIntervalMs = adaptivePerformanceState.minimumInferenceIntervalMs,
                     outputWidthPx = effectiveCameraWidthPx(),
                     outputHeightPx = effectiveCameraHeightPx()
                 )
@@ -324,7 +344,6 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         }, ContextCompat.getMainExecutor(this))
     }
 
-
     private fun effectiveCameraWidthPx(): Int =
         if (viewerProfile.cameraWidthPx == ViewerProfile.AUTO_CAMERA_SIZE) {
             performancePreset.cameraWidthPx
@@ -334,7 +353,6 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         if (viewerProfile.cameraHeightPx == ViewerProfile.AUTO_CAMERA_SIZE) {
             performancePreset.cameraHeightPx
         } else viewerProfile.cameraHeightPx
-
 
     private fun showHandCalibrationDialog() {
         val current = handCalibration.normalized()
@@ -617,25 +635,34 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             "—"
         }
         return "QUESTPHONEXR · VR-ПЕСОЧНИЦА · СТЕРЕО 3DoF" +
-            "\nГироскоп: " + (if (sensorAvailable) "да" else "нет") +
+            "
+Гироскоп: " + (if (sensorAvailable) "да" else "нет") +
             " · IPD " + viewerProfile.ipdMillimeters + " мм · FPS лимит " +
-            DevicePerformancePolicy.effectiveRenderFps(viewerProfile.targetFps, performancePreset) +
+            adaptivePerformanceState.renderFpsCap +
             " · факт " + fpsText +
-            "\nАвтопрофиль: " + performancePreset.tier.label +
+            "
+Автопрофиль: " + performancePreset.tier.label +
+            " · " + adaptivePerformanceState.label +
             " · камера " + effectiveCameraWidthPx() + "×" + effectiveCameraHeightPx() +
-            " · две руки · MediaPipe до " + (1000L / performancePreset.minimumInferenceIntervalMs) + " кадр/с" +
-            "\n" + cameraStatusMessage + " · рук: " + latestHandFrame.handCount +
-            "\nMediaPipe: " + if (measuredHandTrackingFps > 0f) {
+            " · две руки · MediaPipe до " +
+            (1000L / adaptivePerformanceState.minimumInferenceIntervalMs.coerceAtLeast(1L)) + " кадр/с" +
+            "
+" + cameraStatusMessage + " · рук: " + latestHandFrame.handCount +
+            "
+MediaPipe: " + if (measuredHandTrackingFps > 0f) {
                 String.format(Locale.US, "%.1f", measuredHandTrackingFps)
             } else {
                 "—"
             } + " FPS · pipeline " + latestHandPipelineLatencyMs + " мс" +
             " · камера " + cameraSourceSizeLabel + " → модель " + mediaPipeInputSizeLabel +
-            "\nJoy-Con L: " + (if (leftConnected) "подключён" else "нет") +
+            "
+Joy-Con L: " + (if (leftConnected) "подключён" else "нет") +
             " · R: " + (if (rightConnected) "подключён" else "нет") +
-            "\nОбъектов: " + scene.objects.size + " · захвачено: " + scene.grabbedObjectCount +
+            "
+Объектов: " + scene.objects.size + " · захвачено: " + scene.grabbedObjectCount +
             " · очки: " + scene.score +
-            "\nЩипок пальцами или кнопки Joy-Con захватывают предметы"
+            "
+Щипок пальцами или кнопки Joy-Con захватывают предметы"
     }
 
     private fun updateStatus() {

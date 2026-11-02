@@ -28,7 +28,7 @@ class HandLandmarkerController(
     private val onFrame: (HandTrackingFrame) -> Unit,
     private val onError: (String) -> Unit,
     private val maxHands: Int = MAX_HANDS,
-    private val minimumInferenceIntervalMs: Long = 0L,
+    minimumInferenceIntervalMs: Long = 0L,
     private val outputWidthPx: Int = DEFAULT_OUTPUT_WIDTH_PX,
     private val outputHeightPx: Int = DEFAULT_OUTPUT_HEIGHT_PX
 ) : AutoCloseable {
@@ -36,6 +36,7 @@ class HandLandmarkerController(
     private val closed = AtomicBoolean(false)
     private val processing = AtomicBoolean(false)
     private val lastAcceptedFrameMs = AtomicLong(0L)
+    private val minimumInferenceIntervalMs = AtomicLong(minimumInferenceIntervalMs)
     private val inFlightImage = AtomicReference<MPImage?>(null)
     private val inFlightTransform = AtomicReference<LetterboxTransform?>(null)
     private val inFlightStartedAtNanos = AtomicLong(0L)
@@ -66,15 +67,22 @@ class HandLandmarkerController(
         landmarker = HandLandmarker.createFromOptions(context, options)
     }
 
+    /** Can be adjusted safely while CameraX is active; no model recreation is needed. */
+    fun updateMinimumInferenceIntervalMs(intervalMs: Long) {
+        require(intervalMs >= 0L) { "Inference interval cannot be negative." }
+        if (!closed.get()) minimumInferenceIntervalMs.set(intervalMs)
+    }
+
     fun analyze(imageProxy: ImageProxy) {
         if (closed.get()) {
             imageProxy.close()
             return
         }
         val nowMs = SystemClock.uptimeMillis()
+        val minimumIntervalMs = minimumInferenceIntervalMs.get()
         val lastAcceptedMs = lastAcceptedFrameMs.get()
-        if (minimumInferenceIntervalMs > 0L && lastAcceptedMs > 0L &&
-            nowMs - lastAcceptedMs < minimumInferenceIntervalMs
+        if (minimumIntervalMs > 0L && lastAcceptedMs > 0L &&
+            nowMs - lastAcceptedMs < minimumIntervalMs
         ) {
             imageProxy.close()
             return
@@ -133,7 +141,6 @@ class HandLandmarkerController(
             it.copyPixelsFromBuffer(ByteBuffer.wrap(packedBytes))
         }
     }
-
 
     private fun letterboxBitmap(
         source: Bitmap,
@@ -239,7 +246,6 @@ class HandLandmarkerController(
             landmarker.close()
         }
     }
-
 
     private data class LetterboxTransform(
         val leftPx: Float,

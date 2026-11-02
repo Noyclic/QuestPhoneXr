@@ -70,6 +70,20 @@ for those frames. Device tiers are preliminary estimates; actual sustained FPS, 
 and game compatibility must be measured on each physical phone.
 
 
+## Adaptive runtime governor
+
+The initial hardware preset is only a starting point. The sandbox also observes its measured
+render FPS, MediaPipe callback rate, and camera-to-result pipeline latency. After two sustained
+overload windows it steps down one level: render cadence is reduced by up to 5 FPS and MediaPipe
+submission interval is lengthened by 30 ms. It can step down a second time if pressure continues.
+After five healthy windows it recovers one level at a time, so quality does not oscillate rapidly.
+
+The governor never raises the user's selected FPS cap, disables hand tracking, or changes a
+manual camera resolution. It adjusts only render cadence and the spacing between MediaPipe
+inference requests. The status panel reports the current automatic adaptation level. This is a
+runtime safeguard, not a substitute for thermal testing on the physical phone.
+
+
 ## Manual camera processing resolution
 
 The sandbox has a manual camera-resolution control. Width and height can be set independently
