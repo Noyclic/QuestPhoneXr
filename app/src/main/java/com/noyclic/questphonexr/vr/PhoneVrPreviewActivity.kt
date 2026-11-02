@@ -1,6 +1,7 @@
 package com.noyclic.questphonexr.vr
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.graphics.Color
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -13,17 +14,23 @@ import android.view.Surface
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.SeekBar
 import android.widget.TextView
 
 /**
  * VR Shinecon diagnostic mode: side-by-side stereo + phone rotation-vector tracking (3DoF).
- * Lens distortion and viewer-specific calibration are intentionally not implied by this preview.
+ * Viewer calibration is saved locally; optical distortion correction is not implemented yet.
  */
 class PhoneVrPreviewActivity : Activity(), SensorEventListener {
     private lateinit var glView: GLSurfaceView
     private lateinit var renderer: PhoneVrRenderer
     private lateinit var sensorManager: SensorManager
+    private lateinit var infoView: TextView
+    private lateinit var profileStore: ViewerProfileStore
+    private var viewerProfile = ViewerProfile()
     private var rotationSensor: Sensor? = null
     private var sensorAvailable = false
 
@@ -33,12 +40,17 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         applyImmersiveMode()
 
+        profileStore = ViewerProfileStore(this)
+        viewerProfile = profileStore.load()
+
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
             ?: sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
         sensorAvailable = rotationSensor != null
 
-        renderer = PhoneVrRenderer()
+        renderer = PhoneVrRenderer().apply {
+            applyViewerProfile(viewerProfile)
+        }
         glView = GLSurfaceView(this).apply {
             setEGLContextClientVersion(2)
             preserveEGLContextOnPause = true
@@ -57,19 +69,46 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
             )
         }
 
-        val info = TextView(this).apply {
-            text = if (sensorAvailable) {
-                "VR SHINECON · СТЕРЕО + ГИРОСКОП · 3DoF"
-            } else {
-                "VR SHINECON · СТЕРЕО · ГИРОСКОП НЕ НАЙДЕН"
-            }
+        infoView = TextView(this).apply {
+            text = sensorStatusText()
             textSize = 11f
             setTextColor(Color.WHITE)
             setPadding(12, 8, 12, 8)
             setBackgroundColor(0x990C111B.toInt())
         }
+
+        val topPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(0x990C111B.toInt())
+            addView(
+                infoView,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+            val actions = LinearLayout(this@PhoneVrPreviewActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+            val settingsButton = controlButton("Калибровка") {
+                showViewerSettings()
+            }
+            val recenterButton = controlButton("Перецентрировать") {
+                glView.queueEvent { renderer.recenterHead() }
+                infoView.text = sensorStatusText() + " · центр обновлён"
+            }
+            actions.addView(
+                settingsButton,
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            )
+            actions.addView(
+                recenterButton,
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            )
+            addView(actions)
+        }
         root.addView(
-            info,
+            topPanel,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -92,6 +131,103 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
         )
         setContentView(root)
     }
+
+    private fun showViewerSettings() {
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val padding = (20 * resources.displayMetrics.density).toInt()
+            setPadding(padding, padding / 2, padding, 0)
+        }
+
+        val ipdLabel = TextView(this).apply {
+            setTextColor(Color.DKGRAY)
+            textSize = 15f
+        }
+        val ipdSlider = SeekBar(this).apply {
+            max = ViewerProfile.MAX_IPD_MM - ViewerProfile.MIN_IPD_MM
+            progress = viewerProfile.ipdMillimeters - ViewerProfile.MIN_IPD_MM
+        }
+        val fovLabel = TextView(this).apply {
+            setTextColor(Color.DKGRAY)
+            textSize = 15f
+        }
+        val fovSlider = SeekBar(this).apply {
+            max = ViewerProfile.MAX_FOV_DEGREES - ViewerProfile.MIN_FOV_DEGREES
+            progress = viewerProfile.fieldOfViewDegrees - ViewerProfile.MIN_FOV_DEGREES
+        }
+        val swapEyesCheckBox = CheckBox(this).apply {
+            text = "Поменять левый и правый глаз местами"
+            setTextColor(Color.DKGRAY)
+            isChecked = viewerProfile.swapEyes
+        }
+
+        fun updateLabels() {
+            ipdLabel.text = "Межзрачковое расстояние: " +
+                (ipdSlider.progress + ViewerProfile.MIN_IPD_MM) + " мм"
+            fovLabel.text = "Угол обзора: " +
+                (fovSlider.progress + ViewerProfile.MIN_FOV_DEGREES) + "°"
+        }
+        updateLabels()
+        ipdSlider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                updateLabels()
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+        fovSlider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                updateLabels()
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+
+        content.addView(ipdLabel)
+        content.addView(ipdSlider)
+        content.addView(fovLabel)
+        content.addView(fovSlider)
+        content.addView(swapEyesCheckBox)
+
+        AlertDialog.Builder(this)
+            .setTitle("Настройка VR Shinecon")
+            .setView(content)
+            .setNegativeButton("Отмена", null)
+            .setNeutralButton("По умолчанию") { _, _ ->
+                viewerProfile = ViewerProfile()
+                profileStore.save(viewerProfile)
+                renderer.applyViewerProfile(viewerProfile)
+                infoView.text = sensorStatusText()
+            }
+            .setPositiveButton("Сохранить") { _, _ ->
+                viewerProfile = ViewerProfile(
+                    ipdMillimeters = ipdSlider.progress + ViewerProfile.MIN_IPD_MM,
+                    fieldOfViewDegrees = fovSlider.progress + ViewerProfile.MIN_FOV_DEGREES,
+                    swapEyes = swapEyesCheckBox.isChecked
+                ).normalized()
+                profileStore.save(viewerProfile)
+                renderer.applyViewerProfile(viewerProfile)
+                infoView.text = sensorStatusText()
+            }
+            .show()
+    }
+
+    private fun sensorStatusText(): String {
+        val sensorText = if (sensorAvailable) {
+            "VR SHINECON · СТЕРЕО + ГИРОСКОП · 3DoF"
+        } else {
+            "VR SHINECON · СТЕРЕО · ГИРОСКОП НЕ НАЙДЕН"
+        }
+        return sensorText + " · IPD " + viewerProfile.ipdMillimeters +
+            " мм · FOV " + viewerProfile.fieldOfViewDegrees + "°"
+    }
+
+    private fun controlButton(label: String, action: () -> Unit): Button =
+        Button(this).apply {
+            text = label
+            isAllCaps = false
+            setOnClickListener { action() }
+        }
 
     override fun onResume() {
         super.onResume()
