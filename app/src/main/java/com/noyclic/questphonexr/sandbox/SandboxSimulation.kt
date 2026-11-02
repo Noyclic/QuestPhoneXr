@@ -51,7 +51,8 @@ data class SandboxSceneSnapshot(
     val objects: List<SandboxObjectState>,
     val leftHand: SandboxHandState,
     val rightHand: SandboxHandState,
-    val grabbedObjectCount: Int
+    val grabbedObjectCount: Int,
+    val score: Int = 0
 )
 
 /**
@@ -65,6 +66,7 @@ class SandboxSimulation {
         val id: Int,
         val type: SandboxObjectType,
         var position: SandboxVector3,
+        val spawnPosition: SandboxVector3 = position,
         var velocity: SandboxVector3 = ZERO,
         var heldBy: HandSide? = null
     ) {
@@ -88,6 +90,7 @@ class SandboxSimulation {
     private var leftCameraTracked = false
     private var rightCameraTracked = false
     private var nextObjectId = 1
+    private var score = 0
 
     init {
         reset()
@@ -97,10 +100,11 @@ class SandboxSimulation {
     fun reset() {
         objects.clear()
         nextObjectId = 1
+        score = 0
         objects += createObject(SandboxObjectType.CUBE, SandboxVector3(-0.9f, -0.25f, -3.0f))
         objects += createObject(SandboxObjectType.BALL, SandboxVector3(0f, 0.25f, -3.15f))
         objects += createObject(SandboxObjectType.CUBE, SandboxVector3(0.9f, -0.25f, -3.0f))
-        objects += createObject(SandboxObjectType.TARGET, SandboxVector3(0f, -0.85f, -3.7f))
+        objects += createObject(SandboxObjectType.TARGET, TARGET_POSITION)
         leftCursor = DEFAULT_LEFT_CURSOR
         rightCursor = DEFAULT_RIGHT_CURSOR
         leftGrabbing = false
@@ -170,7 +174,8 @@ class SandboxSimulation {
                 rightConnected,
                 rightCameraTracked
             ),
-            grabbedObjectCount = objects.count { it.heldBy != null }
+            grabbedObjectCount = objects.count { it.heldBy != null },
+            score = score
         )
     }
 
@@ -229,7 +234,7 @@ class SandboxSimulation {
 
         if (isPressed && currentlyHeld == null) {
             val nearest = objects
-                .filter { it.heldBy == null }
+                .filter { it.heldBy == null && it.type != SandboxObjectType.TARGET }
                 .minByOrNull { (it.position - cursor).length() }
             if (nearest != null && (nearest.position - cursor).length() <= MAX_GRAB_DISTANCE) {
                 nearest.heldBy = hand
@@ -251,7 +256,7 @@ class SandboxSimulation {
     }
 
     private fun updatePhysics(deltaSeconds: Float) {
-        objects.filter { it.heldBy == null }.forEach { item ->
+        objects.filter { it.heldBy == null && it.type != SandboxObjectType.TARGET }.forEach { item ->
             item.velocity = item.velocity + SandboxVector3(0f, -GRAVITY * deltaSeconds, 0f)
             item.position = item.position + item.velocity * deltaSeconds
 
@@ -269,6 +274,12 @@ class SandboxSimulation {
                     z = item.velocity.z * FLOOR_FRICTION
                 )
             }
+
+            if ((item.position - TARGET_POSITION).length() <= TARGET_HIT_RADIUS) {
+                score += 1
+                item.position = item.spawnPosition
+                item.velocity = ZERO
+            }
         }
     }
 
@@ -277,6 +288,8 @@ class SandboxSimulation {
         private val ZERO = SandboxVector3(0f, 0f, 0f)
         private val DEFAULT_LEFT_CURSOR = SandboxVector3(-0.65f, -0.1f, -2.35f)
         private val DEFAULT_RIGHT_CURSOR = SandboxVector3(0.65f, -0.1f, -2.35f)
+        private val TARGET_POSITION = SandboxVector3(0f, -0.85f, -2.65f)
+        private const val TARGET_HIT_RADIUS = 0.48f
         private const val CAMERA_CURSOR_WIDTH = 3.0f
         private const val CAMERA_CURSOR_HEIGHT = 2.15f
         private const val CAMERA_CURSOR_DEPTH = -2.55f
