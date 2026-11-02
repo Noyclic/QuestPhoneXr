@@ -19,6 +19,8 @@ import kotlin.math.max
 class PhoneVrRenderer : GLSurfaceView.Renderer {
     private val rotationLock = Any()
     private var pendingHeadRotation = identity3()
+    private var referenceHeadRotation: FloatArray? = null
+    @Volatile private var viewerProfile = ViewerProfile()
     private val headView = FloatArray(16)
     private val eyeTranslation = FloatArray(16)
     private val view = FloatArray(16)
@@ -38,6 +40,17 @@ class PhoneVrRenderer : GLSurfaceView.Renderer {
         if (rotationMatrix.size < 9) return
         synchronized(rotationLock) {
             pendingHeadRotation = rotationMatrix.copyOfRange(0, 9)
+        }
+    }
+
+    fun applyViewerProfile(profile: ViewerProfile) {
+        viewerProfile = profile.normalized()
+    }
+
+    /** Uses the latest phone orientation as the neutral forward direction. */
+    fun recenterHead() {
+        synchronized(rotationLock) {
+            referenceHeadRotation = pendingHeadRotation.copyOf()
         }
     }
 
@@ -63,12 +76,23 @@ class PhoneVrRenderer : GLSurfaceView.Renderer {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         if (program == 0 || !::cubeBuffer.isInitialized) return
 
-        val rotation = synchronized(rotationLock) { pendingHeadRotation.copyOf() }
-        buildHeadView(rotation)
+        val rotations = synchronized(rotationLock) {
+            pendingHeadRotation.copyOf() to referenceHeadRotation?.copyOf()
+        }
+        val relativeRotation = PhoneVrMath.relativeRotation(rotations.first, rotations.second)
+        buildHeadView(relativeRotation)
 
+        val profile = viewerProfile
         val eyeWidth = max(1, surfaceWidth / 2)
         val aspect = eyeWidth.toFloat() / surfaceHeight.toFloat()
-        Matrix.perspectiveM(projection, 0, 86f, aspect, 0.05f, 80f)
+        Matrix.perspectiveM(
+            projection,
+            0,
+            profile.fieldOfViewDegrees.toFloat(),
+            aspect,
+            0.05f,
+            80f
+        )
 
         val elapsedSeconds = (System.nanoTime() - startedAtNanos) / 1_000_000_000f
         val cubeAngle = (elapsedSeconds * 22f) % 360f
@@ -78,7 +102,9 @@ class PhoneVrRenderer : GLSurfaceView.Renderer {
             val viewportWidth = if (eye == 1) surfaceWidth - eyeWidth else eyeWidth
             GLES20.glViewport(viewportX, 0, max(1, viewportWidth), surfaceHeight)
 
-            val eyeOffset = if (eye == 0) -EYE_OFFSET_METERS else EYE_OFFSET_METERS
+            val renderedEye = if (profile.swapEyes) 1 - eye else eye
+            val halfIpdMeters = profile.ipdMillimeters / 2000f
+            val eyeOffset = if (renderedEye == 0) -halfIpdMeters else halfIpdMeters
             Matrix.setIdentityM(eyeTranslation, 0)
             Matrix.translateM(eyeTranslation, 0, -eyeOffset, 0f, 0f)
             Matrix.multiplyMM(view, 0, eyeTranslation, 0, headView, 0)
@@ -93,7 +119,7 @@ class PhoneVrRenderer : GLSurfaceView.Renderer {
     private fun buildHeadView(rotation: FloatArray) {
         Matrix.setIdentityM(headView, 0)
         // SensorManager returns a row-major 3x3 device-to-world matrix.
-        // Store its transpose as the OpenGL column-major world-to-camera view rotation.
+        // This stores the orientation in the OpenGL 4x4 view matrix.
         headView[0] = rotation[0]
         headView[1] = rotation[1]
         headView[2] = rotation[2]
@@ -253,7 +279,6 @@ class PhoneVrRenderer : GLSurfaceView.Renderer {
         private const val BYTES_PER_FLOAT = 4
         private const val FLOATS_PER_VERTEX = 6
         private const val CUBE_VERTEX_COUNT = 36
-        private const val EYE_OFFSET_METERS = 0.032f
 
         private const val VERTEX_SHADER = """
             uniform mat4 uMvp;
