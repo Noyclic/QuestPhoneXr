@@ -31,6 +31,40 @@ class CrashReportFormatterTest {
         assertTrue(body.length < 3_500)
     }
 
+
+    @Test
+    fun publicCrashReportsRedactTokensPasswordsAndSharedStoragePaths() {
+        val raw = """
+            Authorization: Bearer abc.def.ghi
+            refresh_token=refresh-secret
+            password: "my-private-password"
+            Failed to open /storage/emulated/0/DCIM/private-photo.jpg
+        """.trimIndent()
+
+        val sanitized = CrashReportFormatter.sanitizeForPublicReport(raw)
+
+        assertTrue(sanitized.contains("Bearer [REDACTED]"))
+        assertTrue(sanitized.contains("refresh_token=[REDACTED]"))
+        assertTrue(sanitized.contains("password: [REDACTED]"))
+        assertTrue(sanitized.contains("[USER_STORAGE_PATH]"))
+        assertTrue(!sanitized.contains("abc.def.ghi"))
+        assertTrue(!sanitized.contains("refresh-secret"))
+        assertTrue(!sanitized.contains("my-private-password"))
+        assertTrue(!sanitized.contains("private-photo.jpg"))
+    }
+
+    @Test
+    fun issueBodySanitizesEvenReportsCreatedByOlderAppVersions() {
+        val body = CrashReportFormatter.issueBody(
+            "api_key=secret-value\\n/storage/emulated/0/Download/private.apk"
+        )
+
+        assertTrue(body.contains("api_key=[REDACTED]"))
+        assertTrue(body.contains("[USER_STORAGE_PATH]"))
+        assertTrue(!body.contains("secret-value"))
+        assertTrue(!body.contains("private.apk"))
+    }
+
     @Test
     fun manualIssueWithoutCrashReportGetsReproductionTemplate() {
         val body = CrashReportFormatter.issueBody(null)
