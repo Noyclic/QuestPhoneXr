@@ -33,11 +33,21 @@ class VirtualControllerMapper {
         physicalControllers: List<PhysicalControllerSnapshot>
     ): VirtualControllerState {
         val physical = physicalControllers.firstOrNull { it.hand == side }
+        val pressedKeys = physical?.pressedKeyCodes.orEmpty()
+        val digitalTrigger = if (
+            GamepadButtonCodes.BUTTON_L2 in pressedKeys ||
+            GamepadButtonCodes.BUTTON_R2 in pressedKeys
+        ) 1f else 0f
         val trigger = maxOf(
             hand?.pinchStrength ?: 0f,
             physical?.leftTrigger ?: 0f,
-            physical?.rightTrigger ?: 0f
+            physical?.rightTrigger ?: 0f,
+            digitalTrigger
         ).coerceIn(0f, 1f)
+        val digitalGrip = if (
+            GamepadButtonCodes.BUTTON_L1 in pressedKeys ||
+            GamepadButtonCodes.BUTTON_R1 in pressedKeys
+        ) 1f else 0f
 
         val source = when {
             hand != null && physical != null -> ControllerInputSource.HAND_AND_GAMEPAD
@@ -51,7 +61,7 @@ class VirtualControllerMapper {
             isTracked = hand != null,
             pose = hand?.let(::toPose),
             trigger = trigger,
-            grip = hand?.let(::estimateGripStrength) ?: 0f,
+            grip = maxOf(hand?.let(::estimateGripStrength) ?: 0f, digitalGrip),
             pinchPressed = hand?.isPinching ?: false,
             stickX = physical?.stickX ?: 0f,
             stickY = physical?.stickY ?: 0f,
