@@ -96,6 +96,8 @@ class SandboxSimulation {
     private var rightConnected = false
     private var leftCameraTracked = false
     private var rightCameraTracked = false
+    private var leftLandmarks: List<SandboxVector3> = emptyList()
+    private var rightLandmarks: List<SandboxVector3> = emptyList()
     private var nextObjectId = 1
     private var score = 0
 
@@ -120,6 +122,8 @@ class SandboxSimulation {
         rightConnected = false
         leftCameraTracked = false
         rightCameraTracked = false
+        leftLandmarks = emptyList()
+        rightLandmarks = emptyList()
         leftCursorSmoother.reset()
         rightCursorSmoother.reset()
         leftHandPoseSmoother.reset()
@@ -190,6 +194,8 @@ class SandboxSimulation {
         rightConnected = right.connected
         leftCameraTracked = left.cameraTracked
         rightCameraTracked = right.cameraTracked
+        leftLandmarks = left.landmarks
+        rightLandmarks = right.landmarks
 
         updateGrab(HandSide.LEFT, left.grabbing, left.cursor, dt, left.trackingLost)
         updateGrab(HandSide.RIGHT, right.grabbing, right.cursor, dt, right.trackingLost)
@@ -207,7 +213,7 @@ class SandboxSimulation {
                 leftGrabbing,
                 leftConnected,
                 leftCameraTracked,
-                left.landmarks
+                leftLandmarks
             ),
             rightHand = SandboxHandState(
                 HandSide.RIGHT,
@@ -215,7 +221,7 @@ class SandboxSimulation {
                 rightGrabbing,
                 rightConnected,
                 rightCameraTracked,
-                right.landmarks
+                rightLandmarks
             ),
             grabbedObjectCount = objects.count { it.heldBy != null },
             score = score
