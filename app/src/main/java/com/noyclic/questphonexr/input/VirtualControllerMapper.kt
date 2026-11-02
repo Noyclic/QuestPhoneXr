@@ -93,7 +93,9 @@ class VirtualControllerMapper {
         val middleMcp = points.getOrNull(9) ?: return 0f
         val palmLength = distance(wrist, middleMcp).coerceAtLeast(MIN_PALM_LENGTH)
         val tipIndices = intArrayOf(8, 12, 16, 20)
-        val tipDistances = tipIndices.mapNotNull { points.getOrNull(it) }
+        val tipDistances = tipIndices
+            .map { points.getOrNull(it) }
+            .filterNotNull()
             .map { distance(wrist, it) / palmLength }
         if (tipDistances.size != tipIndices.size) return 0f
 
