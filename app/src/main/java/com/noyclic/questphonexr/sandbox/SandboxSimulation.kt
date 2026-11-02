@@ -77,7 +77,8 @@ class SandboxSimulation {
         val cursor: SandboxVector3,
         val grabbing: Boolean,
         val connected: Boolean,
-        val cameraTracked: Boolean
+        val cameraTracked: Boolean,
+        val trackingLost: Boolean = false
     )
 
     private val objects = mutableListOf<MutableObject>()
@@ -146,17 +147,27 @@ class SandboxSimulation {
             .associateBy { it.side }
         val leftRaw = controllerFor(HandSide.LEFT, controllers, handsBySide[HandSide.LEFT])
         val rightRaw = controllerFor(HandSide.RIGHT, controllers, handsBySide[HandSide.RIGHT])
+        val leftTrackingLost = leftCameraTracked && !leftRaw.cameraTracked &&
+            leftGrabbing && !leftRaw.grabbing
+        val rightTrackingLost = rightCameraTracked && !rightRaw.cameraTracked &&
+            rightGrabbing && !rightRaw.grabbing
         val left = if (leftRaw.cameraTracked) {
-            leftRaw.copy(cursor = leftCursorSmoother.update(leftRaw.cursor))
+            leftRaw.copy(
+                cursor = leftCursorSmoother.update(leftRaw.cursor),
+                trackingLost = false
+            )
         } else {
             leftCursorSmoother.reset()
-            leftRaw
+            leftRaw.copy(trackingLost = leftTrackingLost)
         }
         val right = if (rightRaw.cameraTracked) {
-            rightRaw.copy(cursor = rightCursorSmoother.update(rightRaw.cursor))
+            rightRaw.copy(
+                cursor = rightCursorSmoother.update(rightRaw.cursor),
+                trackingLost = false
+            )
         } else {
             rightCursorSmoother.reset()
-            rightRaw
+            rightRaw.copy(trackingLost = rightTrackingLost)
         }
 
         leftCursor = left.cursor
@@ -166,8 +177,8 @@ class SandboxSimulation {
         leftCameraTracked = left.cameraTracked
         rightCameraTracked = right.cameraTracked
 
-        updateGrab(HandSide.LEFT, left.grabbing, left.cursor, dt)
-        updateGrab(HandSide.RIGHT, right.grabbing, right.cursor, dt)
+        updateGrab(HandSide.LEFT, left.grabbing, left.cursor, dt, left.trackingLost)
+        updateGrab(HandSide.RIGHT, right.grabbing, right.cursor, dt, right.trackingLost)
         updatePhysics(dt)
     }
 
@@ -244,7 +255,8 @@ class SandboxSimulation {
         hand: HandSide,
         isPressed: Boolean,
         cursor: SandboxVector3,
-        deltaSeconds: Float
+        deltaSeconds: Float,
+        dropWithoutThrow: Boolean
     ) {
         val currentlyHeld = objects.firstOrNull { it.heldBy == hand }
 
@@ -258,9 +270,13 @@ class SandboxSimulation {
             }
         } else if (!isPressed && currentlyHeld != null) {
             currentlyHeld.heldBy = null
-            currentlyHeld.velocity = (cursor - currentlyHeld.position)
-                .times(1f / deltaSeconds)
-                .clamped(MAX_THROW_SPEED)
+            currentlyHeld.velocity = if (dropWithoutThrow) {
+                ZERO
+            } else {
+                (cursor - currentlyHeld.position)
+                    .times(1f / deltaSeconds)
+                    .clamped(MAX_THROW_SPEED)
+            }
         }
 
         objects.firstOrNull { it.heldBy == hand }?.let { held ->
