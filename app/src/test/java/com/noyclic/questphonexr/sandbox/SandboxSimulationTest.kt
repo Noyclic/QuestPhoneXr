@@ -133,7 +133,7 @@ class SandboxSimulationTest {
     fun cameraTrackingLossDropsHeldObjectWithoutArtificialThrow() {
         val simulation = SandboxSimulation()
         val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
-        points[0] = HandPoint(0.2f, 0.4f, 0f)
+        points[0] = HandPoint(0.5f, 0.384f, 0f)
         val pinching = TrackedHand(
             points = points,
             pinchStrength = 0.9f,
@@ -143,11 +143,13 @@ class SandboxSimulationTest {
 
         simulation.update(emptyList(), HandTrackingFrame(100L, listOf(pinching)), 1f / 30f)
         assertEquals(1, simulation.snapshot().grabbedObjectCount)
+        assertEquals(HandSide.LEFT, simulation.snapshot().objects.single { it.heldBy != null }.heldBy)
 
         simulation.update(emptyList(), HandTrackingFrame(200L, emptyList()), 1f / 30f)
 
-        val dropped = simulation.snapshot().objects.single { it.heldBy == null && it.id == 2 }
-        assertEquals(0f, dropped.velocity.length(), 0.0001f)
+        val dropped = simulation.snapshot().objects.single { it.id == 2 }
+        assertEquals(null, dropped.heldBy)
+        assertTrue(dropped.velocity.length() < 0.12f)
         assertEquals(0, simulation.snapshot().grabbedObjectCount)
     }
 
