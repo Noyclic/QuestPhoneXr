@@ -52,3 +52,10 @@ integration. Quest-only games may need their Meta-specific input and runtime cal
 The phone-to-Quest UDP sender and Unity receiver sample remain under integrations/bbvr for
 experiments with a separate Quest device. They are not required for the phone-only mode and are
 not a universal controller driver.
+
+
+## Provisional per-game action profiles
+
+BuiltInGameInputProfiles defines starter mappings for the initial catalog IDs. Examples include left-stick movement, right-stick turning, trigger interaction, pinch-based saber activation, and explicit Android gamepad button codes.
+
+These are **phone-port proposals**, not verified controls for the original Quest applications. The action contract is useful only when a game port, source integration, or supported plugin deliberately consumes it. Open Saber additionally needs calibrated 3D hand/saber trajectories; the current camera-relative hand samples are not enough for accurate saber swings.

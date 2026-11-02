@@ -193,6 +193,11 @@ class GameLibraryActivity : ComponentActivity() {
         card.addView(text("Путь: " + game.portingPath.label, 12f, 0xFFB8C7DB.toInt())
             .apply { setPadding(0, dp(7), 0, dp(2)) })
         card.addView(text("Нагрузка: " + game.expectedLoad.label, 12f, 0xFFB8C7DB.toInt()))
+        BuiltInGameInputProfiles.forGame(game.id)?.let { profile ->
+            card.addView(text("Профиль управления для порта: " + profile.displayName, 12f, 0xFF9BC7F5.toInt())
+                .apply { setPadding(0, dp(7), 0, dp(2)) })
+            card.addView(text(profile.note, 11f, 0xFFAAB4C2.toInt()))
+        }
         card.addView(text(game.compatibilityNotes, 12f, 0xFFAAB4C2.toInt())
             .apply { setPadding(0, dp(7), 0, dp(6)) })
 
