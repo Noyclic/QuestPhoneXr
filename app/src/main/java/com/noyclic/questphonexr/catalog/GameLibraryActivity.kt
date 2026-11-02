@@ -25,6 +25,7 @@ import com.noyclic.questphonexr.MainActivity
 import com.noyclic.questphonexr.vr.PhoneVrPreviewActivity
 import com.noyclic.questphonexr.sandbox.SandboxActivity
 import com.noyclic.questphonexr.diagnostics.CrashReportStore
+import com.noyclic.questphonexr.diagnostics.CrashReportFormatter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
