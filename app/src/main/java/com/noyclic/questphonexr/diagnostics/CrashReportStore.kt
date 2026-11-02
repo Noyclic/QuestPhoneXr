@@ -88,9 +88,11 @@ class CrashReportStore(context: Context) {
                 appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
                     ?: "unknown"
             }.getOrDefault("unknown")
-            val stackTrace = StringWriter().also { writer ->
-                throwable.printStackTrace(PrintWriter(writer))
-            }.toString().take(MAX_STORED_STACK_TRACE_CHARS)
+            val stackTrace = CrashReportFormatter.sanitizeForPublicReport(
+                StringWriter().also { writer ->
+                    throwable.printStackTrace(PrintWriter(writer))
+                }.toString()
+            ).take(MAX_STORED_STACK_TRACE_CHARS)
             val timestamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US).apply {
                 timeZone = TimeZone.getTimeZone("UTC")
             }.format(Date())
