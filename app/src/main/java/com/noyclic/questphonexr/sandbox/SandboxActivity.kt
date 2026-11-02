@@ -714,6 +714,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         updateStatus()
     }
 
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
+
     @Suppress("DEPRECATION")
     private fun applyImmersiveMode() {
         window.decorView.systemUiVisibility = (
