@@ -1,0 +1,23 @@
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+local.properties
+
+# Android outputs
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Downloaded MediaPipe model
+app/src/main/assets/hand_landmarker.task
+app/src/main/assets/hand_landmarker.task.part
+
+# OS noise
+.DS_Store
+Thumbs.db
