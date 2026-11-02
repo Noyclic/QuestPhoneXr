@@ -1,5 +1,6 @@
 package com.noyclic.questphonexr.sandbox
 
+import com.noyclic.questphonexr.input.GamepadButtonCodes
 import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
 import com.noyclic.questphonexr.tracking.HandSide
 import kotlin.math.sqrt
@@ -170,7 +171,7 @@ class SandboxSimulation {
         )
         val grabbing = physical.leftTrigger > GRAB_THRESHOLD ||
             physical.rightTrigger > GRAB_THRESHOLD ||
-            GamepadButtonCodesCompat.isGripPressed(physical.pressedKeyCodes) ||
+            physical.pressedKeyCodes.any { it == GamepadButtonCodes.BUTTON_L1 || it == GamepadButtonCodes.BUTTON_R1 } ||
             physical.pressedKeyCodes.any { it == KEYCODE_GRAB_FALLBACK }
         return ControllerState(cursor, grabbing, true)
     }
@@ -208,8 +209,8 @@ class SandboxSimulation {
 
     private fun updatePhysics(deltaSeconds: Float) {
         objects.filter { it.heldBy == null }.forEach { item ->
-            item.velocity += SandboxVector3(0f, -GRAVITY * deltaSeconds, 0f)
-            item.position += item.velocity * deltaSeconds
+            item.velocity = item.velocity + SandboxVector3(0f, -GRAVITY * deltaSeconds, 0f)
+            item.position = item.position + item.velocity * deltaSeconds
 
             if (item.position.y < FLOOR_Y) {
                 item.position = item.position.copy(y = FLOOR_Y)
@@ -228,9 +229,6 @@ class SandboxSimulation {
         }
     }
 
-    private operator fun SandboxVector3.plusAssign(other: SandboxVector3) {
-        // Mutable objects use their own position/velocity fields; this is not used directly.
-    }
 
     private companion object {
         private val ZERO = SandboxVector3(0f, 0f, 0f)
@@ -248,9 +246,4 @@ class SandboxSimulation {
         private const val MAX_STEP_SECONDS = 0.05f
         private const val KEYCODE_GRAB_FALLBACK = 105
     }
-}
-
-/** Small dependency-free bridge to the shared Android key-code constants. */
-private object GamepadButtonCodesCompat {
-    fun isGripPressed(keys: Set<Int>): Boolean = 102 in keys || 103 in keys
 }
