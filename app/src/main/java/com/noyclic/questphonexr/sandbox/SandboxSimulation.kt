@@ -1,0 +1,256 @@
+package com.noyclic.questphonexr.sandbox
+
+import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
+import com.noyclic.questphonexr.tracking.HandSide
+import kotlin.math.sqrt
+
+enum class SandboxObjectType { CUBE, BALL, TARGET }
+
+data class SandboxVector3(
+    val x: Float,
+    val y: Float,
+    val z: Float
+) {
+    operator fun plus(other: SandboxVector3) =
+        SandboxVector3(x + other.x, y + other.y, z + other.z)
+
+    operator fun minus(other: SandboxVector3) =
+        SandboxVector3(x - other.x, y - other.y, z - other.z)
+
+    operator fun times(scale: Float) =
+        SandboxVector3(x * scale, y * scale, z * scale)
+
+    fun length(): Float = sqrt(x * x + y * y + z * z)
+
+    fun clamped(maxLength: Float): SandboxVector3 {
+        val length = length()
+        return if (length > maxLength && length > 0f) this * (maxLength / length) else this
+    }
+}
+
+data class SandboxObjectState(
+    val id: Int,
+    val type: SandboxObjectType,
+    val position: SandboxVector3,
+    val velocity: SandboxVector3,
+    val heldBy: HandSide? = null
+)
+
+data class SandboxHandState(
+    val hand: HandSide,
+    val cursor: SandboxVector3,
+    val grabbing: Boolean,
+    val connected: Boolean
+)
+
+data class SandboxSceneSnapshot(
+    val objects: List<SandboxObjectState>,
+    val leftHand: SandboxHandState,
+    val rightHand: SandboxHandState,
+    val grabbedObjectCount: Int
+)
+
+/**
+ * Lightweight deterministic sandbox simulation for phone-VR input testing.
+ *
+ * The current controller cursors are a 2D reach plane driven by Joy-Con sticks.
+ * This is deliberately not presented as calibrated 6DoF hand/controller tracking.
+ */
+class SandboxSimulation {
+    private data class MutableObject(
+        val id: Int,
+        val type: SandboxObjectType,
+        var position: SandboxVector3,
+        var velocity: SandboxVector3 = ZERO,
+        var heldBy: HandSide? = null
+    ) {
+        fun snapshot() = SandboxObjectState(id, type, position, velocity, heldBy)
+    }
+
+    private data class ControllerState(
+        val cursor: SandboxVector3,
+        val grabbing: Boolean,
+        val connected: Boolean
+    )
+
+    private val objects = mutableListOf<MutableObject>()
+    private var leftCursor = DEFAULT_LEFT_CURSOR
+    private var rightCursor = DEFAULT_RIGHT_CURSOR
+    private var leftGrabbing = false
+    private var rightGrabbing = false
+    private var leftConnected = false
+    private var rightConnected = false
+    private var nextObjectId = 1
+
+    init {
+        reset()
+    }
+
+    @Synchronized
+    fun reset() {
+        objects.clear()
+        nextObjectId = 1
+        objects += createObject(SandboxObjectType.CUBE, SandboxVector3(-0.9f, -0.25f, -3.0f))
+        objects += createObject(SandboxObjectType.BALL, SandboxVector3(0f, 0.25f, -3.15f))
+        objects += createObject(SandboxObjectType.CUBE, SandboxVector3(0.9f, -0.25f, -3.0f))
+        objects += createObject(SandboxObjectType.TARGET, SandboxVector3(0f, -0.85f, -3.7f))
+        leftCursor = DEFAULT_LEFT_CURSOR
+        rightCursor = DEFAULT_RIGHT_CURSOR
+        leftGrabbing = false
+        rightGrabbing = false
+        leftConnected = false
+        rightConnected = false
+    }
+
+    @Synchronized
+    fun spawnCube() {
+        val offset = ((nextObjectId % 5) - 2) * 0.28f
+        objects += createObject(
+            SandboxObjectType.CUBE,
+            SandboxVector3(offset, 0.75f, -3.2f - (nextObjectId % 3) * 0.18f)
+        )
+    }
+
+    @Synchronized
+    fun update(controllers: List<PhysicalControllerSnapshot>, deltaSeconds: Float) {
+        val dt = deltaSeconds.takeIf { it.isFinite() }?.coerceIn(MIN_STEP_SECONDS, MAX_STEP_SECONDS)
+            ?: MIN_STEP_SECONDS
+        val left = controllerFor(HandSide.LEFT, controllers)
+        val right = controllerFor(HandSide.RIGHT, controllers)
+
+        leftCursor = left.cursor
+        rightCursor = right.cursor
+        leftConnected = left.connected
+        rightConnected = right.connected
+
+        updateGrab(HandSide.LEFT, left.grabbing, left.cursor, dt)
+        updateGrab(HandSide.RIGHT, right.grabbing, right.cursor, dt)
+        updatePhysics(dt)
+    }
+
+    @Synchronized
+    fun snapshot(): SandboxSceneSnapshot {
+        val snapshots = objects.map { it.snapshot() }
+        return SandboxSceneSnapshot(
+            objects = snapshots,
+            leftHand = SandboxHandState(
+                HandSide.LEFT,
+                leftCursor,
+                leftGrabbing,
+                leftConnected
+            ),
+            rightHand = SandboxHandState(
+                HandSide.RIGHT,
+                rightCursor,
+                rightGrabbing,
+                rightConnected
+            ),
+            grabbedObjectCount = objects.count { it.heldBy != null }
+        )
+    }
+
+    private fun createObject(type: SandboxObjectType, position: SandboxVector3) =
+        MutableObject(nextObjectId++, type, position)
+
+    private fun controllerFor(
+        hand: HandSide,
+        controllers: List<PhysicalControllerSnapshot>
+    ): ControllerState {
+        val physical = controllers.firstOrNull { it.hand == hand }
+        if (physical == null) {
+            val defaultCursor = if (hand == HandSide.LEFT) DEFAULT_LEFT_CURSOR else DEFAULT_RIGHT_CURSOR
+            return ControllerState(defaultCursor, false, false)
+        }
+
+        val baseX = if (hand == HandSide.LEFT) -0.65f else 0.65f
+        val cursor = SandboxVector3(
+            x = (baseX + physical.stickX * 0.9f).coerceIn(-1.65f, 1.65f),
+            y = (-0.1f - physical.stickY * 0.85f).coerceIn(-1.15f, 1.15f),
+            z = -2.35f
+        )
+        val grabbing = physical.leftTrigger > GRAB_THRESHOLD ||
+            physical.rightTrigger > GRAB_THRESHOLD ||
+            GamepadButtonCodesCompat.isGripPressed(physical.pressedKeyCodes) ||
+            physical.pressedKeyCodes.any { it == KEYCODE_GRAB_FALLBACK }
+        return ControllerState(cursor, grabbing, true)
+    }
+
+    private fun updateGrab(
+        hand: HandSide,
+        isPressed: Boolean,
+        cursor: SandboxVector3,
+        deltaSeconds: Float
+    ) {
+        val currentlyHeld = objects.firstOrNull { it.heldBy == hand }
+
+        if (isPressed && currentlyHeld == null) {
+            val nearest = objects
+                .filter { it.heldBy == null }
+                .minByOrNull { (it.position - cursor).length() }
+            if (nearest != null && (nearest.position - cursor).length() <= MAX_GRAB_DISTANCE) {
+                nearest.heldBy = hand
+                nearest.velocity = ZERO
+            }
+        } else if (!isPressed && currentlyHeld != null) {
+            currentlyHeld.heldBy = null
+            currentlyHeld.velocity = (cursor - currentlyHeld.position)
+                .times(1f / deltaSeconds)
+                .clamped(MAX_THROW_SPEED)
+        }
+
+        objects.firstOrNull { it.heldBy == hand }?.let { held ->
+            held.velocity = (cursor - held.position).times(1f / deltaSeconds).clamped(MAX_THROW_SPEED)
+            held.position = cursor
+        }
+
+        if (hand == HandSide.LEFT) leftGrabbing = isPressed else rightGrabbing = isPressed
+    }
+
+    private fun updatePhysics(deltaSeconds: Float) {
+        objects.filter { it.heldBy == null }.forEach { item ->
+            item.velocity += SandboxVector3(0f, -GRAVITY * deltaSeconds, 0f)
+            item.position += item.velocity * deltaSeconds
+
+            if (item.position.y < FLOOR_Y) {
+                item.position = item.position.copy(y = FLOOR_Y)
+                item.velocity = item.velocity.copy(
+                    y = if (item.velocity.y < -MIN_BOUNCE_SPEED) {
+                        -item.velocity.y * FLOOR_BOUNCE
+                    } else {
+                        0f
+                    }
+                )
+                item.velocity = item.velocity.copy(
+                    x = item.velocity.x * FLOOR_FRICTION,
+                    z = item.velocity.z * FLOOR_FRICTION
+                )
+            }
+        }
+    }
+
+    private operator fun SandboxVector3.plusAssign(other: SandboxVector3) {
+        // Mutable objects use their own position/velocity fields; this is not used directly.
+    }
+
+    private companion object {
+        private val ZERO = SandboxVector3(0f, 0f, 0f)
+        private val DEFAULT_LEFT_CURSOR = SandboxVector3(-0.65f, -0.1f, -2.35f)
+        private val DEFAULT_RIGHT_CURSOR = SandboxVector3(0.65f, -0.1f, -2.35f)
+        private const val GRAB_THRESHOLD = 0.45f
+        private const val MAX_GRAB_DISTANCE = 1.2f
+        private const val MAX_THROW_SPEED = 4.5f
+        private const val GRAVITY = 3.2f
+        private const val FLOOR_Y = -1.18f
+        private const val FLOOR_BOUNCE = 0.28f
+        private const val FLOOR_FRICTION = 0.82f
+        private const val MIN_BOUNCE_SPEED = 0.22f
+        private const val MIN_STEP_SECONDS = 0.001f
+        private const val MAX_STEP_SECONDS = 0.05f
+        private const val KEYCODE_GRAB_FALLBACK = 105
+    }
+}
+
+/** Small dependency-free bridge to the shared Android key-code constants. */
+private object GamepadButtonCodesCompat {
+    fun isGripPressed(keys: Set<Int>): Boolean = 102 in keys || 103 in keys
+}
