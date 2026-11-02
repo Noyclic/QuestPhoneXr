@@ -24,6 +24,7 @@ import androidx.activity.ComponentActivity
 import com.noyclic.questphonexr.MainActivity
 import com.noyclic.questphonexr.vr.PhoneVrPreviewActivity
 import com.noyclic.questphonexr.sandbox.SandboxActivity
+import com.noyclic.questphonexr.diagnostics.CrashReportStore
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -39,6 +40,13 @@ class GameLibraryActivity : ComponentActivity() {
         reportStore = SharedPreferencesGameTestReportStore(this)
         buildScreen()
         renderGames()
+        window.decorView.post {
+            val crashReports = CrashReportStore(this)
+            if (crashReports.shouldPromptForPendingReport()) {
+                crashReports.markPrompted()
+                showCrashReportDialog()
+            }
+        }
     }
 
     private fun buildScreen() {
@@ -90,6 +98,13 @@ class GameLibraryActivity : ComponentActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = dp(8) })
+
+        root.addView(button("Сообщить об ошибке · Crash-лог").apply {
+            setOnClickListener { showCrashReportDialog() }
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(6) })
 
         searchInput = EditText(this).apply {
             hint = "Поиск игры…"
@@ -163,6 +178,87 @@ class GameLibraryActivity : ComponentActivity() {
         ).apply { setPadding(0, dp(8), 0, 0) })
 
         setContentView(root)
+    }
+
+
+    private fun showCrashReportDialog() {
+        val store = CrashReportStore(this)
+        val report = store.readPendingReport()
+        val hasCrash = report != null
+        val preview = TextView(this).apply {
+            text = report ?: CrashReportFormatter.issueBody(null)
+            textSize = 11f
+            setTextColor(0xFFE1E7EF.toInt())
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            typeface = Typeface.MONOSPACE
+        }
+        val scroll = ScrollView(this).apply {
+            addView(preview)
+            setBackgroundColor(0xFF111720.toInt())
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), 0, dp(18), 0)
+            addView(text(
+                if (hasCrash) {
+                    "После сбоя QuestPhoneXR сохранил отчёт только на этом телефоне. Проверь его содержимое. Ничего не отправится без твоего нажатия."
+                } else {
+                    "Автоматического crash-лога пока нет. Можно открыть GitHub и описать проблему вручную."
+                },
+                13f,
+                0xFF424A56.toInt()
+            ))
+            if (hasCrash) {
+                addView(text(
+                    "В отчёт входят версия приложения, модель устройства, версия Android, имя потока и stack trace. IMEI, Android ID и местоположение не собираются.",
+                    12f,
+                    0xFF596474.toInt()
+                ).apply { setPadding(0, dp(7), 0, dp(7)) })
+            }
+            addView(scroll, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(260)
+            ))
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(if (hasCrash) "Отчёт о сбое" else "Сообщить об ошибке")
+            .setView(content)
+            .setPositiveButton("Открыть GitHub") { _, _ ->
+                runCatching {
+                    startActivity(Intent(Intent.ACTION_VIEW, store.githubIssueUri()))
+                }.onFailure {
+                    Toast.makeText(this, "Не удалось открыть GitHub.", Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNeutralButton(if (hasCrash) "Поделиться файлом" else "Копировать шаблон", null)
+            .setNegativeButton(if (hasCrash) "Удалить отчёт" else "Закрыть", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                if (hasCrash) {
+                    if (!store.sharePendingReport(this)) {
+                        Toast.makeText(this, "Не удалось подготовить файл отчёта.", Toast.LENGTH_LONG).show()
+                    }
+                } else {
+                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText(
+                        "QuestPhoneXR issue template",
+                        CrashReportFormatter.issueBody(null)
+                    ))
+                    Toast.makeText(this, "Шаблон скопирован.", Toast.LENGTH_SHORT).show()
+                }
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
+                if (hasCrash) {
+                    store.deletePendingReport()
+                    Toast.makeText(this, "Локальный crash-отчёт удалён.", Toast.LENGTH_SHORT).show()
+                }
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
     }
 
     private fun renderGames() {
