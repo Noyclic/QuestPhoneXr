@@ -1,6 +1,7 @@
 package com.noyclic.questphonexr
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Bundle
@@ -9,11 +10,9 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.text.InputType
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -22,8 +21,8 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import com.noyclic.questphonexr.catalog.GameLibraryActivity
 import com.noyclic.questphonexr.input.AndroidGamepadInputAdapter
-import com.noyclic.questphonexr.input.ControllerFrameUdpSender
 import com.noyclic.questphonexr.input.VirtualControllerFrame
 import com.noyclic.questphonexr.input.VirtualControllerMapper
 import com.noyclic.questphonexr.tracking.HandLandmarkerController
@@ -33,14 +32,11 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.hypot
 
+/** Camera and controller diagnostics screen opened from the phone-first game library. */
 class MainActivity : ComponentActivity() {
 
     private lateinit var previewView: PreviewView
     private lateinit var statusView: TextView
-    private lateinit var targetAddressInput: EditText
-    private val controllerSender = ControllerFrameUdpSender { message ->
-        runOnUiThread { showStatus(message) }
-    }
 
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val virtualControllerMapper = VirtualControllerMapper()
@@ -49,7 +45,6 @@ class MainActivity : ComponentActivity() {
     @Volatile private var latestVirtualControllers: VirtualControllerFrame? = null
     private var cameraProvider: ProcessCameraProvider? = null
     private var handTracker: HandLandmarkerController? = null
-    private var isQuestDevice = false
 
     private val cameraPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -68,17 +63,6 @@ class MainActivity : ComponentActivity() {
         )
 
         buildDebugScreen()
-        isQuestDevice = packageManager.hasSystemFeature("android.hardware.vr.headtracking")
-
-        if (isQuestDevice) {
-            showStatus(
-                "QuestPhoneXR запущен на VR-устройстве.\n" +
-                    "OpenXR Android Loader включён в APK.\n" +
-                    "Следующая контрольная точка — OpenXR instance/session и рендер в шлеме."
-            )
-            return
-        }
-
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
         ) {
@@ -95,10 +79,10 @@ class MainActivity : ComponentActivity() {
         }
         statusView = TextView(this).apply {
             setTextColor(Color.WHITE)
-            textSize = 16f
-            setPadding(24, 18, 24, 18)
+            textSize = 14f
+            setPadding(16, 12, 16, 12)
             setBackgroundColor(0xCC101319.toInt())
-            text = "QuestPhoneXR · запуск"
+            text = "QuestPhoneXR · диагностика отслеживания"
         }
 
         val root = FrameLayout(this).apply {
@@ -110,66 +94,38 @@ class MainActivity : ComponentActivity() {
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
             )
-            addView(
-                statusView,
-                FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    android.view.Gravity.TOP
-                )
-            )
         }
 
-        val savedHost = getSharedPreferences("questphonexr", MODE_PRIVATE)
-            .getString("quest_host", "") ?: ""
-        targetAddressInput = EditText(this).apply {
-            hint = "IP-адрес Quest (например, 192.168.1.50)"
-            setSingleLine(true)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-            setText(savedHost)
-            setTextColor(Color.WHITE)
-            setHintTextColor(0xFFB8C0CC.toInt())
-            setPadding(16, 8, 16, 8)
-            setBackgroundColor(0xDD252B35.toInt())
-        }
-        val connectButton = Button(this).apply {
-            text = "Подключить Quest"
+        val backButton = Button(this).apply {
+            text = "← Библиотека"
+            isAllCaps = false
             setOnClickListener {
-                val host = targetAddressInput.text.toString().trim()
-                try {
-                    controllerSender.start(host)
-                    getSharedPreferences("questphonexr", MODE_PRIVATE)
-                        .edit().putString("quest_host", host).apply()
-                } catch (error: IllegalArgumentException) {
-                    showStatus(error.message ?: "Проверь IP-адрес Quest.")
-                }
+                startActivity(Intent(this@MainActivity, GameLibraryActivity::class.java))
+                finish()
             }
         }
-        val stopButton = Button(this).apply {
-            text = "Стоп"
-            setOnClickListener { controllerSender.stop() }
-        }
-        val connectionBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(12, 4, 12, 12)
+        val topBar = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             setBackgroundColor(0xCC101319.toInt())
-            addView(targetAddressInput, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(connectButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-            addView(stopButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(statusView)
+            addView(backButton, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
         }
         root.addView(
-            connectionBar,
+            topBar,
             FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
-                android.view.Gravity.BOTTOM
+                android.view.Gravity.TOP
             )
         )
         setContentView(root)
     }
 
     private fun startPhoneCamera() {
-        if (isQuestDevice || isFinishing) return
+        if (isFinishing) return
 
         try {
             if (handTracker == null) {
@@ -225,7 +181,6 @@ class MainActivity : ComponentActivity() {
         if (isFinishing) return
         lastHandFrame = frame
         latestVirtualControllers = virtualControllerMapper.map(frame, gamepadInput.snapshots())
-        latestVirtualControllers?.let(controllerSender::publish)
 
         val firstHand = frame.hands.firstOrNull()
         val thumb = firstHand?.thumbTip
@@ -272,7 +227,6 @@ class MainActivity : ComponentActivity() {
 
     private fun refreshVirtualControllerSnapshot() {
         latestVirtualControllers = virtualControllerMapper.map(lastHandFrame, gamepadInput.snapshots())
-        latestVirtualControllers?.let(controllerSender::publish)
     }
 
     private fun showStatus(message: String) {
@@ -282,7 +236,6 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         cameraProvider?.unbindAll()
         handTracker?.close()
-        controllerSender.close()
         cameraExecutor.shutdown()
         super.onDestroy()
     }

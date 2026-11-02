@@ -19,13 +19,16 @@
         <activity
             android:name=".MainActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|screenLayout|uiMode|density"
+            android:exported="false"
+            android:screenOrientation="landscape" />
+        <activity
+            android:name=".catalog.GameLibraryActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize|screenLayout|uiMode|density"
             android:exported="true"
-            android:launchMode="singleTask"
             android:screenOrientation="landscape">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
-                <category android:name="org.khronos.openxr.intent.category.IMMERSIVE_HMD" />
             </intent-filter>
         </activity>
     </application>

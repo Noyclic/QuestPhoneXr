@@ -1,34 +1,56 @@
-# Architecture notes
+# QuestPhoneXR architecture
 
-## First two stages
+## Product direction
 
-### Stage 1 — Android foundation
+The primary target is standalone VR on an Android phone inside a smartphone viewer such as VR Shinecon. The phone owns the camera, hand tracking, gyroscope, controller input, rendering and game execution. A Meta Quest headset is optional and is not a required host.
 
-- Kotlin Android application with a single app module.
+## Current implementation
+
+### Phone tracking
+
+- Kotlin Android application.
 - CameraX provides phone-camera preview and RGBA analysis frames.
-- Quest devices skip phone-camera startup.
-- The Khronos OpenXR Android loader AAR is packaged, and the activity is listed as an immersive-HMD entry point.
-
-### Stage 2 — MediaPipe hand tracking
-
 - Google MediaPipe Tasks Vision Hand Landmarker runs in LIVE_STREAM mode.
 - The initial delegate is CPU for predictable startup across a wider range of Android devices.
-- CameraX uses KEEP_ONLY_LATEST; the inference controller additionally limits itself to one in-flight frame.
+- CameraX uses KEEP_ONLY_LATEST; inference is limited to one in-flight frame.
 - Camera frames are copied into owned bitmap memory before the CameraX frame is released.
-- The model file is downloaded from Google's official model hosting during Gradle preBuild instead of being committed as a binary.
 
-## Device paths
+### Controller abstraction
 
-### Android phone
+Phone hand tracking and Android gamepad input are combined into a device-independent VirtualControllerFrame. Camera-relative hand pose is not yet an absolute room-space pose. A calibration and tracking stage is required before using hand position for world-space grabbing or saber swings.
 
-CameraX -> RGBA frame -> MediaPipe Hand Landmarker -> HandTrackingFrame.
+### Game library and test evidence
 
-### Meta Quest
+GameCatalog holds project metadata and known adaptation paths. GameTestReportStore stores manually entered test results locally. GameCompatibilityEvaluator marks a game as tested only when the report manufacturer and model match the current device. Android version, app version, FPS and notes remain attached to each report.
 
-The APK includes the Khronos OpenXR Android loader and the immersive-HMD manifest category. This is an early packaging/launch milestone only: it is not yet a complete OpenXR renderer. The next Quest-specific change must create the OpenXR instance and session, enumerate the runtime's supported extensions, and render a minimal frame before the sandbox is built.
+A manually entered report is not independently verified and is not uploaded. Shared/community reports and automatic benchmark capture are future work.
 
-Quest hand data should come from the runtime's supported OpenXR hand-tracking extension. Do not assume that ordinary Android camera permission exposes raw Quest tracking-camera images.
+### Game input adapters
 
-## Shared tracking contract
+GameInputAdapter converts VirtualControllerFrame into a stable GameActionFrame. GameAdapterRegistry resolves adapters only for explicitly registered game IDs. This prevents the project from implying that a separate Android app can inject controls into arbitrary third-party APKs.
 
-HandTrackingFrame, TrackedHand and HandPoint are device-independent value types. Later providers (OpenXR, Joy-Con/controller input, replay/test input) should map into this contract instead of making sandbox code depend on CameraX or MediaPipe classes.
+## Target phone-native VR pipeline
+
+Phone sensors + camera
+  -> head orientation and hand tracking
+  -> calibration into phone-VR play space
+  -> controller/action abstraction
+  -> phone-native stereo renderer
+  -> per-game integration/port
+  -> display through the VR viewer lenses
+
+The next rendering milestone is a simple side-by-side stereo scene for VR Shinecon, with viewer/lens calibration and gyroscope-based 3DoF head rotation. Camera-based 6DoF tracking is a later, more demanding stage.
+
+## OpenXR and Quest boundary
+
+The project currently includes the Khronos Android OpenXR loader dependency, but it does not create an OpenXR instance/session, provide an OpenXR runtime, or render an OpenXR frame. A loader library alone is not an OpenXR runtime.
+
+The old phone-to-Quest UDP sender and Unity sample remain optional experiments under integrations/bbvr. They are not part of the primary phone-only architecture and do not enable universal controller injection into Quest or Android games.
+
+## Performance principles
+
+- Keep the phone-native base runtime small.
+- Make advanced hand tracking optional so simple head tracking and controller input can run on weaker phones.
+- Use scalable render resolution, frame pacing and conservative defaults.
+- Keep expected game load as an estimate until real device measurements exist.
+- Never label a game as tested on a phone without a matching test report.
