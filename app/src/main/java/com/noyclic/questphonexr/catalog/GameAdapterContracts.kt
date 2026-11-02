@@ -1,5 +1,6 @@
 package com.noyclic.questphonexr.catalog
 
+import com.noyclic.questphonexr.input.GamepadButtonCodes
 import com.noyclic.questphonexr.input.VirtualControllerFrame
 import com.noyclic.questphonexr.tracking.HandSide
 
@@ -121,9 +122,9 @@ class ProfiledVrGameInputAdapter(
 
 /** Android KeyEvent values used by standard gamepad layouts. Device mappings can vary. */
 object StandardGamepadKeyCodes {
-    const val BUTTON_A = 96
-    const val BUTTON_B = 97
-    const val BUTTON_START = 108
+    const val BUTTON_A = GamepadButtonCodes.BUTTON_A
+    const val BUTTON_B = GamepadButtonCodes.BUTTON_B
+    const val BUTTON_START = GamepadButtonCodes.BUTTON_START
 }
 
 /**
