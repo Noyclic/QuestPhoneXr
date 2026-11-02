@@ -19,3 +19,16 @@ This is inspection only:
 Imported APKs remain private to QuestPhoneXR. Deleting an entry removes both its metadata
 and the copied archive. Importing another version of the same package replaces the prior
 local copy.
+
+
+## Optional Android installation
+
+Imported packages can be handed to Android's system package installer using a temporary
+FileProvider content URI. On Android 8 and newer, the user may first need to authorize
+QuestPhoneXR as an allowed source for app installs. Android then shows its own confirmation
+and handles signature conflicts, package validation, and the actual installation.
+
+This action installs a normal Android-compatible APK into Android. It does not install the
+package into a separate QuestPhoneXR runtime, does not emulate a Quest headset, and does not
+make Quest-only applications launchable on a phone. Manifest inspection warnings should be
+reviewed before proceeding.

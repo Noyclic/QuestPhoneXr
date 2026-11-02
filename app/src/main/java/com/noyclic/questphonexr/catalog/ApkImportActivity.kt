@@ -8,6 +8,7 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.provider.Settings
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
@@ -16,6 +17,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -40,6 +42,11 @@ class ApkImportActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         buildScreen()
         renderEntries()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::entriesContainer.isInitialized) renderEntries()
     }
 
     override fun onDestroy() {
@@ -219,6 +226,9 @@ class ApkImportActivity : ComponentActivity() {
                 .format(Date(info.importedAtEpochMs)),
             11f, 0xFF8994A5.toInt()
         ).apply { setPadding(0, dp(7), 0, dp(5)) })
+        card.addView(button("Установить на Android").apply {
+            setOnClickListener { installOnAndroid(info) }
+        })
         card.addView(button("Удалить импорт").apply {
             setOnClickListener {
                 AlertDialog.Builder(this@ApkImportActivity)
@@ -239,6 +249,50 @@ class ApkImportActivity : ComponentActivity() {
         ).apply { bottomMargin = dp(10) }
         card.layoutParams = params
         return card
+    }
+
+
+    private fun installOnAndroid(info: ImportedApkInfo) {
+        val archive = File(filesDir, "imported-apks/${info.fileName}")
+        if (!archive.isFile || archive.length() == 0L) {
+            statusView.text = "Файл APK не найден. Импортируй его заново."
+            return
+        }
+        if (!packageManager.canRequestPackageInstalls()) {
+            runCatching {
+                startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:$packageName")
+                    )
+                )
+            }.onFailure {
+                statusView.text = "Открой настройки Android и разреши установку приложений для QuestPhoneXR."
+            }
+            Toast.makeText(
+                this,
+                "Разреши установку из QuestPhoneXR, затем снова нажми «Установить на Android».",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        runCatching {
+            val contentUri = FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                archive
+            )
+            val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                setDataAndType(contentUri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                putExtra(Intent.EXTRA_RETURN_RESULT, true)
+            }
+            startActivity(installIntent)
+            statusView.text = "Передано системному установщику Android: ${info.displayName}"
+        }.onFailure { error ->
+            statusView.text = "Не удалось открыть системный установщик: ${error.message ?: "ошибка"}"
+        }
     }
 
     private fun formatSize(bytes: Long): String =
