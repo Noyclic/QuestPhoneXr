@@ -1,13 +1,20 @@
 package com.noyclic.questphonexr.sandbox
 
-import android.app.Activity
+import android.Manifest
 import android.app.AlertDialog
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.hardware.input.InputManager
+import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.core.content.ContextCompat
 import android.opengl.GLSurfaceView
 import android.os.Bundle
 import android.os.Handler
@@ -15,7 +22,6 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.Choreographer
 import android.view.Gravity
-import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.Surface
@@ -26,15 +32,22 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.noyclic.questphonexr.input.AndroidGamepadInputAdapter
+import com.noyclic.questphonexr.tracking.HandLandmarkerController
+import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
 import com.noyclic.questphonexr.vr.ViewerProfile
 import com.noyclic.questphonexr.vr.ViewerProfileStore
 
 /** Phone-first 3D sandbox for testing stereo viewing, Joy-Con input and object grabbing. */
-class SandboxActivity : Activity(), SensorEventListener, InputManager.InputDeviceListener {
+class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.InputDeviceListener {
     private val inputManager by lazy { getSystemService(INPUT_SERVICE) as InputManager }
     private val simulation = SandboxSimulation()
     @Volatile private var controllerSnapshots: List<PhysicalControllerSnapshot> = emptyList()
+    @Volatile private var latestHandFrame = HandTrackingFrame(0L, emptyList())
+    private val cameraExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private var cameraProvider: ProcessCameraProvider? = null
+    private var handTracker: HandLandmarkerController? = null
+    private var cameraStatusMessage = "Камера рук: запускается"
 
     private lateinit var glView: GLSurfaceView
     private lateinit var renderer: SandboxRenderer
@@ -50,6 +63,16 @@ class SandboxActivity : Activity(), SensorEventListener, InputManager.InputDevic
     private val gamepadInput = AndroidGamepadInputAdapter { snapshots ->
         controllerSnapshots = snapshots
         runOnUiThread { updateStatus() }
+    }
+
+    private val cameraPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) startHandTracking()
+        else {
+            cameraStatusMessage = "Камера рук: разрешение не выдано · можно управлять Joy-Con"
+            updateStatus()
+        }
     }
 
     private val frameCallback = object : Choreographer.FrameCallback {
@@ -68,8 +91,9 @@ class SandboxActivity : Activity(), SensorEventListener, InputManager.InputDevic
                 }
                 lastFrameNanos = frameTimeNanos
                 val snapshot = controllerSnapshots
+                val hands = latestHandFrame
                 glView.queueEvent {
-                    simulation.update(snapshot, deltaSeconds)
+                    simulation.update(snapshot, hands, deltaSeconds)
                     renderer.updateScene(simulation.snapshot())
                     glView.requestRender()
                 }
@@ -109,6 +133,13 @@ class SandboxActivity : Activity(), SensorEventListener, InputManager.InputDevic
         }
 
         buildScreen()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            startHandTracking()
+        } else {
+            cameraPermission.launch(Manifest.permission.CAMERA)
+        }
     }
 
     private fun buildScreen() {
@@ -180,6 +211,69 @@ class SandboxActivity : Activity(), SensorEventListener, InputManager.InputDevic
         setContentView(root)
     }
 
+    private fun startHandTracking() {
+        if (isFinishing || handTracker != null) return
+
+        val providerFuture = ProcessCameraProvider.getInstance(this)
+        providerFuture.addListener({
+            try {
+                val provider = providerFuture.get()
+                cameraProvider = provider
+                val useBackCamera = provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
+                val selector = if (useBackCamera) {
+                    CameraSelector.DEFAULT_BACK_CAMERA
+                } else {
+                    CameraSelector.DEFAULT_FRONT_CAMERA
+                }
+                if (!useBackCamera && !provider.hasCamera(selector)) {
+                    cameraStatusMessage = "Камера рук: камера не найдена"
+                    updateStatus()
+                    return@addListener
+                }
+
+                handTracker = HandLandmarkerController(
+                    context = applicationContext,
+                    mirrorFrontCamera = !useBackCamera,
+                    onFrame = ::onHandFrame,
+                    onError = { message ->
+                        runOnUiThread {
+                            cameraStatusMessage = "MediaPipe: " + message
+                            updateStatus()
+                        }
+                    }
+                )
+                val analysis = ImageAnalysis.Builder()
+                    .setTargetResolution(android.util.Size(640, 480))
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+                    .build()
+                    .also { useCase ->
+                        useCase.setAnalyzer(cameraExecutor) { frame ->
+                            handTracker?.analyze(frame) ?: frame.close()
+                        }
+                    }
+
+                provider.unbindAll()
+                provider.bindToLifecycle(this, selector, analysis)
+                cameraStatusMessage = if (useBackCamera) {
+                    "MediaPipe: задняя камера · жест pinch включён"
+                } else {
+                    "MediaPipe: фронтальная камера · жест pinch включён"
+                }
+                updateStatus()
+            } catch (error: Exception) {
+                cameraStatusMessage = "Не удалось запустить камеру рук: " +
+                    (error.message ?: "неизвестная ошибка")
+                updateStatus()
+            }
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun onHandFrame(frame: HandTrackingFrame) {
+        if (isFinishing) return
+        latestHandFrame = frame
+    }
+
     private fun showControllerAssignmentDialog() {
         val connected = gamepadInput.refreshConnectedDevices()
         if (connected.isEmpty()) {
@@ -238,10 +332,11 @@ class SandboxActivity : Activity(), SensorEventListener, InputManager.InputDevic
         return "QUESTPHONEXR · VR-ПЕСОЧНИЦА · СТЕРЕО 3DoF" +
             "\nГироскоп: " + (if (sensorAvailable) "да" else "нет") +
             " · IPD " + viewerProfile.ipdMillimeters + " мм · FPS до " + viewerProfile.targetFps +
+            "\n" + cameraStatusMessage + " · рук: " + latestHandFrame.handCount +
             "\nJoy-Con L: " + (if (leftConnected) "подключён" else "нет") +
             " · R: " + (if (rightConnected) "подключён" else "нет") +
             "\nОбъектов: " + scene.objects.size + " · захвачено: " + scene.grabbedObjectCount +
-            "\nСтик двигает курсор; L1/L2 или R1/R2 захватывают и отпускают предмет"
+            "\nЩипок пальцами или кнопки Joy-Con захватывают предметы"
     }
 
     private fun updateStatus() {
