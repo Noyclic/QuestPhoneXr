@@ -171,8 +171,12 @@ class SandboxSimulation {
         )
         val grabbing = physical.leftTrigger > GRAB_THRESHOLD ||
             physical.rightTrigger > GRAB_THRESHOLD ||
-            physical.pressedKeyCodes.any { it == GamepadButtonCodes.BUTTON_L1 || it == GamepadButtonCodes.BUTTON_R1 } ||
-            physical.pressedKeyCodes.any { it == KEYCODE_GRAB_FALLBACK }
+            physical.pressedKeyCodes.any {
+                it == GamepadButtonCodes.BUTTON_L1 ||
+                    it == GamepadButtonCodes.BUTTON_R1 ||
+                    it == GamepadButtonCodes.BUTTON_L2 ||
+                    it == GamepadButtonCodes.BUTTON_R2
+            }
         return ControllerState(cursor, grabbing, true)
     }
 
@@ -244,6 +248,5 @@ class SandboxSimulation {
         private const val MIN_BOUNCE_SPEED = 0.22f
         private const val MIN_STEP_SECONDS = 0.001f
         private const val MAX_STEP_SECONDS = 0.05f
-        private const val KEYCODE_GRAB_FALLBACK = 105
     }
 }
