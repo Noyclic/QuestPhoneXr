@@ -40,6 +40,31 @@ class VirtualControllerMapperTest {
     }
 
     @Test
+    fun digitalShoulderButtonsCanActAsTriggerAndGrip() {
+        val physical = PhysicalControllerSnapshot(
+            deviceId = 12,
+            deviceName = "Joy-Con (R)",
+            hand = HandSide.RIGHT,
+            stickX = 0f,
+            stickY = 0f,
+            rightStickX = 0f,
+            rightStickY = 0f,
+            leftTrigger = 0f,
+            rightTrigger = 0f,
+            pressedKeyCodes = setOf(
+                GamepadButtonCodes.BUTTON_R1,
+                GamepadButtonCodes.BUTTON_R2
+            ),
+            updatedAtMs = 240L
+        )
+
+        val frame = mapper.map(HandTrackingFrame(250L, emptyList()), listOf(physical))
+
+        assertEquals(1f, frame.right.trigger, 0f)
+        assertEquals(1f, frame.right.grip, 0f)
+    }
+
+    @Test
     fun combinesAssignedGamepadAndHandTracking() {
         val physical = PhysicalControllerSnapshot(
             deviceId = 7,
