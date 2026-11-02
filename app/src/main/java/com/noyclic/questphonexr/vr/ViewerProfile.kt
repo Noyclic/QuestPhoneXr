@@ -1,21 +1,24 @@
 package com.noyclic.questphonexr.vr
 
 import android.content.Context
+import kotlin.math.abs
 
 /**
- * Calibration values for a phone-based stereo viewer such as VR Shinecon.
+ * Calibration and performance values for a phone-based stereo viewer such as VR Shinecon.
  *
- * These values adjust the preview geometry only. They do not claim optical lens
- * distortion correction or a measured physical IPD for a particular headset.
+ * These values adjust the preview only. They do not claim optical lens distortion correction
+ * or a measured physical IPD for a particular headset.
  */
 data class ViewerProfile(
     val ipdMillimeters: Int = DEFAULT_IPD_MM,
     val fieldOfViewDegrees: Int = DEFAULT_FOV_DEGREES,
-    val swapEyes: Boolean = false
+    val swapEyes: Boolean = false,
+    val targetFps: Int = DEFAULT_TARGET_FPS
 ) {
     fun normalized(): ViewerProfile = copy(
         ipdMillimeters = ipdMillimeters.coerceIn(MIN_IPD_MM, MAX_IPD_MM),
-        fieldOfViewDegrees = fieldOfViewDegrees.coerceIn(MIN_FOV_DEGREES, MAX_FOV_DEGREES)
+        fieldOfViewDegrees = fieldOfViewDegrees.coerceIn(MIN_FOV_DEGREES, MAX_FOV_DEGREES),
+        targetFps = SUPPORTED_TARGET_FPS.minBy { abs(it - targetFps) }
     )
 
     companion object {
@@ -25,6 +28,8 @@ data class ViewerProfile(
         const val MIN_FOV_DEGREES = 70
         const val MAX_FOV_DEGREES = 100
         const val DEFAULT_FOV_DEGREES = 86
+        const val DEFAULT_TARGET_FPS = 30
+        val SUPPORTED_TARGET_FPS = listOf(20, 30, 45, 60)
     }
 }
 
@@ -38,7 +43,8 @@ class ViewerProfileStore(context: Context) {
             KEY_FOV,
             ViewerProfile.DEFAULT_FOV_DEGREES
         ),
-        swapEyes = preferences.getBoolean(KEY_SWAP_EYES, false)
+        swapEyes = preferences.getBoolean(KEY_SWAP_EYES, false),
+        targetFps = preferences.getInt(KEY_TARGET_FPS, ViewerProfile.DEFAULT_TARGET_FPS)
     ).normalized()
 
     fun save(profile: ViewerProfile) {
@@ -47,6 +53,7 @@ class ViewerProfileStore(context: Context) {
             .putInt(KEY_IPD_MM, safeProfile.ipdMillimeters)
             .putInt(KEY_FOV, safeProfile.fieldOfViewDegrees)
             .putBoolean(KEY_SWAP_EYES, safeProfile.swapEyes)
+            .putInt(KEY_TARGET_FPS, safeProfile.targetFps)
             .apply()
     }
 
@@ -55,5 +62,6 @@ class ViewerProfileStore(context: Context) {
         const val KEY_IPD_MM = "ipd_mm"
         const val KEY_FOV = "fov_degrees"
         const val KEY_SWAP_EYES = "swap_eyes"
+        const val KEY_TARGET_FPS = "target_fps"
     }
 }
