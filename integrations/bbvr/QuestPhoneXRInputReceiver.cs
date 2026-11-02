@@ -19,6 +19,7 @@ public sealed class QuestPhoneXRInputReceiver : MonoBehaviour
     private UdpClient client;
     private Thread receiveThread;
     private volatile bool running;
+    private string pendingJson;
 
     private void Awake()
     {
@@ -37,6 +38,30 @@ public sealed class QuestPhoneXRInputReceiver : MonoBehaviour
         }
     }
 
+    // Unity's JsonUtility and Unity logging stay on the main thread.
+    private void Update()
+    {
+        string json = Interlocked.Exchange(ref pendingJson, null);
+        if (string.IsNullOrEmpty(json)) return;
+
+        try
+        {
+            QuestPhoneXRPacket packet = JsonUtility.FromJson<QuestPhoneXRPacket>(json);
+            if (packet != null && packet.schemaVersion == 1)
+            {
+                lock (typeof(QuestPhoneXRInputReceiver))
+                {
+                    Latest = packet;
+                    lastPacketUtcTicks = DateTime.UtcNow.Ticks;
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            Debug.LogWarning("QuestPhoneXR packet ignored: " + exception.Message);
+        }
+    }
+
     private void ReceiveLoop()
     {
         while (running && client != null)
@@ -46,22 +71,10 @@ public sealed class QuestPhoneXRInputReceiver : MonoBehaviour
                 IPEndPoint remote = new IPEndPoint(IPAddress.Any, 0);
                 byte[] bytes = client.Receive(ref remote);
                 string json = Encoding.UTF8.GetString(bytes);
-                QuestPhoneXRPacket packet = JsonUtility.FromJson<QuestPhoneXRPacket>(json);
-                if (packet != null && packet.schemaVersion == 1)
-                {
-                    lock (typeof(QuestPhoneXRInputReceiver))
-                    {
-                        Latest = packet;
-                        lastPacketUtcTicks = DateTime.UtcNow.Ticks;
-                    }
-                }
+                Interlocked.Exchange(ref pendingJson, json);
             }
             catch (ObjectDisposedException) { break; }
             catch (SocketException) { if (running) continue; }
-            catch (Exception exception)
-            {
-                Debug.LogWarning("QuestPhoneXR packet ignored: " + exception.Message);
-            }
         }
     }
 
@@ -80,13 +93,10 @@ public sealed class QuestPhoneXRInputReceiver : MonoBehaviour
         running = false;
         if (client != null) client.Close();
         if (receiveThread != null && receiveThread.IsAlive) receiveThread.Join(300);
-        if (Latest != null)
+        lock (typeof(QuestPhoneXRInputReceiver))
         {
-            lock (typeof(QuestPhoneXRInputReceiver))
-            {
-                Latest = null;
-                lastPacketUtcTicks = 0L;
-            }
+            Latest = null;
+            lastPacketUtcTicks = 0L;
         }
     }
 }
