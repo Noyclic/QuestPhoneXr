@@ -7,6 +7,7 @@ The VR sandbox is the first interactive scene for testing QuestPhoneXR's phone-b
 - Two colored virtual hand/controller cursors.
 - Two cubes, one ball, and one target object at startup.
 - A floor plane with gravity, a small bounce, and friction.
+- A target that awards a point when a movable object reaches it; scored objects respawn at their starting positions.
 - Buttons to spawn more cubes, assign controllers, recenter the phone, and reset the scene.
 
 ## Camera hand controls
@@ -26,6 +27,7 @@ The MediaPipe tracker reports left/right hand labels, 21 landmarks, and a filter
 3. Assign one physical controller to the left virtual hand and the other to the right virtual hand.
 4. Move the assigned controller's left stick to move its cursor when camera tracking is unavailable.
 5. Hold an analog trigger or common digital L1/R1/L2/R2 button to grab; release to drop.
+6. Try throwing a held object into the target to score a point.
 
 Analog trigger axes and common digital button codes are recognized. Exact Joy-Con mappings depend on Android firmware and must be checked on the phone. Controller buttons can also trigger grabbing while the camera supplies the cursor position.
 
@@ -34,7 +36,7 @@ Analog trigger axes and common digital button codes are recognized. Exact Joy-Co
 - Stereo rendering uses the saved VR Shinecon viewer profile and phone rotation sensor (3DoF).
 - Camera hand positions are mapped to a 2D reach plane; depth is currently a fixed scene layer. This is not 6DoF tracking.
 - Joy-Con sticks are a fallback cursor path, not a calibrated controller pose.
-- Physics includes gravity, floor bounce, friction, grab/release, and capped throw speed. Objects do not yet collide with one another or with the target.
+- Physics includes gravity, floor bounce, friction, grab/release, capped throw speed, and a simple target hit check. Objects do not yet collide with one another.
 - This sandbox is a test scene, not a playable port of Baldi, Granny, Open Saber, or QuestCraft.
 
 The scene is rendered through OpenGL ES 2.0 and uses the configured preview frame-rate limit. Actual performance, camera visibility through the VR viewer, and Joy-Con mapping still need a physical-device test on the target phone.
