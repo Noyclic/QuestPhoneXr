@@ -151,9 +151,9 @@ class SandboxRenderer : GLSurfaceView.Renderer {
                         item.position.x,
                         item.position.y + bob,
                         item.position.z,
-                        0.28f,
+                        0.45f,
                         0.08f,
-                        0.28f
+                        0.45f
                     )
                 }
             }
