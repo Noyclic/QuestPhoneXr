@@ -17,6 +17,11 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
         <activity
+            android:name=".catalog.ApkImportActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize|screenLayout|uiMode|density"
+            android:exported="false"
+            android:screenOrientation="landscape" />
+        <activity
             android:name=".sandbox.SandboxActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|screenLayout|uiMode|density"
             android:exported="false"

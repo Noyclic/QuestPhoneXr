@@ -81,6 +81,16 @@ class GameLibraryActivity : ComponentActivity() {
         disclaimer.setPadding(dp(12), dp(10), dp(12), dp(10))
         root.addView(disclaimer)
 
+        val importApkButton = button("Мои APK · импорт и анализ").apply {
+            setOnClickListener {
+                startActivity(Intent(this@GameLibraryActivity, ApkImportActivity::class.java))
+            }
+        }
+        root.addView(importApkButton, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(8) })
+
         searchInput = EditText(this).apply {
             hint = "Поиск игры…"
             setSingleLine(true)
