@@ -74,7 +74,8 @@ class SandboxSimulation {
     private data class ControllerState(
         val cursor: SandboxVector3,
         val grabbing: Boolean,
-        val connected: Boolean
+        val connected: Boolean,
+        val cameraTracked: Boolean
     )
 
     private val objects = mutableListOf<MutableObject>()
