@@ -1,32 +1,40 @@
 # Phone VR sandbox
 
-The VR sandbox is a first interactive scene for testing QuestPhoneXR's phone-based stereo viewer and Android controller path.
+The VR sandbox is the first interactive scene for testing QuestPhoneXR's phone-based stereo viewer, camera hand tracking, and Android controller input.
 
 ## Scene
 
-- Two colored virtual controller cursors.
-- Three movable objects: two cubes and one ball.
-- One simple target object.
+- Two colored virtual hand/controller cursors.
+- Two cubes, one ball, and one target object at startup.
 - A floor plane with gravity, a small bounce, and friction.
-- A button to spawn more cubes and a reset button.
+- Buttons to spawn more cubes, assign controllers, recenter the phone, and reset the scene.
 
-## Controls
+## Camera hand controls
+
+1. Allow camera permission when the sandbox opens.
+2. The app uses the rear camera when available; it falls back to the front camera if needed.
+3. Keep your hands visible to the camera's field of view.
+4. Move a hand to move its colored cursor.
+5. Pinch the thumb and index finger to grab the nearest object. Release the pinch to drop it; moving your hand while holding gives the object a simple throw velocity.
+
+The MediaPipe tracker reports left/right hand labels, 21 landmarks, and a filtered pinch state with hysteresis. The sandbox maps the wrist's normalized image position to a 2D reach plane.
+
+## Joy-Con and gamepad controls
 
 1. Pair Joy-Con or another Android-compatible gamepad in Android settings.
 2. Open the sandbox and tap **Контроллеры**.
 3. Assign one physical controller to the left virtual hand and the other to the right virtual hand.
-4. Move the assigned controller's left stick to move its cursor.
-5. Hold a trigger or shoulder button to grab the nearest object in reach. Release to drop it; moving the cursor while holding gives the object a simple throw velocity.
-6. Use **Перецентрировать** to reset the neutral phone orientation.
+4. Move the assigned controller's left stick to move its cursor when camera tracking is unavailable.
+5. Hold an analog trigger or common digital L1/R1/L2/R2 button to grab; release to drop.
 
-Analog trigger axes and common digital L1/R1/L2/R2 key codes are recognized. Exact Joy-Con mappings depend on the Android firmware and must be checked on the phone.
+Analog trigger axes and common digital button codes are recognized. Exact Joy-Con mappings depend on Android firmware and must be checked on the phone. Controller buttons can also trigger grabbing while the camera supplies the cursor position.
 
 ## Current scope and limitations
 
 - Stereo rendering uses the saved VR Shinecon viewer profile and phone rotation sensor (3DoF).
-- Controller cursors currently use a 2D reach plane driven by sticks. This is not 6DoF controller tracking.
-- Camera hand tracking and pinch-to-grab are not yet connected to this sandbox scene.
-- Physics is intentionally light: gravity, floor bounce, friction, grab/release, and a capped throw speed. Objects do not yet collide with one another or with the target.
+- Camera hand positions are mapped to a 2D reach plane; depth is currently a fixed scene layer. This is not 6DoF tracking.
+- Joy-Con sticks are a fallback cursor path, not a calibrated controller pose.
+- Physics includes gravity, floor bounce, friction, grab/release, and capped throw speed. Objects do not yet collide with one another or with the target.
 - This sandbox is a test scene, not a playable port of Baldi, Granny, Open Saber, or QuestCraft.
 
-The scene is rendered through OpenGL ES 2.0 and uses the configured preview frame-rate limit. Actual performance still needs a physical-device test on the target phone.
+The scene is rendered through OpenGL ES 2.0 and uses the configured preview frame-rate limit. Actual performance, camera visibility through the VR viewer, and Joy-Con mapping still need a physical-device test on the target phone.
