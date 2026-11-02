@@ -4,7 +4,8 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Bundle
-import android.view.Gravity
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -17,6 +18,9 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import com.noyclic.questphonexr.input.AndroidGamepadInputAdapter
+import com.noyclic.questphonexr.input.VirtualControllerFrame
+import com.noyclic.questphonexr.input.VirtualControllerMapper
 import com.noyclic.questphonexr.tracking.HandLandmarkerController
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import java.util.Locale
@@ -30,6 +34,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var statusView: TextView
 
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val virtualControllerMapper = VirtualControllerMapper()
+    private val gamepadInput = AndroidGamepadInputAdapter()
+    @Volatile private var lastHandFrame = HandTrackingFrame(0L, emptyList())
+    @Volatile private var latestVirtualControllers: VirtualControllerFrame? = null
     private var cameraProvider: ProcessCameraProvider? = null
     private var handTracker: HandLandmarkerController? = null
     private var isQuestDevice = false
@@ -98,7 +106,7 @@ class MainActivity : ComponentActivity() {
                 FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
-                    Gravity.TOP
+                    android.view.Gravity.TOP
                 )
             )
         }
@@ -115,12 +123,12 @@ class MainActivity : ComponentActivity() {
                     mirrorFrontCamera = true,
                     onFrame = ::onHandFrame,
                     onError = { message ->
-                        runOnUiThread { showStatus("MediaPipe: $message") }
+                        runOnUiThread { showStatus("MediaPipe: " + message) }
                     }
                 )
             }
         } catch (error: Exception) {
-            showStatus("Не удалось запустить MediaPipe: ${error.message ?: "неизвестная ошибка"}")
+            showStatus("Не удалось запустить MediaPipe: " + (error.message ?: "неизвестная ошибка"))
             return
         }
 
@@ -153,13 +161,15 @@ class MainActivity : ComponentActivity() {
                 provider.bindToLifecycle(this, selector, preview, analysis)
                 showStatus("Камера запущена · MediaPipe обнаруживает руки…")
             } catch (error: Exception) {
-                showStatus("Камеру не удалось запустить: ${error.message ?: "неизвестная ошибка"}")
+                showStatus("Камеру не удалось запустить: " + (error.message ?: "неизвестная ошибка"))
             }
         }, ContextCompat.getMainExecutor(this))
     }
 
     private fun onHandFrame(frame: HandTrackingFrame) {
         if (isFinishing) return
+        lastHandFrame = frame
+        latestVirtualControllers = virtualControllerMapper.map(frame, gamepadInput.snapshots())
 
         val firstHand = frame.hands.firstOrNull()
         val thumb = firstHand?.thumbTip
@@ -169,10 +179,43 @@ class MainActivity : ComponentActivity() {
         } else {
             "—"
         }
+        val assignedGamepads = gamepadInput.snapshots().count { it.hand != null }
 
         runOnUiThread {
-            showStatus("MediaPipe LIVE_STREAM · рук: ${frame.handCount} · pinch distance: $pinch")
+            showStatus(
+                "MediaPipe LIVE_STREAM · рук: " + frame.handCount +
+                    " · pinch distance: " + pinch + "\n" +
+                    "Virtual Controllers · назначенных геймпадов: " + assignedGamepads
+            )
         }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (gamepadInput.onKeyEvent(event, true)) {
+            refreshVirtualControllerSnapshot()
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (gamepadInput.onKeyEvent(event, false)) {
+            refreshVirtualControllerSnapshot()
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
+    }
+
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (gamepadInput.onMotionEvent(event)) {
+            refreshVirtualControllerSnapshot()
+            return true
+        }
+        return super.onGenericMotionEvent(event)
+    }
+
+    private fun refreshVirtualControllerSnapshot() {
+        latestVirtualControllers = virtualControllerMapper.map(lastHandFrame, gamepadInput.snapshots())
     }
 
     private fun showStatus(message: String) {

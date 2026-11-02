@@ -2,8 +2,20 @@ package com.noyclic.questphonexr.tracking
 
 import kotlin.math.sqrt
 
-/** Device-independent hand data. x/y are normalized image coordinates; z is image-relative. */
+/** Device-independent hand data. Image x/y are normalized; z is image-relative. */
 data class HandPoint(val x: Float, val y: Float, val z: Float)
+
+enum class HandSide {
+    LEFT,
+    RIGHT,
+    UNKNOWN;
+
+    fun opposite(): HandSide = when (this) {
+        LEFT -> RIGHT
+        RIGHT -> LEFT
+        UNKNOWN -> UNKNOWN
+    }
+}
 
 data class PinchSignal(val strength: Float, val isPinching: Boolean)
 
@@ -57,7 +69,10 @@ class PinchEstimator(
 data class TrackedHand(
     val points: List<HandPoint>,
     val pinchStrength: Float = 0f,
-    val isPinching: Boolean = false
+    val isPinching: Boolean = false,
+    val side: HandSide = HandSide.UNKNOWN,
+    /** MediaPipe world landmarks are hand-local 3D points measured in meters. */
+    val worldPoints: List<HandPoint> = emptyList()
 ) {
     val thumbTip: HandPoint? get() = points.getOrNull(4)
     val indexTip: HandPoint? get() = points.getOrNull(8)

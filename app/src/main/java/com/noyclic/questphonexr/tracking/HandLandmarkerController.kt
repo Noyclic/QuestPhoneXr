@@ -81,7 +81,7 @@ class HandLandmarkerController(
         require(image.planes.isNotEmpty()) { "CameraX returned a frame without image planes." }
         val plane = image.planes[0]
         require(plane.pixelStride == BYTES_PER_PIXEL) {
-            "Expected RGBA_8888 frames; received pixel stride ${plane.pixelStride}."
+            "Expected RGBA_8888 frames; received pixel stride " + plane.pixelStride + "."
         }
         val width = image.width
         val height = image.height
@@ -101,12 +101,28 @@ class HandLandmarkerController(
         try {
             if (closed.get()) return
             val landmarkLists = result.landmarks()
+            val handednessLists = result.handedness()
+            val worldLandmarkLists = result.worldLandmarks()
             while (pinchEstimators.size < landmarkLists.size) pinchEstimators.add(PinchEstimator())
             while (pinchEstimators.size > landmarkLists.size) pinchEstimators.removeAt(pinchEstimators.lastIndex)
             val hands = landmarkLists.mapIndexed { index, landmarks ->
                 val points = landmarks.map { HandPoint(it.x(), it.y(), it.z()) }
                 val pinch = pinchEstimators[index].update(points)
-                TrackedHand(points, pinch.strength, pinch.isPinching)
+                val label = handednessLists.getOrNull(index)
+                    ?.firstOrNull()
+                    ?.categoryName()
+                    ?.lowercase()
+                val detectedSide = when (label) {
+                    "left" -> HandSide.LEFT
+                    "right" -> HandSide.RIGHT
+                    else -> HandSide.UNKNOWN
+                }
+                // The front-camera frame is mirrored before inference, so restore subject handedness.
+                val side = if (mirrorFrontCamera) detectedSide.opposite() else detectedSide
+                val worldPoints = worldLandmarkLists.getOrNull(index).orEmpty().map {
+                    HandPoint(if (mirrorFrontCamera) -it.x() else it.x(), it.y(), it.z())
+                }
+                TrackedHand(points, pinch.strength, pinch.isPinching, side, worldPoints)
             }
             onFrame(HandTrackingFrame(result.timestampMs(), hands))
         } catch (error: Exception) {
