@@ -3,6 +3,8 @@ package com.noyclic.questphonexr.sandbox
 import com.noyclic.questphonexr.input.GamepadButtonCodes
 import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
 import com.noyclic.questphonexr.tracking.HandSide
+import com.noyclic.questphonexr.tracking.HandTrackingFrame
+import com.noyclic.questphonexr.tracking.TrackedHand
 import kotlin.math.sqrt
 
 enum class SandboxObjectType { CUBE, BALL, TARGET }
@@ -41,7 +43,8 @@ data class SandboxHandState(
     val hand: HandSide,
     val cursor: SandboxVector3,
     val grabbing: Boolean,
-    val connected: Boolean
+    val connected: Boolean,
+    val cameraTracked: Boolean = false
 )
 
 data class SandboxSceneSnapshot(
@@ -81,6 +84,8 @@ class SandboxSimulation {
     private var rightGrabbing = false
     private var leftConnected = false
     private var rightConnected = false
+    private var leftCameraTracked = false
+    private var rightCameraTracked = false
     private var nextObjectId = 1
 
     init {
@@ -101,6 +106,8 @@ class SandboxSimulation {
         rightGrabbing = false
         leftConnected = false
         rightConnected = false
+        leftCameraTracked = false
+        rightCameraTracked = false
     }
 
     @Synchronized
@@ -114,15 +121,29 @@ class SandboxSimulation {
 
     @Synchronized
     fun update(controllers: List<PhysicalControllerSnapshot>, deltaSeconds: Float) {
+        update(controllers, HandTrackingFrame(0L, emptyList()), deltaSeconds)
+    }
+
+    @Synchronized
+    fun update(
+        controllers: List<PhysicalControllerSnapshot>,
+        handFrame: HandTrackingFrame,
+        deltaSeconds: Float
+    ) {
         val dt = deltaSeconds.takeIf { it.isFinite() }?.coerceIn(MIN_STEP_SECONDS, MAX_STEP_SECONDS)
             ?: MIN_STEP_SECONDS
-        val left = controllerFor(HandSide.LEFT, controllers)
-        val right = controllerFor(HandSide.RIGHT, controllers)
+        val handsBySide = handFrame.hands
+            .filter { it.side != HandSide.UNKNOWN }
+            .associateBy { it.side }
+        val left = controllerFor(HandSide.LEFT, controllers, handsBySide[HandSide.LEFT])
+        val right = controllerFor(HandSide.RIGHT, controllers, handsBySide[HandSide.RIGHT])
 
         leftCursor = left.cursor
         rightCursor = right.cursor
         leftConnected = left.connected
         rightConnected = right.connected
+        leftCameraTracked = left.cameraTracked
+        rightCameraTracked = right.cameraTracked
 
         updateGrab(HandSide.LEFT, left.grabbing, left.cursor, dt)
         updateGrab(HandSide.RIGHT, right.grabbing, right.cursor, dt)
@@ -138,13 +159,15 @@ class SandboxSimulation {
                 HandSide.LEFT,
                 leftCursor,
                 leftGrabbing,
-                leftConnected
+                leftConnected,
+                leftCameraTracked
             ),
             rightHand = SandboxHandState(
                 HandSide.RIGHT,
                 rightCursor,
                 rightGrabbing,
-                rightConnected
+                rightConnected,
+                rightCameraTracked
             ),
             grabbedObjectCount = objects.count { it.heldBy != null }
         )
@@ -155,29 +178,44 @@ class SandboxSimulation {
 
     private fun controllerFor(
         hand: HandSide,
-        controllers: List<PhysicalControllerSnapshot>
+        controllers: List<PhysicalControllerSnapshot>,
+        trackedHand: TrackedHand?
     ): ControllerState {
         val physical = controllers.firstOrNull { it.hand == hand }
-        if (physical == null) {
-            val defaultCursor = if (hand == HandSide.LEFT) DEFAULT_LEFT_CURSOR else DEFAULT_RIGHT_CURSOR
-            return ControllerState(defaultCursor, false, false)
+        val wrist = trackedHand?.points?.getOrNull(0)
+        val cameraCursor = wrist?.let {
+            SandboxVector3(
+                x = ((it.x - 0.5f) * CAMERA_CURSOR_WIDTH).coerceIn(-1.65f, 1.65f),
+                y = ((0.5f - it.y) * CAMERA_CURSOR_HEIGHT).coerceIn(-1.15f, 1.15f),
+                z = CAMERA_CURSOR_DEPTH
+            )
         }
-
         val baseX = if (hand == HandSide.LEFT) -0.65f else 0.65f
-        val cursor = SandboxVector3(
-            x = (baseX + physical.stickX * 0.9f).coerceIn(-1.65f, 1.65f),
-            y = (-0.1f - physical.stickY * 0.85f).coerceIn(-1.15f, 1.15f),
-            z = -2.35f
+        val gamepadCursor = physical?.let {
+            SandboxVector3(
+                x = (baseX + it.stickX * 0.9f).coerceIn(-1.65f, 1.65f),
+                y = (-0.1f - it.stickY * 0.85f).coerceIn(-1.15f, 1.15f),
+                z = GAMEPAD_CURSOR_DEPTH
+            )
+        }
+        val fallbackCursor = if (hand == HandSide.LEFT) DEFAULT_LEFT_CURSOR else DEFAULT_RIGHT_CURSOR
+        val cursor = cameraCursor ?: gamepadCursor ?: fallbackCursor
+        val digitalGrab = physical?.pressedKeyCodes?.any {
+            it == GamepadButtonCodes.BUTTON_L1 ||
+                it == GamepadButtonCodes.BUTTON_R1 ||
+                it == GamepadButtonCodes.BUTTON_L2 ||
+                it == GamepadButtonCodes.BUTTON_R2
+        } ?: false
+        val analogGrab = physical?.let {
+            it.leftTrigger > GRAB_THRESHOLD || it.rightTrigger > GRAB_THRESHOLD
+        } ?: false
+        val grabbing = trackedHand?.isPinching == true || digitalGrab || analogGrab
+        return ControllerState(
+            cursor = cursor,
+            grabbing = grabbing,
+            connected = trackedHand != null || physical != null,
+            cameraTracked = trackedHand != null
         )
-        val grabbing = physical.leftTrigger > GRAB_THRESHOLD ||
-            physical.rightTrigger > GRAB_THRESHOLD ||
-            physical.pressedKeyCodes.any {
-                it == GamepadButtonCodes.BUTTON_L1 ||
-                    it == GamepadButtonCodes.BUTTON_R1 ||
-                    it == GamepadButtonCodes.BUTTON_L2 ||
-                    it == GamepadButtonCodes.BUTTON_R2
-            }
-        return ControllerState(cursor, grabbing, true)
     }
 
     private fun updateGrab(
@@ -238,6 +276,10 @@ class SandboxSimulation {
         private val ZERO = SandboxVector3(0f, 0f, 0f)
         private val DEFAULT_LEFT_CURSOR = SandboxVector3(-0.65f, -0.1f, -2.35f)
         private val DEFAULT_RIGHT_CURSOR = SandboxVector3(0.65f, -0.1f, -2.35f)
+        private const val CAMERA_CURSOR_WIDTH = 3.0f
+        private const val CAMERA_CURSOR_HEIGHT = 2.15f
+        private const val CAMERA_CURSOR_DEPTH = -2.55f
+        private const val GAMEPAD_CURSOR_DEPTH = -2.35f
         private const val GRAB_THRESHOLD = 0.45f
         private const val MAX_GRAB_DISTANCE = 1.2f
         private const val MAX_THROW_SPEED = 4.5f
