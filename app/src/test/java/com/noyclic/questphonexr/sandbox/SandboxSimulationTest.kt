@@ -130,6 +130,43 @@ class SandboxSimulationTest {
     }
 
     @Test
+    fun throwingAnObjectIntoTargetAwardsPointAndRespawnsIt() {
+        val simulation = SandboxSimulation()
+        val pickupPoints = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+        pickupPoints[0] = HandPoint(0.5f, 0.5f, 0f)
+        val pinching = TrackedHand(
+            points = pickupPoints,
+            isPinching = true,
+            side = HandSide.LEFT
+        )
+        simulation.update(emptyList(), HandTrackingFrame(100L, listOf(pinching)), 1f / 30f)
+
+        val targetPoints = pickupPoints.toMutableList()
+        targetPoints[0] = HandPoint(0.5f, 0.895f, 0f)
+        simulation.update(
+            emptyList(),
+            HandTrackingFrame(
+                133L,
+                listOf(pinching.copy(points = targetPoints))
+            ),
+            1f / 30f
+        )
+        simulation.update(
+            emptyList(),
+            HandTrackingFrame(
+                166L,
+                listOf(pinching.copy(points = targetPoints, isPinching = false))
+            ),
+            1f / 30f
+        )
+
+        val snapshot = simulation.snapshot()
+        assertEquals(1, snapshot.score)
+        assertEquals(0, snapshot.grabbedObjectCount)
+        assertEquals(0.25f, snapshot.objects.single { it.type == SandboxObjectType.BALL }.position.y, 0.001f)
+    }
+
+    @Test
     fun spawnCubeAddsAnotherObject() {
         val simulation = SandboxSimulation()
         simulation.spawnCube()
