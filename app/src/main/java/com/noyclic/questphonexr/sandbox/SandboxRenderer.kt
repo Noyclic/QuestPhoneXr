@@ -40,6 +40,11 @@ class SandboxRenderer : GLSurfaceView.Renderer {
     private var surfaceWidth = 1
     private var surfaceHeight = 1
     private var startedAtNanos = 0L
+    private val frameRateCounter = FrameRateCounter()
+    @Volatile private var measuredFramesPerSecond = 0f
+
+    val measuredFps: Float
+        get() = measuredFramesPerSecond
 
     fun updateHeadRotation(rotationMatrix: FloatArray) {
         if (rotationMatrix.size < 9) return
@@ -75,6 +80,8 @@ class SandboxRenderer : GLSurfaceView.Renderer {
         leftCursorMesh = createSphereMesh(0.16f, 0.88f, 0.62f)
         rightCursorMesh = createSphereMesh(0.95f, 0.58f, 0.25f)
         startedAtNanos = System.nanoTime()
+        frameRateCounter.reset()
+        measuredFramesPerSecond = 0f
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -178,6 +185,9 @@ class SandboxRenderer : GLSurfaceView.Renderer {
                 if (snapshot.rightHand.grabbing) 0.13f else 0.09f,
                 if (snapshot.rightHand.grabbing) 0.13f else 0.09f
             )
+        }
+        frameRateCounter.onFrame(System.nanoTime())?.let { measured ->
+            measuredFramesPerSecond = measured
         }
     }
 
