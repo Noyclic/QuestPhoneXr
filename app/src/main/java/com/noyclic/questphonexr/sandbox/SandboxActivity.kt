@@ -91,7 +91,15 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 }
                 lastFrameNanos = frameTimeNanos
                 val snapshot = controllerSnapshots
-                val hands = latestHandFrame
+                val latestHands = latestHandFrame
+                val handsAgeMs = SystemClock.uptimeMillis() - latestHands.timestampMs
+                val hands = if (latestHands.hands.isNotEmpty() && handsAgeMs > HAND_FRAME_STALE_MS) {
+                    HandTrackingFrame(SystemClock.uptimeMillis(), emptyList()).also {
+                        latestHandFrame = it
+                    }
+                } else {
+                    latestHands
+                }
                 glView.queueEvent {
                     simulation.update(snapshot, hands, deltaSeconds)
                     renderer.updateScene(simulation.snapshot())
@@ -464,5 +472,6 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         const val NANOS_PER_SECOND = 1_000_000_000L
         const val MAX_PHYSICS_STEP_SECONDS = 0.05f
         const val STATUS_REFRESH_INTERVAL_MS = 250L
+        const val HAND_FRAME_STALE_MS = 500L
     }
 }
