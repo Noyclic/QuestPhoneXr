@@ -43,7 +43,7 @@ class CrashReportFormatterTest {
 
         val sanitized = CrashReportFormatter.sanitizeForPublicReport(raw)
 
-        assertTrue(sanitized.contains("Bearer [REDACTED]"))
+        assertTrue(sanitized.contains("Authorization: [REDACTED]"))
         assertTrue(sanitized.contains("refresh_token=[REDACTED]"))
         assertTrue(sanitized.contains("password: [REDACTED]"))
         assertTrue(sanitized.contains("[USER_STORAGE_PATH]"))
