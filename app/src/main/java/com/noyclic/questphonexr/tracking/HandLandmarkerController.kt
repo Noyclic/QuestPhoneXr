@@ -15,6 +15,7 @@ import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /** Phone-camera MediaPipe implementation with bounded LIVE_STREAM inference. */
@@ -22,16 +23,21 @@ class HandLandmarkerController(
     context: Context,
     private val mirrorFrontCamera: Boolean,
     private val onFrame: (HandTrackingFrame) -> Unit,
-    private val onError: (String) -> Unit
+    private val onError: (String) -> Unit,
+    private val maxHands: Int = MAX_HANDS,
+    private val minimumInferenceIntervalMs: Long = 0L
 ) : AutoCloseable {
 
     private val closed = AtomicBoolean(false)
     private val processing = AtomicBoolean(false)
+    private val lastAcceptedFrameMs = AtomicLong(0L)
     private val inFlightImage = AtomicReference<MPImage?>(null)
     private val pinchEstimators = mutableListOf<PinchEstimator>()
     private val landmarker: HandLandmarker
 
     init {
+        require(maxHands in 1..MAX_HANDS) { "maxHands must be between 1 and $MAX_HANDS." }
+        require(minimumInferenceIntervalMs >= 0L) { "Inference interval cannot be negative." }
         val baseOptions = BaseOptions.builder()
             .setModelAssetPath(MODEL_ASSET)
             .setDelegate(Delegate.CPU)
@@ -39,7 +45,7 @@ class HandLandmarkerController(
         val options = HandLandmarker.HandLandmarkerOptions.builder()
             .setBaseOptions(baseOptions)
             .setRunningMode(RunningMode.LIVE_STREAM)
-            .setNumHands(MAX_HANDS)
+            .setNumHands(maxHands)
             .setMinHandDetectionConfidence(CONFIDENCE)
             .setMinHandPresenceConfidence(CONFIDENCE)
             .setMinTrackingConfidence(CONFIDENCE)
@@ -50,10 +56,23 @@ class HandLandmarkerController(
     }
 
     fun analyze(imageProxy: ImageProxy) {
-        if (closed.get() || !processing.compareAndSet(false, true)) {
+        if (closed.get()) {
             imageProxy.close()
             return
         }
+        val nowMs = SystemClock.uptimeMillis()
+        val lastAcceptedMs = lastAcceptedFrameMs.get()
+        if (minimumInferenceIntervalMs > 0L && lastAcceptedMs > 0L &&
+            nowMs - lastAcceptedMs < minimumInferenceIntervalMs
+        ) {
+            imageProxy.close()
+            return
+        }
+        if (!processing.compareAndSet(false, true)) {
+            imageProxy.close()
+            return
+        }
+        lastAcceptedFrameMs.set(nowMs)
         var mpImage: MPImage? = null
         try {
             val source = imageProxyToBitmap(imageProxy)

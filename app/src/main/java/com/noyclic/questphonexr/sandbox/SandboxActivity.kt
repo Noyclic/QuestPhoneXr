@@ -38,6 +38,9 @@ import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
 import com.noyclic.questphonexr.vr.ViewerProfile
 import com.noyclic.questphonexr.vr.ViewerProfileStore
+import com.noyclic.questphonexr.performance.AndroidDeviceProfiler
+import com.noyclic.questphonexr.performance.DevicePerformancePolicy
+import com.noyclic.questphonexr.performance.DevicePerformancePreset
 
 /** Phone-first 3D sandbox for testing stereo viewing, Joy-Con input and object grabbing. */
 class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.InputDeviceListener {
@@ -56,6 +59,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private lateinit var statusView: TextView
     private lateinit var viewerProfileStore: ViewerProfileStore
     private var viewerProfile = ViewerProfile()
+    private lateinit var performancePreset: DevicePerformancePreset
     private var rotationSensor: Sensor? = null
     private var sensorAvailable = false
     private var lastFrameNanos = 0L
@@ -80,7 +84,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         override fun doFrame(frameTimeNanos: Long) {
             if (isFinishing || !::glView.isInitialized) return
 
-            val targetFps = viewerProfile.targetFps.coerceAtLeast(1)
+            val targetFps = DevicePerformancePolicy.effectiveRenderFps(
+                viewerProfile.targetFps,
+                performancePreset
+            )
             val intervalNanos = NANOS_PER_SECOND / targetFps
             if (lastFrameNanos == 0L || frameTimeNanos - lastFrameNanos >= intervalNanos) {
                 val deltaSeconds = if (lastFrameNanos == 0L) {
@@ -124,6 +131,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
         viewerProfileStore = ViewerProfileStore(this)
         viewerProfile = viewerProfileStore.load()
+        // One lightweight capability read per sandbox entry; no background benchmarking.
+        performancePreset = DevicePerformancePolicy.recommend(
+            AndroidDeviceProfiler.read(this)
+        )
 
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
@@ -250,10 +261,17 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                             cameraStatusMessage = "MediaPipe: " + message
                             updateStatus()
                         }
-                    }
+                    },
+                    maxHands = performancePreset.maxTrackedHands,
+                    minimumInferenceIntervalMs = performancePreset.minimumInferenceIntervalMs
                 )
                 val analysis = ImageAnalysis.Builder()
-                    .setTargetResolution(android.util.Size(640, 480))
+                    .setTargetResolution(
+                        android.util.Size(
+                            performancePreset.cameraWidthPx,
+                            performancePreset.cameraHeightPx
+                        )
+                    )
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                     .build()
@@ -347,8 +365,12 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         }
         return "QUESTPHONEXR · VR-ПЕСОЧНИЦА · СТЕРЕО 3DoF" +
             "\nГироскоп: " + (if (sensorAvailable) "да" else "нет") +
-            " · IPD " + viewerProfile.ipdMillimeters + " мм · FPS лимит " + viewerProfile.targetFps +
+            " · IPD " + viewerProfile.ipdMillimeters + " мм · FPS лимит " +
+            DevicePerformancePolicy.effectiveRenderFps(viewerProfile.targetFps, performancePreset) +
             " · факт " + fpsText +
+            "\nАвтопрофиль: " + performancePreset.tier.label +
+            " · камера " + performancePreset.cameraWidthPx + "×" + performancePreset.cameraHeightPx +
+            " · две руки · MediaPipe до " + (1000L / performancePreset.minimumInferenceIntervalMs) + " кадр/с" +
             "\n" + cameraStatusMessage + " · рук: " + latestHandFrame.handCount +
             "\nJoy-Con L: " + (if (leftConnected) "подключён" else "нет") +
             " · R: " + (if (rightConnected) "подключён" else "нет") +

@@ -40,3 +40,30 @@ Analog trigger axes and common digital button codes are recognized. Exact Joy-Co
 - This sandbox is a test scene, not a playable port of Baldi, Granny, Open Saber, or QuestCraft.
 
 The scene is rendered through OpenGL ES 2.0 and uses the configured preview frame-rate limit. The HUD reports both the selected cap and measured render FPS (averaged over one-second windows). This measures sandbox rendering, not total camera inference or game performance. Actual performance, camera visibility through the VR viewer, and Joy-Con mapping still need a physical-device test on the target phone.
+
+
+## Adaptive performance budget
+
+QuestPhoneXR now reads a small hardware snapshot once when the sandbox opens: total RAM,
+Android app memory class, available processor count, low-RAM-device flag, and the reported
+OpenGL ES level. This is a conservative heuristic, not a benchmark and not a compatibility
+certificate. It does not use a phone-model whitelist.
+
+The selected preset limits the sandbox render rate and chooses a CameraX target resolution
+and minimum MediaPipe inference interval:
+
+| Preset | Render cap | Camera target | Hand tracking |
+| --- | ---: | ---: | --- |
+| Economy | 20 FPS | 320×240 | Up to 2 hands, throttled inference |
+| Balanced | 30 FPS | 480×360 | Up to 2 hands, moderate inference |
+| Capable | 45 FPS | 640×480 | Up to 2 hands, faster inference |
+
+The user's viewer FPS setting is never raised by the automatic preset; it is only capped when
+the device heuristic recommends a lower ceiling. CameraX target resolution is a request, so
+the actual stream size can differ by camera implementation.
+
+The profiler does not run continuous benchmarks or a polling service. MediaPipe still uses
+the CPU delegate, a single analyzer executor, and keep-latest backpressure. The inference
+interval closes skipped camera frames immediately, avoiding bitmap conversion and model work
+for those frames. Device tiers are preliminary estimates; actual sustained FPS, thermals,
+and game compatibility must be measured on each physical phone.
