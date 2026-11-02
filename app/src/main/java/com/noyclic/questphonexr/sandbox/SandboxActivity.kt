@@ -267,17 +267,15 @@ class SandboxActivity : Activity(), SensorEventListener, InputManager.InputDevic
                 sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
             }
         }
-        if (::inputManager.isInitialized) {
-            inputManager.registerInputDeviceListener(this, Handler(Looper.getMainLooper()))
-            controllerSnapshots = gamepadInput.refreshConnectedDevices()
-        }
+        inputManager.registerInputDeviceListener(this, Handler(Looper.getMainLooper()))
+        controllerSnapshots = gamepadInput.refreshConnectedDevices()
         applyImmersiveMode()
     }
 
     override fun onPause() {
         Choreographer.getInstance().removeFrameCallback(frameCallback)
         if (::sensorManager.isInitialized) sensorManager.unregisterListener(this)
-        if (::inputManager.isInitialized) inputManager.unregisterInputDeviceListener(this)
+        inputManager.unregisterInputDeviceListener(this)
         if (::glView.isInitialized) glView.onPause()
         super.onPause()
     }
