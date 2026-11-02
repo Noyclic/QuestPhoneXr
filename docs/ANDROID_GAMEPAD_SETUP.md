@@ -10,11 +10,11 @@ QuestPhoneXR reads Android gamepad and joystick events. A controller must appear
 4. Select each connected device and assign it to the left or right virtual hand.
 5. Select a provisional game profile to see the resulting action values.
 
-Only one physical device can be assigned to each virtual hand at a time. Reassigning a hand releases its previous device. Assignments are session-local and are not currently persisted.
+Only one physical device can be assigned to each virtual hand at a time. Reassigning a hand releases its previous device. Assignments are session-local and are not currently persisted. Android input-device connect/disconnect events are monitored while the diagnostics screen is open.
 
 ## Input processing
 
-The first stick uses Android X/Y axes. The second stick accepts RX/RY and Z/RZ layouts. Trigger values accept LTRIGGER/RTRIGGER and BRAKE/GAS aliases. Axis pairs receive a radial dead zone (14% by default) with the remaining range rescaled to full output.
+The first stick uses Android X/Y axes. The second stick accepts RX/RY and Z/RZ layouts. Trigger values accept LTRIGGER/RTRIGGER and BRAKE/GAS aliases. Digital L2/R2 keys also activate trigger, while L1/R1 keys activate grip. Axis pairs receive a radial dead zone (14% by default) with the remaining range rescaled to full output.
 
 Android controller names, axis layouts, and key codes vary by device and firmware. This is a generic input path, not proof that every Joy-Con revision has a complete or identical mapping. Confirm the live left/right stick and button values on the target phone before marking a controller profile as tested.
 
