@@ -79,7 +79,7 @@ class SandboxSimulationTest {
     }
 
     @Test
-    fun cameraPinchGrabsAnObjectAndUsesWristPositionAsCursor() {
+    fun cameraPinchGrabsAnObjectAtTheFingertipMidpoint() {
         val simulation = SandboxSimulation()
         val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
         points[0] = HandPoint(0.2f, 0.4f, 0f)
@@ -104,7 +104,10 @@ class SandboxSimulationTest {
         assertEquals(0f, snapshot.leftHand.cursor.x, 0.001f)
         assertEquals(0f, snapshot.leftHand.cursor.y, 0.001f)
         assertEquals(21, snapshot.leftHand.landmarks.size)
-        assertEquals(snapshot.leftHand.cursor, snapshot.leftHand.landmarks.first())
+        assertEquals(
+            snapshot.leftHand.cursor,
+            (snapshot.leftHand.landmarks[4] + snapshot.leftHand.landmarks[8]) * 0.5f
+        )
         assertEquals(1, snapshot.grabbedObjectCount)
         assertEquals(HandSide.LEFT, snapshot.objects.single { it.heldBy != null }.heldBy)
     }
