@@ -23,6 +23,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import com.noyclic.questphonexr.MainActivity
 import com.noyclic.questphonexr.vr.PhoneVrPreviewActivity
+import com.noyclic.questphonexr.sandbox.SandboxActivity
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -124,6 +125,16 @@ class GameLibraryActivity : ComponentActivity() {
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = dp(10) }
         root.addView(vrPreviewButton, vrParams)
+
+        val sandboxButton = button("Запустить VR-песочницу")
+        sandboxButton.setOnClickListener {
+            startActivity(Intent(this, SandboxActivity::class.java))
+        }
+        val sandboxParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(6) }
+        root.addView(sandboxButton, sandboxParams)
 
         val trackingButton = button("Открыть тест отслеживания рук")
         trackingButton.setOnClickListener {
