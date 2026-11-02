@@ -28,9 +28,12 @@ import android.view.Surface
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
+import android.text.InputType
 import java.util.Locale
 import com.noyclic.questphonexr.input.AndroidGamepadInputAdapter
 import com.noyclic.questphonexr.tracking.HandLandmarkerController
@@ -209,6 +212,13 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             )
             addView(buttons)
+            addView(
+                controlButton("Разрешение камеры") { showCameraResolutionDialog() },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
         }
         root.addView(
             topPanel,
@@ -263,14 +273,13 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                         }
                     },
                     maxHands = performancePreset.maxTrackedHands,
-                    minimumInferenceIntervalMs = performancePreset.minimumInferenceIntervalMs
+                    minimumInferenceIntervalMs = performancePreset.minimumInferenceIntervalMs,
+                    outputWidthPx = effectiveCameraWidthPx(),
+                    outputHeightPx = effectiveCameraHeightPx()
                 )
                 val analysis = ImageAnalysis.Builder()
                     .setTargetResolution(
-                        android.util.Size(
-                            performancePreset.cameraWidthPx,
-                            performancePreset.cameraHeightPx
-                        )
+                        android.util.Size(effectiveCameraWidthPx(), effectiveCameraHeightPx())
                     )
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
@@ -295,6 +304,99 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 updateStatus()
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+
+    private fun effectiveCameraWidthPx(): Int =
+        if (viewerProfile.cameraWidthPx == ViewerProfile.AUTO_CAMERA_SIZE) {
+            performancePreset.cameraWidthPx
+        } else viewerProfile.cameraWidthPx
+
+    private fun effectiveCameraHeightPx(): Int =
+        if (viewerProfile.cameraHeightPx == ViewerProfile.AUTO_CAMERA_SIZE) {
+            performancePreset.cameraHeightPx
+        } else viewerProfile.cameraHeightPx
+
+    private fun showCameraResolutionDialog() {
+        val fields = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 8, 24, 0)
+        }
+        fields.addView(TextView(this).apply {
+            text = "Ширина и высота: 64×48 — 1920×1440. Например, 192×88. Кадр будет вписан без растяжения."
+            textSize = 13f
+        })
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val widthInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setSingleLine(true)
+            hint = "Ширина"
+            setText(effectiveCameraWidthPx().toString())
+        }
+        val heightInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setSingleLine(true)
+            hint = "Высота"
+            setText(effectiveCameraHeightPx().toString())
+        }
+        row.addView(widthInput, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(TextView(this).apply { text = " × "; textSize = 20f })
+        row.addView(heightInput, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        fields.addView(row)
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Разрешение камеры")
+            .setView(fields)
+            .setNegativeButton("Отмена", null)
+            .setNeutralButton("Авто", null)
+            .setPositiveButton("Применить", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val width = widthInput.text.toString().toIntOrNull()
+                val height = heightInput.text.toString().toIntOrNull()
+                if (width == null || height == null ||
+                    width !in ViewerProfile.MIN_CAMERA_WIDTH_PX..ViewerProfile.MAX_CAMERA_WIDTH_PX ||
+                    height !in ViewerProfile.MIN_CAMERA_HEIGHT_PX..ViewerProfile.MAX_CAMERA_HEIGHT_PX
+                ) {
+                    Toast.makeText(this, "Ширина: 64–1920, высота: 48–1440 пикселей", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                viewerProfile = viewerProfile.copy(cameraWidthPx = width, cameraHeightPx = height).normalized()
+                viewerProfileStore.save(viewerProfile)
+                dialog.dismiss()
+                restartHandTracking()
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                viewerProfile = viewerProfile.copy(
+                    cameraWidthPx = ViewerProfile.AUTO_CAMERA_SIZE,
+                    cameraHeightPx = ViewerProfile.AUTO_CAMERA_SIZE
+                )
+                viewerProfileStore.save(viewerProfile)
+                dialog.dismiss()
+                restartHandTracking()
+            }
+        }
+        dialog.show()
+    }
+
+    private fun restartHandTracking() {
+        cameraProvider?.unbindAll()
+        handTracker?.close()
+        handTracker = null
+        latestHandFrame = HandTrackingFrame(SystemClock.uptimeMillis(), emptyList())
+        cameraStatusMessage = "Камера: применяем новое разрешение…"
+        updateStatus()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            startHandTracking()
+        } else {
+            cameraPermission.launch(Manifest.permission.CAMERA)
+        }
     }
 
     private fun onHandFrame(frame: HandTrackingFrame) {
@@ -369,7 +471,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             DevicePerformancePolicy.effectiveRenderFps(viewerProfile.targetFps, performancePreset) +
             " · факт " + fpsText +
             "\nАвтопрофиль: " + performancePreset.tier.label +
-            " · камера " + performancePreset.cameraWidthPx + "×" + performancePreset.cameraHeightPx +
+            " · камера " + effectiveCameraWidthPx() + "×" + effectiveCameraHeightPx() +
             " · две руки · MediaPipe до " + (1000L / performancePreset.minimumInferenceIntervalMs) + " кадр/с" +
             "\n" + cameraStatusMessage + " · рук: " + latestHandFrame.handCount +
             "\nJoy-Con L: " + (if (leftConnected) "подключён" else "нет") +

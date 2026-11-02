@@ -13,12 +13,18 @@ data class ViewerProfile(
     val ipdMillimeters: Int = DEFAULT_IPD_MM,
     val fieldOfViewDegrees: Int = DEFAULT_FOV_DEGREES,
     val swapEyes: Boolean = false,
-    val targetFps: Int = DEFAULT_TARGET_FPS
+    val targetFps: Int = DEFAULT_TARGET_FPS,
+    /** Zero means use the automatic device profile. */
+    val cameraWidthPx: Int = AUTO_CAMERA_SIZE,
+    /** Zero means use the automatic device profile. */
+    val cameraHeightPx: Int = AUTO_CAMERA_SIZE
 ) {
     fun normalized(): ViewerProfile = copy(
         ipdMillimeters = ipdMillimeters.coerceIn(MIN_IPD_MM, MAX_IPD_MM),
         fieldOfViewDegrees = fieldOfViewDegrees.coerceIn(MIN_FOV_DEGREES, MAX_FOV_DEGREES),
-        targetFps = SUPPORTED_TARGET_FPS.minBy { abs(it - targetFps) }
+        targetFps = SUPPORTED_TARGET_FPS.minBy { abs(it - targetFps) },
+        cameraWidthPx = normalizeCameraDimension(cameraWidthPx, MIN_CAMERA_WIDTH_PX, MAX_CAMERA_WIDTH_PX),
+        cameraHeightPx = normalizeCameraDimension(cameraHeightPx, MIN_CAMERA_HEIGHT_PX, MAX_CAMERA_HEIGHT_PX)
     )
 
     companion object {
@@ -29,7 +35,15 @@ data class ViewerProfile(
         const val MAX_FOV_DEGREES = 100
         const val DEFAULT_FOV_DEGREES = 86
         const val DEFAULT_TARGET_FPS = 30
+        const val AUTO_CAMERA_SIZE = 0
+        const val MIN_CAMERA_WIDTH_PX = 64
+        const val MAX_CAMERA_WIDTH_PX = 1920
+        const val MIN_CAMERA_HEIGHT_PX = 48
+        const val MAX_CAMERA_HEIGHT_PX = 1440
         val SUPPORTED_TARGET_FPS = listOf(20, 30, 45, 60)
+
+        private fun normalizeCameraDimension(value: Int, minimum: Int, maximum: Int): Int =
+            if (value == AUTO_CAMERA_SIZE) AUTO_CAMERA_SIZE else value.coerceIn(minimum, maximum)
     }
 }
 
@@ -44,7 +58,9 @@ class ViewerProfileStore(context: Context) {
             ViewerProfile.DEFAULT_FOV_DEGREES
         ),
         swapEyes = preferences.getBoolean(KEY_SWAP_EYES, false),
-        targetFps = preferences.getInt(KEY_TARGET_FPS, ViewerProfile.DEFAULT_TARGET_FPS)
+        targetFps = preferences.getInt(KEY_TARGET_FPS, ViewerProfile.DEFAULT_TARGET_FPS),
+        cameraWidthPx = preferences.getInt(KEY_CAMERA_WIDTH, ViewerProfile.AUTO_CAMERA_SIZE),
+        cameraHeightPx = preferences.getInt(KEY_CAMERA_HEIGHT, ViewerProfile.AUTO_CAMERA_SIZE)
     ).normalized()
 
     fun save(profile: ViewerProfile) {
@@ -54,6 +70,8 @@ class ViewerProfileStore(context: Context) {
             .putInt(KEY_FOV, safeProfile.fieldOfViewDegrees)
             .putBoolean(KEY_SWAP_EYES, safeProfile.swapEyes)
             .putInt(KEY_TARGET_FPS, safeProfile.targetFps)
+            .putInt(KEY_CAMERA_WIDTH, safeProfile.cameraWidthPx)
+            .putInt(KEY_CAMERA_HEIGHT, safeProfile.cameraHeightPx)
             .apply()
     }
 
@@ -63,5 +81,7 @@ class ViewerProfileStore(context: Context) {
         const val KEY_FOV = "fov_degrees"
         const val KEY_SWAP_EYES = "swap_eyes"
         const val KEY_TARGET_FPS = "target_fps"
+        const val KEY_CAMERA_WIDTH = "camera_width_px"
+        const val KEY_CAMERA_HEIGHT = "camera_height_px"
     }
 }

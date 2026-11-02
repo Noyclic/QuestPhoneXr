@@ -67,3 +67,18 @@ the CPU delegate, a single analyzer executor, and keep-latest backpressure. The 
 interval closes skipped camera frames immediately, avoiding bitmap conversion and model work
 for those frames. Device tiers are preliminary estimates; actual sustained FPS, thermals,
 and game compatibility must be measured on each physical phone.
+
+
+## Manual camera processing resolution
+
+The sandbox has a manual camera-resolution control. Width and height can be set independently
+(64–1920 px wide and 48–1440 px high), including unusual aspect ratios such as 192×88.
+The choice is saved locally and can be reset to the automatic device profile.
+
+CameraX's target resolution is a request and a device may supply a different sensor stream size.
+QuestPhoneXR therefore converts the rotated camera frame to the exact selected MediaPipe input
+dimensions using aspect-preserving letterboxing rather than stretching the hand. Landmark
+coordinates are mapped back out of the letterboxed region before gesture calculations, so
+pinch geometry continues to use the full source image. Very small values reduce model input
+work but can make hand landmarks less stable; 192×88 is accepted as requested, not promised
+to provide reliable tracking in every lighting condition.
