@@ -345,6 +345,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             "\nJoy-Con L: " + (if (leftConnected) "подключён" else "нет") +
             " · R: " + (if (rightConnected) "подключён" else "нет") +
             "\nОбъектов: " + scene.objects.size + " · захвачено: " + scene.grabbedObjectCount +
+            " · очки: " + scene.score +
             "\nЩипок пальцами или кнопки Joy-Con захватывают предметы"
     }
 
