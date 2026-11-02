@@ -1,8 +1,20 @@
 package com.noyclic.questphonexr.diagnostics
 
-/** Keeps browser-prefilled GitHub reports short enough for mobile URL handlers. */
+/** Formats crash reports for explicit, user-reviewed publication to GitHub. */
 object CrashReportFormatter {
     const val MAX_ISSUE_REPORT_CHARS = 2_200
+
+    private val secretAssignment = Regex(
+        """(?i)\\b(authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|api[_-]?key|client[_-]?secret|password|passwd)\\b(\\s*[:=]\\s*)(?:"[^"]*"|'[^']*'|[^\\s,;]+)"""
+    )
+    private val bearerToken = Regex("""(?i)\\b(Bearer\\s+)[A-Za-z0-9._~+/=-]+""")
+    private val sharedStoragePath = Regex("""(?i)(/storage/emulated/0|/sdcard)(?:/[^\\s"'<>)]*)?""")
+
+    fun sanitizeForPublicReport(value: String): String =
+        value
+            .replace(secretAssignment) { match -> "${match.groupValues[1]}${match.groupValues[2]}[REDACTED]" }
+            .replace(bearerToken) { match -> "${match.groupValues[1]}[REDACTED]" }
+            .replace(sharedStoragePath, "[USER_STORAGE_PATH]")
 
     fun issueTitle(hasCrash: Boolean): String =
         if (hasCrash) "[Crash] QuestPhoneXR stopped unexpectedly"
@@ -28,9 +40,10 @@ object CrashReportFormatter {
             """.trimIndent()
         }
 
-        val trimmed = crashReport.take(MAX_ISSUE_REPORT_CHARS)
-        val suffix = if (crashReport.length > trimmed.length) {
-            "\n\n[Crash report shortened for the GitHub mobile form. The complete local file can be shared separately.]"
+        val sanitized = sanitizeForPublicReport(crashReport)
+        val trimmed = sanitized.take(MAX_ISSUE_REPORT_CHARS)
+        val suffix = if (sanitized.length > trimmed.length) {
+            "\\n\\n[Crash report shortened for the GitHub mobile form. The complete local file can be shared separately.]"
         } else {
             ""
         }
