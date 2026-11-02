@@ -9,7 +9,7 @@ class FrameRateCounterTest {
     fun measuresThirtyRenderedFramesPerSecond() {
         val counter = FrameRateCounter()
         var result: Float? = null
-        val interval = 1_000_000_000L / 30L
+        val interval = (1_000_000_000L + 29L) / 30L
         for (frame in 0L..30L) {
             result = counter.onFrame(frame * interval)
         }
