@@ -7,8 +7,9 @@ QuestPhoneXR is a phone-first Android VR prototype. The Android phone is intende
 - Android app foundation with CameraX and MediaPipe hand tracking.
 - Android gamepad input capture and a normalized virtual-controller model.
 - A first in-app VR game library with per-device test-report records.
-- Game-adapter contracts for mapping controller frames into game-specific integrations.
-- The current app is still a prototype: it does not yet render a stereoscopic VR scene, implement a phone OpenXR runtime, or run arbitrary Quest APKs on a phone.
+- Explicit game-adapter contracts for source ports and supported plugins.
+- A first OpenGL ES side-by-side stereo diagnostic scene with phone rotation-vector (3DoF) tracking for VR Shinecon.
+- The current app is still a prototype: the stereo preview has no calibrated Shinecon lens-distortion profile, no 6DoF positional tracking, no phone OpenXR runtime, and no ability to run arbitrary Quest APKs.
 
 ## Compatibility promise
 
@@ -31,15 +32,15 @@ The QuestPhoneXR input adapter is not a system-wide driver and cannot inject con
 - Android Studio with Android SDK 36.
 - JDK 17.
 - A physical Android phone for CameraX and MediaPipe tests.
-- Android NDK/CMake will be required for the future native rendering/runtime layer.
+- Android NDK/CMake will be required for the future native runtime layer.
 
 Open the repository root in Android Studio and sync Gradle. GitHub Actions builds the debug APK using a provisioned Gradle installation; the repository does not yet include the binary Gradle wrapper JAR.
 
 ## Roadmap
 
 1. Phone-first library, device-specific compatibility records, and game-adapter contracts.
-2. VR Shinecon viewer profile, split-screen stereoscopic test scene, lens distortion correction, and gyroscope-based 3DoF head tracking.
-3. Stable hand/controller calibration and Joy-Con mapping for a phone VR play space.
+2. Calibrated VR Shinecon viewer profile, lens distortion correction and stereo alignment.
+3. Stable phone-VR head tracking, hand/controller calibration and Joy-Con mapping.
 4. Phone-native runtime and first game port/adaptation, starting with a lightweight test project.
 5. Carefully scoped Quest/OpenXR compatibility adapters for games that can legally and technically be ported.
 

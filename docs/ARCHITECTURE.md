@@ -29,6 +29,12 @@ A manually entered report is not independently verified and is not uploaded. Sha
 
 GameInputAdapter converts VirtualControllerFrame into a stable GameActionFrame. GameAdapterRegistry resolves adapters only for explicitly registered game IDs. This prevents the project from implying that a separate Android app can inject controls into arbitrary third-party APKs.
 
+### Phone stereo preview
+
+PhoneVrPreviewActivity opens a native OpenGL ES 2.0 scene with two horizontally split eye views. The phone's game rotation vector (or rotation vector fallback) updates a 3DoF head orientation matrix. The preview is useful for checking stereo separation and basic head response in a smartphone viewer.
+
+This is not yet the final Shinecon renderer. It has no lens distortion correction, viewer QR/profile database, IPD calibration or 6DoF positional tracking. Those values must be calibrated against the exact Shinecon model.
+
 ## Target phone-native VR pipeline
 
 Phone sensors + camera
@@ -38,8 +44,6 @@ Phone sensors + camera
   -> phone-native stereo renderer
   -> per-game integration/port
   -> display through the VR viewer lenses
-
-The next rendering milestone is a simple side-by-side stereo scene for VR Shinecon, with viewer/lens calibration and gyroscope-based 3DoF head rotation. Camera-based 6DoF tracking is a later, more demanding stage.
 
 ## OpenXR and Quest boundary
 

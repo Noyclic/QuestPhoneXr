@@ -22,6 +22,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import com.noyclic.questphonexr.MainActivity
+import com.noyclic.questphonexr.vr.PhoneVrPreviewActivity
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -114,6 +115,16 @@ class GameLibraryActivity : ComponentActivity() {
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
         )
 
+        val vrPreviewButton = button("VR Shinecon · запустить стерео-тест")
+        vrPreviewButton.setOnClickListener {
+            startActivity(Intent(this, PhoneVrPreviewActivity::class.java))
+        }
+        val vrParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(10) }
+        root.addView(vrPreviewButton, vrParams)
+
         val trackingButton = button("Открыть тест отслеживания рук")
         trackingButton.setOnClickListener {
             startActivity(Intent(this, MainActivity::class.java))
@@ -121,7 +132,7 @@ class GameLibraryActivity : ComponentActivity() {
         val trackingParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = dp(10) }
+        ).apply { topMargin = dp(6) }
         root.addView(trackingButton, trackingParams)
 
         root.addView(text(
