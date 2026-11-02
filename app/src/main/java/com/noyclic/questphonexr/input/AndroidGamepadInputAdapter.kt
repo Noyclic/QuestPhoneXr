@@ -5,6 +5,7 @@ import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import com.noyclic.questphonexr.tracking.HandSide
+import kotlin.math.abs
 
 /**
  * Captures standard Android gamepad/joystick events. Joy-Con devices can be assigned to a
@@ -44,11 +45,41 @@ class AndroidGamepadInputAdapter(
     private val lock = Any()
     private val devices = linkedMapOf<Int, MutableDeviceState>()
 
-    /** Assign a connected gamepad to the left or right virtual hand. Pass null to unassign it. */
+    /** Scans Android's currently connected input devices and returns recognized gamepads. */
+    fun refreshConnectedDevices(): List<PhysicalControllerSnapshot> {
+        val snapshot = synchronized(lock) {
+            val connected = InputDevice.getDeviceIds()
+                .mapNotNull { id -> InputDevice.getDevice(id) }
+                .filter { isGamepad(it.sources) }
+            val connectedIds = connected.map { it.id }.toSet()
+            devices.keys.retainAll(connectedIds)
+            connected.forEach(::stateFor)
+            snapshotLocked()
+        }
+        onChanged?.invoke(snapshot)
+        return snapshot
+    }
+
+    /** Assign one connected gamepad to the left or right virtual hand. Null releases it. */
     fun assignDevice(deviceId: Int, hand: HandSide?) {
         val snapshot = synchronized(lock) {
             val state = devices[deviceId] ?: return
+            if (hand != null) {
+                // One physical controller per virtual hand prevents nondeterministic selection.
+                devices.values
+                    .filter { it.deviceId != deviceId && it.hand == hand }
+                    .forEach { it.hand = null }
+            }
             state.hand = hand
+            snapshotLocked()
+        }
+        onChanged?.invoke(snapshot)
+    }
+
+    /** Remove state immediately after Android reports that an input device has disconnected. */
+    fun onDeviceRemoved(deviceId: Int) {
+        val snapshot = synchronized(lock) {
+            devices.remove(deviceId)
             snapshotLocked()
         }
         onChanged?.invoke(snapshot)
@@ -78,12 +109,26 @@ class AndroidGamepadInputAdapter(
 
         val snapshot = synchronized(lock) {
             val state = stateFor(device)
-            state.stickX = applyDeadZone(event.getAxisValue(MotionEvent.AXIS_X))
-            state.stickY = applyDeadZone(event.getAxisValue(MotionEvent.AXIS_Y))
-            state.rightStickX = applyDeadZone(event.getAxisValue(MotionEvent.AXIS_Z))
-            state.rightStickY = applyDeadZone(event.getAxisValue(MotionEvent.AXIS_RZ))
-            state.leftTrigger = event.getAxisValue(MotionEvent.AXIS_LTRIGGER).coerceIn(0f, 1f)
-            state.rightTrigger = event.getAxisValue(MotionEvent.AXIS_RTRIGGER).coerceIn(0f, 1f)
+            val leftStick = StickAxisFilter.normalize(
+                event.getAxisValue(MotionEvent.AXIS_X),
+                event.getAxisValue(MotionEvent.AXIS_Y)
+            )
+            val rightStick = StickAxisFilter.normalize(
+                axisWithFallback(event, MotionEvent.AXIS_RX, MotionEvent.AXIS_Z),
+                axisWithFallback(event, MotionEvent.AXIS_RY, MotionEvent.AXIS_RZ)
+            )
+            state.stickX = leftStick.x
+            state.stickY = leftStick.y
+            state.rightStickX = rightStick.x
+            state.rightStickY = rightStick.y
+            state.leftTrigger = maxOf(
+                event.getAxisValue(MotionEvent.AXIS_LTRIGGER),
+                event.getAxisValue(MotionEvent.AXIS_BRAKE)
+            ).coerceIn(0f, 1f)
+            state.rightTrigger = maxOf(
+                event.getAxisValue(MotionEvent.AXIS_RTRIGGER),
+                event.getAxisValue(MotionEvent.AXIS_GAS)
+            ).coerceIn(0f, 1f)
             state.updatedAtMs = SystemClock.uptimeMillis()
             snapshotLocked()
         }
@@ -91,9 +136,20 @@ class AndroidGamepadInputAdapter(
         return true
     }
 
+    private fun axisWithFallback(event: MotionEvent, preferredAxis: Int, fallbackAxis: Int): Float {
+        val preferred = event.getAxisValue(preferredAxis)
+        return if (abs(preferred) > AXIS_FALLBACK_EPSILON) {
+            preferred
+        } else {
+            event.getAxisValue(fallbackAxis)
+        }
+    }
+
     private fun stateFor(device: InputDevice): MutableDeviceState =
         devices.getOrPut(device.id) {
             MutableDeviceState(device.id, device.name ?: "Gamepad " + device.id)
+        }.also {
+            it.deviceName = device.name ?: it.deviceName
         }
 
     private fun snapshotLocked() = devices.values.map { it.freeze() }
@@ -104,12 +160,7 @@ class AndroidGamepadInputAdapter(
         return gamepad || joystick
     }
 
-    private fun applyDeadZone(value: Float): Float {
-        val clamped = value.coerceIn(-1f, 1f)
-        return if (kotlin.math.abs(clamped) < STICK_DEAD_ZONE) 0f else clamped
-    }
-
     private companion object {
-        const val STICK_DEAD_ZONE = 0.12f
+        const val AXIS_FALLBACK_EPSILON = 0.001f
     }
 }
