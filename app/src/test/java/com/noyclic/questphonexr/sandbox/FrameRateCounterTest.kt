@@ -30,7 +30,7 @@ class FrameRateCounterTest {
     fun resetClearsThePreviousMeasurement() {
         val counter = FrameRateCounter()
         for (frame in 0L..30L) {
-            counter.onFrame(frame * (1_000_000_000L / 30L))
+            counter.onFrame(frame * ((1_000_000_000L + 29L) / 30L))
         }
 
         counter.reset()
