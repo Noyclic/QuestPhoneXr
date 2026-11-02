@@ -55,3 +55,15 @@ a supported mod/plugin interface, or a per-game APK integration that reads this 
 3. Add an OpenXR input adapter for QuestPhoneXR itself.
 4. Adapt one open-source game as a proof of concept; only then decide how much reusable integration
    can be shared with other games.
+
+
+## Phone-to-Quest UDP transport
+
+The first network transport is implemented in `ControllerFrameUdpSender`. The phone app can send
+the latest controller snapshot to a Quest IPv4 address on the same Wi-Fi network. It sends versioned
+JSON state packets over UDP port 39470 at approximately 30 Hz. Sequence numbers and timestamps are
+included; the Quest receiver should discard stale packets rather than replaying them.
+
+The Quest-side Unity sample lives in `integrations/bbvr`. This is a game-side integration sample,
+not a global virtual-controller driver. The sample currently exposes movement, smooth-turn and
+run state; full hand pose mapping requires camera-to-play-space calibration.

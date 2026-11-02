@@ -8,8 +8,12 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
+import android.text.InputType
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -32,6 +36,10 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var previewView: PreviewView
     private lateinit var statusView: TextView
+    private lateinit var targetAddressInput: EditText
+    private val controllerSender = ControllerFrameUdpSender { message ->
+        runOnUiThread { showStatus(message) }
+    }
 
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val virtualControllerMapper = VirtualControllerMapper()
@@ -110,6 +118,52 @@ class MainActivity : ComponentActivity() {
                 )
             )
         }
+
+        val savedHost = getSharedPreferences("questphonexr", MODE_PRIVATE)
+            .getString("quest_host", "") ?: ""
+        targetAddressInput = EditText(this).apply {
+            hint = "IP-адрес Quest (например, 192.168.1.50)"
+            setSingleLine(true)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            setText(savedHost)
+            setTextColor(Color.WHITE)
+            setHintTextColor(0xFFB8C0CC.toInt())
+            setPadding(16, 8, 16, 8)
+            setBackgroundColor(0xDD252B35.toInt())
+        }
+        val connectButton = Button(this).apply {
+            text = "Подключить Quest"
+            setOnClickListener {
+                val host = targetAddressInput.text.toString().trim()
+                try {
+                    controllerSender.start(host)
+                    getSharedPreferences("questphonexr", MODE_PRIVATE)
+                        .edit().putString("quest_host", host).apply()
+                } catch (error: IllegalArgumentException) {
+                    showStatus(error.message ?: "Проверь IP-адрес Quest.")
+                }
+            }
+        }
+        val stopButton = Button(this).apply {
+            text = "Стоп"
+            setOnClickListener { controllerSender.stop() }
+        }
+        val connectionBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(12, 4, 12, 12)
+            setBackgroundColor(0xCC101319.toInt())
+            addView(targetAddressInput, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(connectButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(stopButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        root.addView(
+            connectionBar,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.Gravity.BOTTOM
+            )
+        )
         setContentView(root)
     }
 
@@ -170,6 +224,7 @@ class MainActivity : ComponentActivity() {
         if (isFinishing) return
         lastHandFrame = frame
         latestVirtualControllers = virtualControllerMapper.map(frame, gamepadInput.snapshots())
+        latestVirtualControllers?.let(controllerSender::publish)
 
         val firstHand = frame.hands.firstOrNull()
         val thumb = firstHand?.thumbTip
@@ -216,6 +271,7 @@ class MainActivity : ComponentActivity() {
 
     private fun refreshVirtualControllerSnapshot() {
         latestVirtualControllers = virtualControllerMapper.map(lastHandFrame, gamepadInput.snapshots())
+        latestVirtualControllers?.let(controllerSender::publish)
     }
 
     private fun showStatus(message: String) {
@@ -225,6 +281,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         cameraProvider?.unbindAll()
         handTracker?.close()
+        controllerSender.close()
         cameraExecutor.shutdown()
         super.onDestroy()
     }
