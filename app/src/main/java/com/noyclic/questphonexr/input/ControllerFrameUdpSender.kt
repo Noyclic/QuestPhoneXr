@@ -21,6 +21,7 @@ class ControllerFrameUdpSender(
 ) : Closeable {
     @Volatile private var latestFrame: VirtualControllerFrame? = null
     @Volatile private var targetHost: String? = null
+    @Volatile private var targetAddress: InetAddress? = null
     @Volatile private var running = false
     private val sequence = AtomicLong(0L)
     private val executor = Executors.newSingleThreadScheduledExecutor { runnable ->
@@ -56,7 +57,7 @@ class ControllerFrameUdpSender(
         if (!running) return
         try {
             val host = targetHost ?: return
-            val address = InetAddress.getByName(host)
+            val address = targetAddress ?: InetAddress.getByName(host).also { targetAddress = it }
             val frame = latestFrame ?: return
             val payload = encode(frame, sequence.incrementAndGet()).toByteArray(StandardCharsets.UTF_8)
             val datagram = DatagramPacket(payload, payload.size, address, port)
@@ -76,6 +77,7 @@ class ControllerFrameUdpSender(
         socket?.close()
         socket = null
         targetHost = null
+        targetAddress = null
     }
 
     private fun encode(frame: VirtualControllerFrame, seq: Long): String = buildString {

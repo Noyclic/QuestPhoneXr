@@ -13,7 +13,7 @@ public sealed class QuestPhoneXRInputReceiver : MonoBehaviour
 {
     public const int DefaultPort = 39470;
     public static QuestPhoneXRPacket Latest { get; private set; }
-    public static float LastPacketRealtime { get; private set; }
+    private static long lastPacketUtcTicks;
 
     [SerializeField] private int listenPort = DefaultPort;
     private UdpClient client;
@@ -52,7 +52,7 @@ public sealed class QuestPhoneXRInputReceiver : MonoBehaviour
                     lock (typeof(QuestPhoneXRInputReceiver))
                     {
                         Latest = packet;
-                        LastPacketRealtime = Time.realtimeSinceStartup;
+                        lastPacketUtcTicks = DateTime.UtcNow.Ticks;
                     }
                 }
             }
@@ -70,7 +70,8 @@ public sealed class QuestPhoneXRInputReceiver : MonoBehaviour
         lock (typeof(QuestPhoneXRInputReceiver))
         {
             packet = Latest;
-            return packet != null && Time.realtimeSinceStartup - LastPacketRealtime <= timeoutSeconds;
+            long ageTicks = DateTime.UtcNow.Ticks - lastPacketUtcTicks;
+            return packet != null && ageTicks >= 0 && ageTicks <= timeoutSeconds * TimeSpan.TicksPerSecond;
         }
     }
 
@@ -84,7 +85,7 @@ public sealed class QuestPhoneXRInputReceiver : MonoBehaviour
             lock (typeof(QuestPhoneXRInputReceiver))
             {
                 Latest = null;
-                LastPacketRealtime = 0f;
+                lastPacketUtcTicks = 0L;
             }
         }
     }
