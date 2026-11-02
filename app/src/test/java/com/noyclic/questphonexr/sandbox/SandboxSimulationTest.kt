@@ -2,7 +2,10 @@ package com.noyclic.questphonexr.sandbox
 
 import com.noyclic.questphonexr.input.GamepadButtonCodes
 import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
+import com.noyclic.questphonexr.tracking.HandPoint
 import com.noyclic.questphonexr.tracking.HandSide
+import com.noyclic.questphonexr.tracking.HandTrackingFrame
+import com.noyclic.questphonexr.tracking.TrackedHand
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -72,6 +75,57 @@ class SandboxSimulationTest {
         simulation.update(listOf(digitalController), 1f / 30f)
 
         assertEquals(1, simulation.snapshot().grabbedObjectCount)
+    }
+
+    @Test
+    fun cameraPinchGrabsAnObjectAndUsesWristPositionAsCursor() {
+        val simulation = SandboxSimulation()
+        val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+        points[0] = HandPoint(0.2f, 0.4f, 0f)
+        val hand = TrackedHand(
+            points = points,
+            pinchStrength = 0.9f,
+            isPinching = true,
+            side = HandSide.LEFT
+        )
+
+        simulation.update(
+            emptyList(),
+            HandTrackingFrame(100L, listOf(hand)),
+            1f / 30f
+        )
+
+        val snapshot = simulation.snapshot()
+        assertTrue(snapshot.leftHand.cameraTracked)
+        assertTrue(snapshot.leftHand.grabbing)
+        assertEquals(-0.9f, snapshot.leftHand.cursor.x, 0.001f)
+        assertEquals(1, snapshot.grabbedObjectCount)
+        assertEquals(HandSide.LEFT, snapshot.objects.single { it.heldBy != null }.heldBy)
+    }
+
+    @Test
+    fun openTrackedHandMovesItsCursorWithoutGrabbing() {
+        val simulation = SandboxSimulation()
+        val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+        points[0] = HandPoint(0.8f, 0.3f, 0f)
+        val hand = TrackedHand(
+            points = points,
+            pinchStrength = 0.1f,
+            isPinching = false,
+            side = HandSide.RIGHT
+        )
+
+        simulation.update(
+            emptyList(),
+            HandTrackingFrame(200L, listOf(hand)),
+            1f / 30f
+        )
+
+        val snapshot = simulation.snapshot()
+        assertTrue(snapshot.rightHand.cameraTracked)
+        assertFalse(snapshot.rightHand.grabbing)
+        assertEquals(0.9f, snapshot.rightHand.cursor.x, 0.001f)
+        assertEquals(0, snapshot.grabbedObjectCount)
     }
 
     @Test
