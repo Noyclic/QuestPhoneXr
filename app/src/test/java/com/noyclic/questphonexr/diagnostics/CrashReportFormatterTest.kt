@@ -56,7 +56,7 @@ class CrashReportFormatterTest {
     @Test
     fun issueBodySanitizesEvenReportsCreatedByOlderAppVersions() {
         val body = CrashReportFormatter.issueBody(
-            "api_key=secret-value\\n/storage/emulated/0/Download/private.apk"
+            "api_key=secret-value\n/storage/emulated/0/Download/private.apk"
         )
 
         assertTrue(body.contains("api_key=[REDACTED]"))
