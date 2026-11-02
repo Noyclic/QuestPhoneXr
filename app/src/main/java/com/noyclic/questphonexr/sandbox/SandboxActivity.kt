@@ -1,6 +1,7 @@
 package com.noyclic.questphonexr.sandbox
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.graphics.Color
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -143,6 +144,10 @@ class SandboxActivity : Activity(), SensorEventListener, InputManager.InputDevic
                 LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             )
             buttons.addView(
+                controlButton("Контроллеры") { showControllerAssignmentDialog() },
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            )
+            buttons.addView(
                 controlButton("Перецентрировать") {
                     glView.queueEvent { renderer.recenterHead() }
                 },
@@ -175,6 +180,42 @@ class SandboxActivity : Activity(), SensorEventListener, InputManager.InputDevic
         setContentView(root)
     }
 
+    private fun showControllerAssignmentDialog() {
+        val connected = gamepadInput.refreshConnectedDevices()
+        if (connected.isEmpty()) {
+            statusView.text = "Android пока не обнаружил Joy-Con или другой геймпад."
+            return
+        }
+
+        val labels = connected.map { controller ->
+            val assigned = when (controller.hand) {
+                com.noyclic.questphonexr.tracking.HandSide.LEFT -> "левая рука"
+                com.noyclic.questphonexr.tracking.HandSide.RIGHT -> "правая рука"
+                else -> "не назначен"
+            }
+            controller.deviceName + " · ID " + controller.deviceId + " · " + assigned
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Назначение Joy-Con")
+            .setItems(labels.toTypedArray()) { _, index ->
+                val selected = connected[index]
+                val options = arrayOf("Левая рука", "Правая рука", "Снять назначение")
+                AlertDialog.Builder(this)
+                    .setTitle(selected.deviceName)
+                    .setItems(options) { _, handIndex ->
+                        val hand = when (handIndex) {
+                            0 -> com.noyclic.questphonexr.tracking.HandSide.LEFT
+                            1 -> com.noyclic.questphonexr.tracking.HandSide.RIGHT
+                            else -> null
+                        }
+                        gamepadInput.assignDevice(selected.deviceId, hand)
+                    }
+                    .show()
+            }
+            .setNegativeButton("Закрыть", null)
+            .show()
+    }
+
     private fun spawnCube() {
         simulation.spawnCube()
         glView.queueEvent { renderer.updateScene(simulation.snapshot()) }
@@ -195,10 +236,10 @@ class SandboxActivity : Activity(), SensorEventListener, InputManager.InputDevic
         val rightConnected = controllers.any { it.hand == com.noyclic.questphonexr.tracking.HandSide.RIGHT }
         val scene = simulation.snapshot()
         return "QUESTPHONEXR · VR-ПЕСОЧНИЦА · СТЕРЕО 3DoF" +
-            "\nГироскоп: " + if (sensorAvailable) "да" else "нет" +
+            "\nГироскоп: " + (if (sensorAvailable) "да" else "нет") +
             " · IPD " + viewerProfile.ipdMillimeters + " мм · FPS до " + viewerProfile.targetFps +
-            "\nJoy-Con L: " + if (leftConnected) "подключён" else "нет" +
-            " · R: " + if (rightConnected) "подключён" else "нет" +
+            "\nJoy-Con L: " + (if (leftConnected) "подключён" else "нет") +
+            " · R: " + (if (rightConnected) "подключён" else "нет") +
             "\nОбъектов: " + scene.objects.size + " · захвачено: " + scene.grabbedObjectCount +
             "\nСтик двигает курсор; L1/L2 или R1/R2 захватывают и отпускают предмет"
     }
