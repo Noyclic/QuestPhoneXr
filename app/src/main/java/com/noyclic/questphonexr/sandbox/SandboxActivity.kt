@@ -216,6 +216,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
         val providerFuture = ProcessCameraProvider.getInstance(this)
         providerFuture.addListener({
+            if (isFinishing) return@addListener
             try {
                 val provider = providerFuture.get()
                 cameraProvider = provider
@@ -450,6 +451,13 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                 or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         )
+    }
+
+    override fun onDestroy() {
+        cameraProvider?.unbindAll()
+        handTracker?.close()
+        cameraExecutor.shutdown()
+        super.onDestroy()
     }
 
     private companion object {
