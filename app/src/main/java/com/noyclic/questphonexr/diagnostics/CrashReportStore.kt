@@ -12,6 +12,7 @@ import java.io.StringWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 /**
  * Stores one bounded crash report in app-private storage.
@@ -77,7 +78,7 @@ class CrashReportStore(context: Context) {
         }.isSuccess
     }
 
-    internal fun saveCrash(thread: Thread, error: Throwable) {
+    internal fun saveCrash(thread: Thread, throwable: Throwable) {
         runCatching {
             if (!reportDirectory.exists() && !reportDirectory.mkdirs()) {
                 error("Could not create crash report directory")
@@ -88,10 +89,11 @@ class CrashReportStore(context: Context) {
                     ?: "unknown"
             }.getOrDefault("unknown")
             val stackTrace = StringWriter().also { writer ->
-                error.printStackTrace(PrintWriter(writer))
+                throwable.printStackTrace(PrintWriter(writer))
             }.toString().take(MAX_STORED_STACK_TRACE_CHARS)
-            val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss 'UTC'Z", Locale.US)
-                .format(Date())
+            val timestamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }.format(Date())
             val report = buildString {
                 appendLine("QuestPhoneXR crash report")
                 appendLine("Time: $timestamp")
