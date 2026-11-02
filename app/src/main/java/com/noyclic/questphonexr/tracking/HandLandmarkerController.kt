@@ -38,6 +38,8 @@ class HandLandmarkerController(
     private val lastAcceptedFrameMs = AtomicLong(0L)
     private val inFlightImage = AtomicReference<MPImage?>(null)
     private val inFlightTransform = AtomicReference<LetterboxTransform?>(null)
+    private val inFlightStartedAtNanos = AtomicLong(0L)
+    private val inFlightSourceSize = AtomicReference(0 to 0)
     private val pinchEstimators = mutableListOf<PinchEstimator>()
     private val landmarker: HandLandmarker
 
@@ -82,6 +84,8 @@ class HandLandmarkerController(
             return
         }
         lastAcceptedFrameMs.set(nowMs)
+        inFlightStartedAtNanos.set(SystemClock.elapsedRealtimeNanos())
+        inFlightSourceSize.set(imageProxy.width to imageProxy.height)
         var mpImage: MPImage? = null
         try {
             val source = imageProxyToBitmap(imageProxy)
@@ -101,6 +105,8 @@ class HandLandmarkerController(
             mpImage?.close()
             if (mpImage != null) inFlightImage.compareAndSet(mpImage, null)
             processing.set(false)
+            inFlightStartedAtNanos.set(0L)
+            inFlightSourceSize.set(0 to 0)
             Log.e(TAG, "Could not process camera frame", error)
             onError(error.message ?: "MediaPipe could not process the camera frame.")
         } finally {
@@ -180,7 +186,25 @@ class HandLandmarkerController(
                 }
                 TrackedHand(points, pinch.strength, pinch.isPinching, side, worldPoints)
             }
-            onFrame(HandTrackingFrame(result.timestampMs(), hands))
+            val startedAtNanos = inFlightStartedAtNanos.getAndSet(0L)
+            val latencyMs = if (startedAtNanos > 0L) {
+                ((SystemClock.elapsedRealtimeNanos() - startedAtNanos).coerceAtLeast(0L) /
+                    NANOS_PER_MILLISECOND)
+            } else {
+                0L
+            }
+            val sourceSize = inFlightSourceSize.getAndSet(0 to 0)
+            onFrame(
+                HandTrackingFrame(
+                    timestampMs = result.timestampMs(),
+                    hands = hands,
+                    pipelineLatencyMs = latencyMs,
+                    sourceWidthPx = sourceSize.first,
+                    sourceHeightPx = sourceSize.second,
+                    inputWidthPx = outputWidthPx,
+                    inputHeightPx = outputHeightPx
+                )
+            )
         } catch (error: Exception) {
             Log.e(TAG, "Could not convert MediaPipe landmarks", error)
             onError(error.message ?: "Could not read hand landmarks.")
@@ -195,6 +219,8 @@ class HandLandmarkerController(
     private fun onTaskError(error: RuntimeException) {
         inFlightImage.getAndSet(null)?.close()
         inFlightTransform.set(null)
+        inFlightStartedAtNanos.set(0L)
+        inFlightSourceSize.set(0 to 0)
         pinchEstimators.forEach { it.reset() }
         processing.set(false)
         if (!closed.get()) {
@@ -207,6 +233,8 @@ class HandLandmarkerController(
         if (closed.compareAndSet(false, true)) {
             inFlightImage.getAndSet(null)?.close()
             inFlightTransform.set(null)
+            inFlightStartedAtNanos.set(0L)
+            inFlightSourceSize.set(0 to 0)
             pinchEstimators.forEach { it.reset() }
             landmarker.close()
         }
@@ -236,5 +264,6 @@ class HandLandmarkerController(
         const val MAX_HANDS = 2
         const val CONFIDENCE = 0.5f
         const val BYTES_PER_PIXEL = 4
+        const val NANOS_PER_MILLISECOND = 1_000_000L
     }
 }

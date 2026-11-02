@@ -102,3 +102,13 @@ the camera interaction area, width and height scaling adjust reach, and relative
 controls how much MediaPipe image-relative z affects the rendered hand. Values are clamped to
 conservative bounds and are applied to both hands. This is a visual / interaction calibration,
 not physical room-scale calibration: the camera does not provide reliable metric world depth.
+
+
+## Hand tracking performance telemetry
+
+The sandbox HUD separately reports the rendered scene FPS and the observed MediaPipe callback
+rate. It also shows end-to-end camera-frame processing latency (frame conversion/resizing plus
+the asynchronous MediaPipe callback), the actual CameraX source dimensions, and the configured
+MediaPipe input dimensions. Pipeline latency is not a model-only benchmark and callback rate
+can be lower than the render rate. Use these values to compare camera settings on the physical
+phone under the same lighting and hand movement.

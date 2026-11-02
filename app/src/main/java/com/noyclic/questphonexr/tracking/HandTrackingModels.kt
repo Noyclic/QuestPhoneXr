@@ -78,6 +78,15 @@ data class TrackedHand(
     val indexTip: HandPoint? get() = points.getOrNull(8)
 }
 
-data class HandTrackingFrame(val timestampMs: Long, val hands: List<TrackedHand>) {
+data class HandTrackingFrame(
+    val timestampMs: Long,
+    val hands: List<TrackedHand>,
+    /** Camera conversion + MediaPipe callback latency, not model-only execution time. */
+    val pipelineLatencyMs: Long = 0L,
+    val sourceWidthPx: Int = 0,
+    val sourceHeightPx: Int = 0,
+    val inputWidthPx: Int = 0,
+    val inputHeightPx: Int = 0
+) {
     val handCount: Int get() = hands.size
 }

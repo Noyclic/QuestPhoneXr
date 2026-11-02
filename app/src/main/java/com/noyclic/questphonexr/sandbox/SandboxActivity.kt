@@ -52,6 +52,11 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private val simulation = SandboxSimulation()
     @Volatile private var controllerSnapshots: List<PhysicalControllerSnapshot> = emptyList()
     @Volatile private var latestHandFrame = HandTrackingFrame(0L, emptyList())
+    @Volatile private var measuredHandTrackingFps = 0f
+    @Volatile private var latestHandPipelineLatencyMs = 0L
+    @Volatile private var cameraSourceSizeLabel = "—"
+    @Volatile private var mediaPipeInputSizeLabel = "—"
+    private var previousHandFrameTimestampMs = 0L
     private val cameraExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
     private var cameraProvider: ProcessCameraProvider? = null
     private var handTracker: HandLandmarkerController? = null
@@ -530,6 +535,23 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
     private fun onHandFrame(frame: HandTrackingFrame) {
         if (isFinishing) return
+        val previousTimestamp = previousHandFrameTimestampMs
+        if (previousTimestamp > 0L && frame.timestampMs > previousTimestamp) {
+            val intervalMs = frame.timestampMs - previousTimestamp
+            measuredHandTrackingFps = (1000f / intervalMs).coerceAtMost(240f)
+        }
+        previousHandFrameTimestampMs = frame.timestampMs
+        latestHandPipelineLatencyMs = frame.pipelineLatencyMs
+        cameraSourceSizeLabel = if (frame.sourceWidthPx > 0 && frame.sourceHeightPx > 0) {
+            "${frame.sourceWidthPx}×${frame.sourceHeightPx}"
+        } else {
+            "—"
+        }
+        mediaPipeInputSizeLabel = if (frame.inputWidthPx > 0 && frame.inputHeightPx > 0) {
+            "${frame.inputWidthPx}×${frame.inputHeightPx}"
+        } else {
+            "—"
+        }
         latestHandFrame = frame
     }
 
@@ -603,6 +625,12 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             " · камера " + effectiveCameraWidthPx() + "×" + effectiveCameraHeightPx() +
             " · две руки · MediaPipe до " + (1000L / performancePreset.minimumInferenceIntervalMs) + " кадр/с" +
             "\n" + cameraStatusMessage + " · рук: " + latestHandFrame.handCount +
+            "\nMediaPipe: " + if (measuredHandTrackingFps > 0f) {
+                String.format(Locale.US, "%.1f", measuredHandTrackingFps)
+            } else {
+                "—"
+            } + " FPS · pipeline " + latestHandPipelineLatencyMs + " мс" +
+            " · камера " + cameraSourceSizeLabel + " → модель " + mediaPipeInputSizeLabel +
             "\nJoy-Con L: " + (if (leftConnected) "подключён" else "нет") +
             " · R: " + (if (rightConnected) "подключён" else "нет") +
             "\nОбъектов: " + scene.objects.size + " · захвачено: " + scene.grabbedObjectCount +
