@@ -30,7 +30,10 @@ class AdaptivePerformanceControllerTest {
         assertEquals(25, reduced.renderFpsCap)
         assertEquals(96L, reduced.minimumInferenceIntervalMs)
 
-        val furtherReduced = controller.observe(6_000L, 10f, 8f, 260L)
+        val stillReduced = controller.observe(6_000L, 10f, 8f, 260L)
+        assertEquals(1, stillReduced.level)
+
+        val furtherReduced = controller.observe(9_000L, 10f, 8f, 260L)
         assertEquals(2, furtherReduced.level)
         assertEquals(20, furtherReduced.renderFpsCap)
         assertEquals(126L, furtherReduced.minimumInferenceIntervalMs)
@@ -52,12 +55,13 @@ class AdaptivePerformanceControllerTest {
         controller.observe(0L, 10f, 8f, 260L)
         controller.observe(3_000L, 10f, 8f, 260L)
         controller.observe(6_000L, 10f, 8f, 260L)
+        controller.observe(9_000L, 10f, 8f, 260L)
         assertEquals(2, controller.currentState().level)
 
         var state = controller.currentState()
         for (window in 1..5) {
             state = controller.observe(
-                nowMs = 6_000L + window * 3_000L,
+                nowMs = 9_000L + window * 3_000L,
                 renderFps = 30f,
                 handTrackingFps = 20f,
                 pipelineLatencyMs = 90L
