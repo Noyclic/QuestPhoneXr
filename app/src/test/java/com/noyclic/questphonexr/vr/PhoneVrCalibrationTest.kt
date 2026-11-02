@@ -10,12 +10,14 @@ class PhoneVrCalibrationTest {
         val profile = ViewerProfile(
             ipdMillimeters = 120,
             fieldOfViewDegrees = 20,
-            swapEyes = true
+            swapEyes = true,
+            targetFps = 200
         ).normalized()
 
         assertEquals(ViewerProfile.MAX_IPD_MM, profile.ipdMillimeters)
         assertEquals(ViewerProfile.MIN_FOV_DEGREES, profile.fieldOfViewDegrees)
         assertEquals(true, profile.swapEyes)
+        assertEquals(60, profile.targetFps)
     }
 
     @Test
@@ -25,6 +27,13 @@ class PhoneVrCalibrationTest {
         assertEquals(64, profile.ipdMillimeters)
         assertEquals(86, profile.fieldOfViewDegrees)
         assertEquals(false, profile.swapEyes)
+        assertEquals(30, profile.targetFps)
+    }
+
+    @Test
+    fun unsupportedFrameRateSnapsToNearestAvailableLimit() {
+        assertEquals(45, ViewerProfile(targetFps = 38).normalized().targetFps)
+        assertEquals(20, ViewerProfile(targetFps = 1).normalized().targetFps)
     }
 
     @Test
