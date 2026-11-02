@@ -83,6 +83,8 @@ class SandboxSimulationTest {
         val simulation = SandboxSimulation()
         val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
         points[0] = HandPoint(0.2f, 0.4f, 0f)
+        points[4] = HandPoint(0.46f, 0.51f, 0f)
+        points[8] = HandPoint(0.54f, 0.49f, 0f)
         val hand = TrackedHand(
             points = points,
             pinchStrength = 0.9f,
@@ -99,7 +101,8 @@ class SandboxSimulationTest {
         val snapshot = simulation.snapshot()
         assertTrue(snapshot.leftHand.cameraTracked)
         assertTrue(snapshot.leftHand.grabbing)
-        assertEquals(-0.9f, snapshot.leftHand.cursor.x, 0.001f)
+        assertEquals(0f, snapshot.leftHand.cursor.x, 0.001f)
+        assertEquals(0f, snapshot.leftHand.cursor.y, 0.001f)
         assertEquals(21, snapshot.leftHand.landmarks.size)
         assertEquals(snapshot.leftHand.cursor, snapshot.leftHand.landmarks.first())
         assertEquals(1, snapshot.grabbedObjectCount)
@@ -111,6 +114,7 @@ class SandboxSimulationTest {
         val simulation = SandboxSimulation()
         val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
         points[0] = HandPoint(0.8f, 0.3f, 0f)
+        points[8] = HandPoint(0.72f, 0.22f, 0f)
         val hand = TrackedHand(
             points = points,
             pinchStrength = 0.1f,
@@ -127,7 +131,8 @@ class SandboxSimulationTest {
         val snapshot = simulation.snapshot()
         assertTrue(snapshot.rightHand.cameraTracked)
         assertFalse(snapshot.rightHand.grabbing)
-        assertEquals(0.9f, snapshot.rightHand.cursor.x, 0.001f)
+        assertEquals(0.66f, snapshot.rightHand.cursor.x, 0.001f)
+        assertEquals(0.602f, snapshot.rightHand.cursor.y, 0.001f)
         assertEquals(0, snapshot.grabbedObjectCount)
     }
 

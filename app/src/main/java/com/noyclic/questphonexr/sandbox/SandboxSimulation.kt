@@ -252,7 +252,17 @@ class SandboxSimulation {
         val cameraLandmarks = trackedHand?.points
             ?.let { SandboxHandPoseMapper.map(it, handCalibration) }
             .orEmpty()
-        val cameraCursor = cameraLandmarks.firstOrNull()
+        val cameraCursor = if (trackedHand?.isPinching == true) {
+            val thumbTip = cameraLandmarks.getOrNull(4)
+            val indexTip = cameraLandmarks.getOrNull(8)
+            if (thumbTip != null && indexTip != null) {
+                (thumbTip + indexTip) * 0.5f
+            } else {
+                indexTip ?: cameraLandmarks.firstOrNull()
+            }
+        } else {
+            cameraLandmarks.getOrNull(8) ?: cameraLandmarks.firstOrNull()
+        }
         val baseX = if (hand == HandSide.LEFT) -0.65f else 0.65f
         val gamepadCursor = physical?.let {
             SandboxVector3(
