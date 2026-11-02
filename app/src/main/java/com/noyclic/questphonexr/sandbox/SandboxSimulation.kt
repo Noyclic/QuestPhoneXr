@@ -44,7 +44,8 @@ data class SandboxHandState(
     val cursor: SandboxVector3,
     val grabbing: Boolean,
     val connected: Boolean,
-    val cameraTracked: Boolean = false
+    val cameraTracked: Boolean = false,
+    val landmarks: List<SandboxVector3> = emptyList()
 )
 
 data class SandboxSceneSnapshot(
@@ -78,12 +79,15 @@ class SandboxSimulation {
         val grabbing: Boolean,
         val connected: Boolean,
         val cameraTracked: Boolean,
-        val trackingLost: Boolean = false
+        val trackingLost: Boolean = false,
+        val landmarks: List<SandboxVector3> = emptyList()
     )
 
     private val objects = mutableListOf<MutableObject>()
     private val leftCursorSmoother = SandboxCursorSmoother()
     private val rightCursorSmoother = SandboxCursorSmoother()
+    private val leftHandPoseSmoother = SandboxHandPoseSmoother()
+    private val rightHandPoseSmoother = SandboxHandPoseSmoother()
     private var leftCursor = DEFAULT_LEFT_CURSOR
     private var rightCursor = DEFAULT_RIGHT_CURSOR
     private var leftGrabbing = false
@@ -118,6 +122,8 @@ class SandboxSimulation {
         rightCameraTracked = false
         leftCursorSmoother.reset()
         rightCursorSmoother.reset()
+        leftHandPoseSmoother.reset()
+        rightHandPoseSmoother.reset()
     }
 
     @Synchronized
@@ -152,21 +158,29 @@ class SandboxSimulation {
         val rightTrackingLost = rightCameraTracked && !rightRaw.cameraTracked &&
             rightGrabbing && !rightRaw.grabbing
         val left = if (leftRaw.cameraTracked) {
+            val smoothedLandmarks = leftHandPoseSmoother.update(leftRaw.landmarks)
             leftRaw.copy(
-                cursor = leftCursorSmoother.update(leftRaw.cursor),
+                cursor = smoothedLandmarks.firstOrNull()
+                    ?: leftCursorSmoother.update(leftRaw.cursor),
+                landmarks = smoothedLandmarks,
                 trackingLost = false
             )
         } else {
             leftCursorSmoother.reset()
+            leftHandPoseSmoother.reset()
             leftRaw.copy(trackingLost = leftTrackingLost)
         }
         val right = if (rightRaw.cameraTracked) {
+            val smoothedLandmarks = rightHandPoseSmoother.update(rightRaw.landmarks)
             rightRaw.copy(
-                cursor = rightCursorSmoother.update(rightRaw.cursor),
+                cursor = smoothedLandmarks.firstOrNull()
+                    ?: rightCursorSmoother.update(rightRaw.cursor),
+                landmarks = smoothedLandmarks,
                 trackingLost = false
             )
         } else {
             rightCursorSmoother.reset()
+            rightHandPoseSmoother.reset()
             rightRaw.copy(trackingLost = rightTrackingLost)
         }
 
@@ -192,14 +206,16 @@ class SandboxSimulation {
                 leftCursor,
                 leftGrabbing,
                 leftConnected,
-                leftCameraTracked
+                leftCameraTracked,
+                left.landmarks
             ),
             rightHand = SandboxHandState(
                 HandSide.RIGHT,
                 rightCursor,
                 rightGrabbing,
                 rightConnected,
-                rightCameraTracked
+                rightCameraTracked,
+                right.landmarks
             ),
             grabbedObjectCount = objects.count { it.heldBy != null },
             score = score
@@ -215,14 +231,10 @@ class SandboxSimulation {
         trackedHand: TrackedHand?
     ): ControllerState {
         val physical = controllers.firstOrNull { it.hand == hand }
-        val wrist = trackedHand?.points?.getOrNull(0)
-        val cameraCursor = wrist?.let {
-            SandboxVector3(
-                x = ((it.x - 0.5f) * CAMERA_CURSOR_WIDTH).coerceIn(-1.65f, 1.65f),
-                y = ((0.5f - it.y) * CAMERA_CURSOR_HEIGHT).coerceIn(-1.15f, 1.15f),
-                z = CAMERA_CURSOR_DEPTH
-            )
-        }
+        val cameraLandmarks = trackedHand?.points
+            ?.let { SandboxHandPoseMapper.map(it) }
+            .orEmpty()
+        val cameraCursor = cameraLandmarks.firstOrNull()
         val baseX = if (hand == HandSide.LEFT) -0.65f else 0.65f
         val gamepadCursor = physical?.let {
             SandboxVector3(
@@ -247,7 +259,8 @@ class SandboxSimulation {
             cursor = cursor,
             grabbing = grabbing,
             connected = trackedHand != null || physical != null,
-            cameraTracked = trackedHand != null
+            cameraTracked = trackedHand != null,
+            landmarks = cameraLandmarks
         )
     }
 
@@ -322,9 +335,6 @@ class SandboxSimulation {
         private val DEFAULT_RIGHT_CURSOR = SandboxVector3(0.65f, -0.1f, -2.35f)
         private val TARGET_POSITION = SandboxVector3(0f, -0.85f, -2.65f)
         private const val TARGET_HIT_RADIUS = 0.48f
-        private const val CAMERA_CURSOR_WIDTH = 3.0f
-        private const val CAMERA_CURSOR_HEIGHT = 2.15f
-        private const val CAMERA_CURSOR_DEPTH = -2.55f
         private const val GAMEPAD_CURSOR_DEPTH = -2.35f
         private const val GRAB_THRESHOLD = 0.45f
         private const val MAX_GRAB_DISTANCE = 1.2f

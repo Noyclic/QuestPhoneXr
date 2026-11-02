@@ -11,8 +11,10 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
+import kotlin.math.acos
 import kotlin.math.max
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /** Stereo OpenGL ES renderer for the interactive phone-VR sandbox. */
 class SandboxRenderer : GLSurfaceView.Renderer {
@@ -33,6 +35,9 @@ class SandboxRenderer : GLSurfaceView.Renderer {
     private lateinit var ballMesh: Mesh
     private lateinit var leftCursorMesh: Mesh
     private lateinit var rightCursorMesh: Mesh
+    private lateinit var leftHandMesh: Mesh
+    private lateinit var rightHandMesh: Mesh
+    private lateinit var pinchAccentMesh: Mesh
     private var program = 0
     private var positionHandle = 0
     private var colorHandle = 0
@@ -79,6 +84,9 @@ class SandboxRenderer : GLSurfaceView.Renderer {
         ballMesh = createSphereMesh(0.95f, 0.42f, 0.18f)
         leftCursorMesh = createSphereMesh(0.16f, 0.88f, 0.62f)
         rightCursorMesh = createSphereMesh(0.95f, 0.58f, 0.25f)
+        leftHandMesh = createSphereMesh(0.12f, 0.76f, 0.72f)
+        rightHandMesh = createSphereMesh(1.0f, 0.52f, 0.22f)
+        pinchAccentMesh = createSphereMesh(1.0f, 0.88f, 0.38f)
         startedAtNanos = System.nanoTime()
         frameRateCounter.reset()
         measuredFramesPerSecond = 0f
@@ -165,26 +173,22 @@ class SandboxRenderer : GLSurfaceView.Renderer {
                 }
             }
 
-            val leftCursor = snapshot.leftHand.cursor
-            val rightCursor = snapshot.rightHand.cursor
-            drawMesh(
-                leftCursorMesh,
-                leftCursor.x,
-                leftCursor.y,
-                leftCursor.z,
-                if (snapshot.leftHand.grabbing) 0.13f else 0.09f,
-                if (snapshot.leftHand.grabbing) 0.13f else 0.09f,
-                if (snapshot.leftHand.grabbing) 0.13f else 0.09f
-            )
-            drawMesh(
-                rightCursorMesh,
-                rightCursor.x,
-                rightCursor.y,
-                rightCursor.z,
-                if (snapshot.rightHand.grabbing) 0.13f else 0.09f,
-                if (snapshot.rightHand.grabbing) 0.13f else 0.09f,
-                if (snapshot.rightHand.grabbing) 0.13f else 0.09f
-            )
+            val leftHand = snapshot.leftHand
+            val rightHand = snapshot.rightHand
+            if (leftHand.cameraTracked && leftHand.landmarks.size >= HAND_LANDMARK_COUNT) {
+                drawHand(leftHand.landmarks, leftHandMesh, leftHand.grabbing)
+            } else {
+                val cursor = leftHand.cursor
+                val size = if (leftHand.grabbing) 0.13f else 0.09f
+                drawMesh(leftCursorMesh, cursor.x, cursor.y, cursor.z, size, size, size)
+            }
+            if (rightHand.cameraTracked && rightHand.landmarks.size >= HAND_LANDMARK_COUNT) {
+                drawHand(rightHand.landmarks, rightHandMesh, rightHand.grabbing)
+            } else {
+                val cursor = rightHand.cursor
+                val size = if (rightHand.grabbing) 0.13f else 0.09f
+                drawMesh(rightCursorMesh, cursor.x, cursor.y, cursor.z, size, size, size)
+            }
         }
         frameRateCounter.onFrame(System.nanoTime())?.let { measured ->
             measuredFramesPerSecond = measured
@@ -216,7 +220,109 @@ class SandboxRenderer : GLSurfaceView.Renderer {
         Matrix.setIdentityM(model, 0)
         Matrix.translateM(model, 0, x, y, z)
         Matrix.scaleM(model, 0, scaleX, scaleY, scaleZ)
-        Matrix.multiplyMM(mvp, 0, view, 0, model, 0)
+        drawTransformedMesh(mesh, model)
+    }
+
+    private fun drawHand(
+        points: List<SandboxVector3>,
+        handMesh: Mesh,
+        isPinching: Boolean
+    ) {
+        if (points.size < HAND_LANDMARK_COUNT) return
+        val palmWidth = distance(points[5], points[17]).coerceIn(0.12f, 0.62f)
+        val palmLength = distance(points[0], points[9]).coerceIn(0.10f, 0.62f)
+        val palmIndices = intArrayOf(0, 5, 9, 13, 17)
+        val palmCenter = SandboxVector3(
+            palmIndices.map { points[it].x }.average().toFloat(),
+            palmIndices.map { points[it].y }.average().toFloat(),
+            palmIndices.map { points[it].z }.average().toFloat()
+        )
+
+        // A softly flattened palm plus connected, rounded finger segments gives a
+        // real 3D volume instead of drawing the 21 tracking points as a wire skeleton.
+        drawMesh(
+            handMesh,
+            palmCenter.x,
+            palmCenter.y,
+            palmCenter.z,
+            palmWidth * 0.58f,
+            palmLength * 0.50f,
+            0.045f
+        )
+
+        val palmLinks = arrayOf(
+            intArrayOf(0, 5), intArrayOf(5, 9), intArrayOf(9, 13),
+            intArrayOf(13, 17), intArrayOf(17, 0)
+        )
+        val palmRadius = (palmWidth * 0.045f).coerceIn(0.014f, 0.03f)
+        palmLinks.forEach { link ->
+            drawSegment(handMesh, points[link[0]], points[link[1]], palmRadius)
+        }
+
+        FINGER_CHAINS.forEach { chain ->
+            for (index in 0 until chain.size - 1) {
+                val taper = 1f - index * 0.09f
+                val radius = (palmWidth * 0.052f * taper).coerceIn(0.012f, 0.029f)
+                drawSegment(handMesh, points[chain[index]], points[chain[index + 1]], radius)
+            }
+        }
+
+        val jointRadius = (palmWidth * 0.034f).coerceIn(0.014f, 0.024f)
+        drawMesh(
+            handMesh,
+            points[0].x, points[0].y, points[0].z,
+            jointRadius * 1.35f, jointRadius * 1.35f, 0.026f
+        )
+        FINGER_CHAINS.forEach { chain ->
+            chain.forEachIndexed { index, landmarkIndex ->
+                val size = jointRadius * if (index == chain.lastIndex) 0.88f else 1.0f
+                val point = points[landmarkIndex]
+                drawMesh(handMesh, point.x, point.y, point.z, size, size, size)
+            }
+        }
+        if (isPinching) {
+            listOf(points[4], points[8]).forEach { point ->
+                drawMesh(
+                    pinchAccentMesh,
+                    point.x, point.y, point.z,
+                    jointRadius * 1.55f, jointRadius * 1.55f, jointRadius * 1.55f
+                )
+            }
+        }
+    }
+
+    private fun drawSegment(mesh: Mesh, start: SandboxVector3, end: SandboxVector3, radius: Float) {
+        val dx = end.x - start.x
+        val dy = end.y - start.y
+        val dz = end.z - start.z
+        val length = sqrt(dx * dx + dy * dy + dz * dz)
+        if (length < 0.0001f) return
+
+        Matrix.setIdentityM(model, 0)
+        Matrix.translateM(
+            model, 0,
+            (start.x + end.x) * 0.5f,
+            (start.y + end.y) * 0.5f,
+            (start.z + end.z) * 0.5f
+        )
+
+        // Unit spheres are aligned along local +Y. Rotate that axis onto the bone.
+        val axisX = dz
+        val axisZ = -dx
+        val axisLength = sqrt(axisX * axisX + axisZ * axisZ)
+        val cosine = (dy / length).coerceIn(-1f, 1f)
+        val angleDegrees = Math.toDegrees(acos(cosine).toDouble()).toFloat()
+        if (axisLength > 0.00001f) {
+            Matrix.rotateM(model, 0, angleDegrees, axisX / axisLength, 0f, axisZ / axisLength)
+        } else if (dy < 0f) {
+            Matrix.rotateM(model, 0, 180f, 1f, 0f, 0f)
+        }
+        Matrix.scaleM(model, 0, radius, length * 0.5f + radius, radius)
+        drawTransformedMesh(mesh, model)
+    }
+
+    private fun drawTransformedMesh(mesh: Mesh, transform: FloatArray) {
+        Matrix.multiplyMM(mvp, 0, view, 0, transform, 0)
         Matrix.multiplyMM(mvp, 0, projection, 0, mvp, 0)
 
         GLES20.glUseProgram(program)
@@ -245,6 +351,13 @@ class SandboxRenderer : GLSurfaceView.Renderer {
         GLES20.glDisableVertexAttribArray(positionHandle)
         GLES20.glDisableVertexAttribArray(colorHandle)
         mesh.vertices.position(0)
+    }
+
+    private fun distance(a: SandboxVector3, b: SandboxVector3): Float {
+        val dx = a.x - b.x
+        val dy = a.y - b.y
+        val dz = a.z - b.z
+        return sqrt(dx * dx + dy * dy + dz * dz)
     }
 
     private fun createProgram(vertexSource: String, fragmentSource: String): Int {
@@ -406,6 +519,14 @@ class SandboxRenderer : GLSurfaceView.Renderer {
         private const val BYTES_PER_FLOAT = 4
         private const val FLOATS_PER_VERTEX = 6
         private const val CUBE_VERTEX_COUNT = 36
+        private const val HAND_LANDMARK_COUNT = 21
+        private val FINGER_CHAINS = arrayOf(
+            intArrayOf(1, 2, 3, 4),
+            intArrayOf(5, 6, 7, 8),
+            intArrayOf(9, 10, 11, 12),
+            intArrayOf(13, 14, 15, 16),
+            intArrayOf(17, 18, 19, 20)
+        )
 
         private const val VERTEX_SHADER = """
             uniform mat4 uMvp;

@@ -4,7 +4,7 @@ The VR sandbox is the first interactive scene for testing QuestPhoneXR's phone-b
 
 ## Scene
 
-- Two colored virtual hand/controller cursors.
+- Two colored low-poly 3D hands built from the live 21-point MediaPipe pose; virtual cursors remain as the gamepad/no-camera fallback.
 - Two cubes, one ball, and one target object at startup.
 - A floor plane with gravity, a small bounce, and friction.
 - A target that awards a point when a movable object reaches it; scored objects respawn at their starting positions.
@@ -18,7 +18,7 @@ The VR sandbox is the first interactive scene for testing QuestPhoneXR's phone-b
 4. Move a hand to move its colored cursor.
 5. Pinch the thumb and index finger to grab the nearest object. Release the pinch to drop it; moving your hand while holding gives the object a simple throw velocity.
 
-The MediaPipe tracker reports left/right hand labels, 21 landmarks, and a filtered pinch state with hysteresis. The sandbox maps the wrist's normalized image position to a 2D reach plane and applies a small low-pass filter to reduce cursor jitter.
+The MediaPipe tracker reports left/right hand labels, 21 landmarks, and a filtered pinch state with hysteresis. The sandbox maps all 21 landmarks into the phone-VR reach plane, smooths the joint positions, and builds rounded palm, finger and fingertip geometry at render time. Pinching highlights the thumb and index tips; when a full hand pose is unavailable, the colored cursor remains as a fallback.
 
 ## Joy-Con and gamepad controls
 
@@ -34,7 +34,8 @@ Analog trigger axes and common digital button codes are recognized. Exact Joy-Co
 ## Current scope and limitations
 
 - Stereo rendering uses the saved VR Shinecon viewer profile and phone rotation sensor (3DoF).
-- Camera hand positions are mapped to a 2D reach plane; depth is currently a fixed scene layer. This is not 6DoF tracking.
+- Camera hand positions are mapped to a 2D reach plane with a small relative-depth offset from MediaPipe's image-relative z values. This improves the 3D hand appearance but is not calibrated world depth or 6DoF tracking.
+- The hand mesh is a lightweight procedural representation assembled from rounded segments and joints, not a scanned anatomical hand model; sustained rendering cost and tracking stability need to be checked on the target phone.
 - Joy-Con sticks are a fallback cursor path, not a calibrated controller pose.
 - Physics includes gravity, floor bounce, friction, grab/release, capped throw speed, and a simple target hit check. Objects do not yet collide with one another.
 - This sandbox is a test scene, not a playable port of Baldi, Granny, Open Saber, or QuestCraft.
@@ -82,3 +83,13 @@ coordinates are mapped back out of the letterboxed region before gesture calcula
 pinch geometry continues to use the full source image. Very small values reduce model input
 work but can make hand landmarks less stable; 192×88 is accepted as requested, not promised
 to provide reliable tracking in every lighting condition.
+
+
+## Live 3D hand pose
+
+Each visible hand is rendered from the 21 MediaPipe landmarks. The palm is a flattened volume,
+finger bones are rounded 3D segments, and joints are small volumes. The thumb and index fingertips
+get a warm highlight while pinching. A low-pass pose filter reduces frame-to-frame landmark jitter;
+when tracking is lost, the hand geometry disappears and the existing safe object-release behavior
+is retained. MediaPipe z is only relative to the camera image, so depth is visual approximation,
+not calibrated physical hand position.

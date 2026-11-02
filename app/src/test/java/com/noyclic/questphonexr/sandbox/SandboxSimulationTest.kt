@@ -100,6 +100,8 @@ class SandboxSimulationTest {
         assertTrue(snapshot.leftHand.cameraTracked)
         assertTrue(snapshot.leftHand.grabbing)
         assertEquals(-0.9f, snapshot.leftHand.cursor.x, 0.001f)
+        assertEquals(21, snapshot.leftHand.landmarks.size)
+        assertEquals(snapshot.leftHand.cursor, snapshot.leftHand.landmarks.first())
         assertEquals(1, snapshot.grabbedObjectCount)
         assertEquals(HandSide.LEFT, snapshot.objects.single { it.heldBy != null }.heldBy)
     }
