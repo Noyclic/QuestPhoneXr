@@ -9,6 +9,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.opengl.GLSurfaceView
 import android.os.Bundle
+import android.view.Choreographer
 import android.view.Gravity
 import android.view.Surface
 import android.view.View
@@ -22,7 +23,7 @@ import android.widget.TextView
 
 /**
  * VR Shinecon diagnostic mode: side-by-side stereo + phone rotation-vector tracking (3DoF).
- * Viewer calibration is saved locally; optical distortion correction is not implemented yet.
+ * Rendering is explicitly paced to the selected frame-rate limit to reduce idle GPU work.
  */
 class PhoneVrPreviewActivity : Activity(), SensorEventListener {
     private lateinit var glView: GLSurfaceView
@@ -33,6 +34,23 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
     private var viewerProfile = ViewerProfile()
     private var rotationSensor: Sensor? = null
     private var sensorAvailable = false
+    private var lastFrameRequestNanos = 0L
+
+    private val frameCallback = object : Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            if (isFinishing || !::glView.isInitialized) return
+
+            val targetFps = viewerProfile.targetFps.coerceAtLeast(1)
+            val frameIntervalNanos = NANOS_PER_SECOND / targetFps
+            if (lastFrameRequestNanos == 0L ||
+                frameTimeNanos - lastFrameRequestNanos >= frameIntervalNanos
+            ) {
+                lastFrameRequestNanos = frameTimeNanos
+                glView.requestRender()
+            }
+            Choreographer.getInstance().postFrameCallback(this)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,7 +73,7 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
             setEGLContextClientVersion(2)
             preserveEGLContextOnPause = true
             setRenderer(renderer)
-            renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
+            renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
         }
 
         val root = FrameLayout(this).apply {
@@ -155,6 +173,15 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
             max = ViewerProfile.MAX_FOV_DEGREES - ViewerProfile.MIN_FOV_DEGREES
             progress = viewerProfile.fieldOfViewDegrees - ViewerProfile.MIN_FOV_DEGREES
         }
+        val fpsChoices = ViewerProfile.SUPPORTED_TARGET_FPS
+        val fpsLabel = TextView(this).apply {
+            setTextColor(Color.DKGRAY)
+            textSize = 15f
+        }
+        val fpsSlider = SeekBar(this).apply {
+            max = fpsChoices.lastIndex
+            progress = fpsChoices.indexOf(viewerProfile.targetFps).coerceAtLeast(0)
+        }
         val swapEyesCheckBox = CheckBox(this).apply {
             text = "Поменять левый и правый глаз местами"
             setTextColor(Color.DKGRAY)
@@ -166,6 +193,7 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
                 (ipdSlider.progress + ViewerProfile.MIN_IPD_MM) + " мм"
             fovLabel.text = "Угол обзора: " +
                 (fovSlider.progress + ViewerProfile.MIN_FOV_DEGREES) + "°"
+            fpsLabel.text = "Ограничение рендера: " + fpsChoices[fpsSlider.progress] + " FPS"
         }
         updateLabels()
         ipdSlider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -182,11 +210,20 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
             override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
             override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
         })
+        fpsSlider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                updateLabels()
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
 
         content.addView(ipdLabel)
         content.addView(ipdSlider)
         content.addView(fovLabel)
         content.addView(fovSlider)
+        content.addView(fpsLabel)
+        content.addView(fpsSlider)
         content.addView(swapEyesCheckBox)
 
         AlertDialog.Builder(this)
@@ -197,16 +234,19 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
                 viewerProfile = ViewerProfile()
                 profileStore.save(viewerProfile)
                 renderer.applyViewerProfile(viewerProfile)
+                lastFrameRequestNanos = 0L
                 infoView.text = sensorStatusText()
             }
             .setPositiveButton("Сохранить") { _, _ ->
                 viewerProfile = ViewerProfile(
                     ipdMillimeters = ipdSlider.progress + ViewerProfile.MIN_IPD_MM,
                     fieldOfViewDegrees = fovSlider.progress + ViewerProfile.MIN_FOV_DEGREES,
-                    swapEyes = swapEyesCheckBox.isChecked
+                    swapEyes = swapEyesCheckBox.isChecked,
+                    targetFps = fpsChoices[fpsSlider.progress]
                 ).normalized()
                 profileStore.save(viewerProfile)
                 renderer.applyViewerProfile(viewerProfile)
+                lastFrameRequestNanos = 0L
                 infoView.text = sensorStatusText()
             }
             .show()
@@ -219,7 +259,8 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
             "VR SHINECON · СТЕРЕО · ГИРОСКОП НЕ НАЙДЕН"
         }
         return sensorText + " · IPD " + viewerProfile.ipdMillimeters +
-            " мм · FOV " + viewerProfile.fieldOfViewDegrees + "°"
+            " мм · FOV " + viewerProfile.fieldOfViewDegrees + "° · " +
+            viewerProfile.targetFps + " FPS"
     }
 
     private fun controlButton(label: String, action: () -> Unit): Button =
@@ -231,7 +272,11 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
 
     override fun onResume() {
         super.onResume()
-        if (::glView.isInitialized) glView.onResume()
+        if (::glView.isInitialized) {
+            glView.onResume()
+            lastFrameRequestNanos = 0L
+            Choreographer.getInstance().postFrameCallback(frameCallback)
+        }
         rotationSensor?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
         }
@@ -239,6 +284,7 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
     }
 
     override fun onPause() {
+        Choreographer.getInstance().removeFrameCallback(frameCallback)
         sensorManager.unregisterListener(this)
         if (::glView.isInitialized) glView.onPause()
         super.onPause()
@@ -291,5 +337,9 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
                 or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                 or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         )
+    }
+
+    private companion object {
+        const val NANOS_PER_SECOND = 1_000_000_000L
     }
 }
