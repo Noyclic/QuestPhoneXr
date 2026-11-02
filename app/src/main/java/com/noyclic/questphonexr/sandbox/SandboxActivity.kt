@@ -31,6 +31,7 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import java.util.Locale
 import com.noyclic.questphonexr.input.AndroidGamepadInputAdapter
 import com.noyclic.questphonexr.tracking.HandLandmarkerController
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
@@ -338,9 +339,16 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         val leftConnected = controllers.any { it.hand == com.noyclic.questphonexr.tracking.HandSide.LEFT }
         val rightConnected = controllers.any { it.hand == com.noyclic.questphonexr.tracking.HandSide.RIGHT }
         val scene = simulation.snapshot()
+        val actualFps = renderer.measuredFps
+        val fpsText = if (actualFps > 0f) {
+            String.format(Locale.US, "%.1f", actualFps)
+        } else {
+            "—"
+        }
         return "QUESTPHONEXR · VR-ПЕСОЧНИЦА · СТЕРЕО 3DoF" +
             "\nГироскоп: " + (if (sensorAvailable) "да" else "нет") +
-            " · IPD " + viewerProfile.ipdMillimeters + " мм · FPS до " + viewerProfile.targetFps +
+            " · IPD " + viewerProfile.ipdMillimeters + " мм · FPS лимит " + viewerProfile.targetFps +
+            " · факт " + fpsText +
             "\n" + cameraStatusMessage + " · рук: " + latestHandFrame.handCount +
             "\nJoy-Con L: " + (if (leftConnected) "подключён" else "нет") +
             " · R: " + (if (rightConnected) "подключён" else "нет") +
