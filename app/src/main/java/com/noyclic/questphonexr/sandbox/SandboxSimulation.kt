@@ -176,7 +176,7 @@ class SandboxSimulation {
         val left = if (leftRaw.cameraTracked) {
             val smoothedLandmarks = leftHandPoseSmoother.update(leftRaw.landmarks)
             leftRaw.copy(
-                cursor = smoothedLandmarks.firstOrNull()
+                cursor = interactionCursor(smoothedLandmarks, leftRaw.grabbing)
                     ?: leftCursorSmoother.update(leftRaw.cursor),
                 landmarks = smoothedLandmarks,
                 trackingLost = false
@@ -189,7 +189,7 @@ class SandboxSimulation {
         val right = if (rightRaw.cameraTracked) {
             val smoothedLandmarks = rightHandPoseSmoother.update(rightRaw.landmarks)
             rightRaw.copy(
-                cursor = smoothedLandmarks.firstOrNull()
+                cursor = interactionCursor(smoothedLandmarks, rightRaw.grabbing)
                     ?: rightCursorSmoother.update(rightRaw.cursor),
                 landmarks = smoothedLandmarks,
                 trackingLost = false
@@ -252,17 +252,7 @@ class SandboxSimulation {
         val cameraLandmarks = trackedHand?.points
             ?.let { SandboxHandPoseMapper.map(it, handCalibration) }
             .orEmpty()
-        val cameraCursor = if (trackedHand?.isPinching == true) {
-            val thumbTip = cameraLandmarks.getOrNull(4)
-            val indexTip = cameraLandmarks.getOrNull(8)
-            if (thumbTip != null && indexTip != null) {
-                (thumbTip + indexTip) * 0.5f
-            } else {
-                indexTip ?: cameraLandmarks.firstOrNull()
-            }
-        } else {
-            cameraLandmarks.getOrNull(8) ?: cameraLandmarks.firstOrNull()
-        }
+        val cameraCursor = interactionCursor(cameraLandmarks, trackedHand?.isPinching == true)
         val baseX = if (hand == HandSide.LEFT) -0.65f else 0.65f
         val gamepadCursor = physical?.let {
             SandboxVector3(
@@ -290,6 +280,16 @@ class SandboxSimulation {
             cameraTracked = trackedHand != null,
             landmarks = cameraLandmarks
         )
+    }
+
+    private fun interactionCursor(
+        landmarks: List<SandboxVector3>,
+        isPinching: Boolean
+    ): SandboxVector3? {
+        val indexTip = landmarks.getOrNull(8) ?: landmarks.firstOrNull() ?: return null
+        if (!isPinching) return indexTip
+        val thumbTip = landmarks.getOrNull(4) ?: return indexTip
+        return (thumbTip + indexTip) * 0.5f
     }
 
     private fun updateGrab(
