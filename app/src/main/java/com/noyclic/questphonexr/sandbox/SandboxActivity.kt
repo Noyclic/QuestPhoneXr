@@ -625,8 +625,12 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
     private fun statusText(): String {
         val controllers = controllerSnapshots
-        val leftConnected = controllers.any { it.hand == com.noyclic.questphonexr.tracking.HandSide.LEFT }
-        val rightConnected = controllers.any { it.hand == com.noyclic.questphonexr.tracking.HandSide.RIGHT }
+        val leftConnected = controllers.any {
+            it.hand == com.noyclic.questphonexr.tracking.HandSide.LEFT
+        }
+        val rightConnected = controllers.any {
+            it.hand == com.noyclic.questphonexr.tracking.HandSide.RIGHT
+        }
         val scene = simulation.snapshot()
         val actualFps = renderer.measuredFps
         val fpsText = if (actualFps > 0f) {
@@ -634,35 +638,44 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         } else {
             "—"
         }
-        return "QUESTPHONEXR · VR-ПЕСОЧНИЦА · СТЕРЕО 3DoF" +
-            "
-Гироскоп: " + (if (sensorAvailable) "да" else "нет") +
-            " · IPD " + viewerProfile.ipdMillimeters + " мм · FPS лимит " +
-            adaptivePerformanceState.renderFpsCap +
-            " · факт " + fpsText +
-            "
-Автопрофиль: " + performancePreset.tier.label +
-            " · " + adaptivePerformanceState.label +
-            " · камера " + effectiveCameraWidthPx() + "×" + effectiveCameraHeightPx() +
-            " · две руки · MediaPipe до " +
-            (1000L / adaptivePerformanceState.minimumInferenceIntervalMs.coerceAtLeast(1L)) + " кадр/с" +
-            "
-" + cameraStatusMessage + " · рук: " + latestHandFrame.handCount +
-            "
-MediaPipe: " + if (measuredHandTrackingFps > 0f) {
-                String.format(Locale.US, "%.1f", measuredHandTrackingFps)
-            } else {
-                "—"
-            } + " FPS · pipeline " + latestHandPipelineLatencyMs + " мс" +
-            " · камера " + cameraSourceSizeLabel + " → модель " + mediaPipeInputSizeLabel +
-            "
-Joy-Con L: " + (if (leftConnected) "подключён" else "нет") +
-            " · R: " + (if (rightConnected) "подключён" else "нет") +
-            "
-Объектов: " + scene.objects.size + " · захвачено: " + scene.grabbedObjectCount +
-            " · очки: " + scene.score +
-            "
-Щипок пальцами или кнопки Joy-Con захватывают предметы"
+        val handFpsText = if (measuredHandTrackingFps > 0f) {
+            String.format(Locale.US, "%.1f", measuredHandTrackingFps)
+        } else {
+            "—"
+        }
+        val inferenceFps =
+            1000L / adaptivePerformanceState.minimumInferenceIntervalMs.coerceAtLeast(1L)
+
+        return buildString {
+            append("QUESTPHONEXR · VR-ПЕСОЧНИЦА · СТЕРЕО 3DoF")
+            append('\n')
+            append("Гироскоп: ").append(if (sensorAvailable) "да" else "нет")
+            append(" · IPD ").append(viewerProfile.ipdMillimeters)
+            append(" мм · FPS лимит ").append(adaptivePerformanceState.renderFpsCap)
+            append(" · факт ").append(fpsText)
+            append('\n')
+            append("Автопрофиль: ").append(performancePreset.tier.label)
+            append(" · ").append(adaptivePerformanceState.label)
+            append(" · камера ").append(effectiveCameraWidthPx())
+            append('×').append(effectiveCameraHeightPx())
+            append(" · две руки · MediaPipe до ").append(inferenceFps).append(" кадр/с")
+            append('\n')
+            append(cameraStatusMessage).append(" · рук: ").append(latestHandFrame.handCount)
+            append('\n')
+            append("MediaPipe: ").append(handFpsText)
+            append(" FPS · pipeline ").append(latestHandPipelineLatencyMs)
+            append(" мс · камера ").append(cameraSourceSizeLabel)
+            append(" → модель ").append(mediaPipeInputSizeLabel)
+            append('\n')
+            append("Joy-Con L: ").append(if (leftConnected) "подключён" else "нет")
+            append(" · R: ").append(if (rightConnected) "подключён" else "нет")
+            append('\n')
+            append("Объектов: ").append(scene.objects.size)
+            append(" · захвачено: ").append(scene.grabbedObjectCount)
+            append(" · очки: ").append(scene.score)
+            append('\n')
+            append("Щипок пальцами или кнопки Joy-Con захватывают предметы")
+        }
     }
 
     private fun updateStatus() {
