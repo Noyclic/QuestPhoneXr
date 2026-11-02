@@ -173,7 +173,8 @@ class SandboxSimulationTest {
         simulation.update(emptyList(), HandTrackingFrame(100L, listOf(pinching)), 1f / 30f)
 
         val targetPoints = pickupPoints.toMutableList()
-        targetPoints[0] = HandPoint(0.5f, 0.895f, 0f)
+        targetPoints[4] = HandPoint(0.5f, 0.895f, 0f)
+        targetPoints[8] = HandPoint(0.5f, 0.895f, 0f)
         simulation.update(
             emptyList(),
             HandTrackingFrame(
