@@ -18,7 +18,7 @@ The VR sandbox is the first interactive scene for testing QuestPhoneXR's phone-b
 4. Move a hand to move its colored cursor.
 5. Pinch the thumb and index finger to grab the nearest object. Release the pinch to drop it; moving your hand while holding gives the object a simple throw velocity.
 
-The MediaPipe tracker reports left/right hand labels, 21 landmarks, and a filtered pinch state with hysteresis. The sandbox maps the wrist's normalized image position to a 2D reach plane.
+The MediaPipe tracker reports left/right hand labels, 21 landmarks, and a filtered pinch state with hysteresis. The sandbox maps the wrist's normalized image position to a 2D reach plane and applies a small low-pass filter to reduce cursor jitter.
 
 ## Joy-Con and gamepad controls
 
@@ -39,4 +39,4 @@ Analog trigger axes and common digital button codes are recognized. Exact Joy-Co
 - Physics includes gravity, floor bounce, friction, grab/release, capped throw speed, and a simple target hit check. Objects do not yet collide with one another.
 - This sandbox is a test scene, not a playable port of Baldi, Granny, Open Saber, or QuestCraft.
 
-The scene is rendered through OpenGL ES 2.0 and uses the configured preview frame-rate limit. Actual performance, camera visibility through the VR viewer, and Joy-Con mapping still need a physical-device test on the target phone.
+The scene is rendered through OpenGL ES 2.0 and uses the configured preview frame-rate limit. The HUD reports both the selected cap and measured render FPS (averaged over one-second windows). This measures sandbox rendering, not total camera inference or game performance. Actual performance, camera visibility through the VR viewer, and Joy-Con mapping still need a physical-device test on the target phone.
