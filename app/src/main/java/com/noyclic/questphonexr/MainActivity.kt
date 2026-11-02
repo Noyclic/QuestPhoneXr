@@ -5,7 +5,10 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.hardware.input.InputManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
@@ -45,7 +48,9 @@ import java.util.concurrent.Executors
 import kotlin.math.hypot
 
 /** Camera and controller diagnostics screen opened from the phone-first game library. */
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), InputManager.InputDeviceListener {
+
+    private val inputManager by lazy { getSystemService(INPUT_SERVICE) as InputManager }
 
     private lateinit var previewView: PreviewView
     private lateinit var statusView: TextView
@@ -381,6 +386,29 @@ class MainActivity : ComponentActivity() {
     private fun showStatus(message: String) {
         cameraStatusMessage = message
         renderDiagnostics()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        inputManager.registerInputDeviceListener(this, Handler(Looper.getMainLooper()))
+        gamepadInput.refreshConnectedDevices()
+    }
+
+    override fun onPause() {
+        inputManager.unregisterInputDeviceListener(this)
+        super.onPause()
+    }
+
+    override fun onInputDeviceAdded(deviceId: Int) {
+        gamepadInput.refreshConnectedDevices()
+    }
+
+    override fun onInputDeviceRemoved(deviceId: Int) {
+        gamepadInput.onDeviceRemoved(deviceId)
+    }
+
+    override fun onInputDeviceChanged(deviceId: Int) {
+        gamepadInput.refreshConnectedDevices()
     }
 
     override fun onDestroy() {
