@@ -9,7 +9,7 @@ data class OpenXrProbeReport(
     val message: String
 ) {
     val isSuccessful: Boolean
-        get() = status == SUCCESS_STATUS
+        get() = status == SUCCESS_STATUS || status == FIRST_FRAME_SUCCESS_STATUS
 
     fun toDisplayText(): String = buildString {
         append(status)
@@ -18,7 +18,8 @@ data class OpenXrProbeReport(
     }
 
     companion object {
-        const val SUCCESS_STATUS = "FIRST_FRAME_SUBMITTED_GLES"
+        const val SUCCESS_STATUS = "SUSTAINED_FRAMES_SUBMITTED_GLES"
+        const val FIRST_FRAME_SUCCESS_STATUS = "FIRST_FRAME_SUBMITTED_GLES"
 
         fun parse(json: String): OpenXrProbeReport = runCatching {
             val root = JSONObject(json)
