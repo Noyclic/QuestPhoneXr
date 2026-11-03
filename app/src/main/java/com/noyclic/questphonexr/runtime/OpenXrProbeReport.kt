@@ -14,6 +14,9 @@ data class OpenXrProbeReport(
     val orientationValidSamples: Long? = null,
     val positionValidSamples: Long? = null,
     val fullTrackingSamples: Long? = null,
+    val orientationTrackedSamples: Long? = null,
+    val positionTrackedSamples: Long? = null,
+    val fullTrackedSamples: Long? = null,
     val lastViewStateFlags: Long? = null,
     val maxHeadPositionDeltaMeters: Double? = null,
     val maxHeadRotationDeltaDegrees: Double? = null
@@ -41,6 +44,20 @@ data class OpenXrProbeReport(
                 .append(poseSamples)
                 .append(" · оба канала ")
                 .append(fullTrackingSamples ?: 0)
+                .append("/")
+                .append(poseSamples)
+        }
+        if (poseSamples != null) {
+            append("\nАктивное tracking: ориентация ")
+                .append(orientationTrackedSamples ?: 0)
+                .append("/")
+                .append(poseSamples)
+                .append(" · позиция ")
+                .append(positionTrackedSamples ?: 0)
+                .append("/")
+                .append(poseSamples)
+                .append(" · оба канала ")
+                .append(fullTrackedSamples ?: 0)
                 .append("/")
                 .append(poseSamples)
         }
@@ -97,6 +114,9 @@ data class OpenXrProbeReport(
                 orientationValidSamples = root.optionalLong("orientationValidSamples"),
                 positionValidSamples = root.optionalLong("positionValidSamples"),
                 fullTrackingSamples = root.optionalLong("fullTrackingSamples"),
+                orientationTrackedSamples = root.optionalLong("orientationTrackedSamples"),
+                positionTrackedSamples = root.optionalLong("positionTrackedSamples"),
+                fullTrackedSamples = root.optionalLong("fullTrackedSamples"),
                 lastViewStateFlags = root.optionalLong("lastViewStateFlags"),
                 maxHeadPositionDeltaMeters = root.optionalDouble("maxHeadPositionDeltaMeters"),
                 maxHeadRotationDeltaDegrees = root.optionalDouble("maxHeadRotationDeltaDegrees")
