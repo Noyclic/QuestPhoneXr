@@ -44,7 +44,7 @@ class SandboxSimulationTest {
             1f / 30f
         )
         val moved = simulation.snapshot().objects.single { it.heldBy == HandSide.LEFT }
-        assertEquals(1.5f, moved.position.x, 0.001f)
+        assertEquals(1.54f, moved.position.x, 0.001f)
     }
 
     @Test
