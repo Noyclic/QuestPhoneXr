@@ -8,20 +8,26 @@ import org.junit.Test
 
 class MonadoVulkanPrerequisitesTest {
     @Test
-    fun requiresBothExternalFdExtensions() {
+    fun requiresAndroidHardwareBufferAndFdSynchronizationExtensions() {
         val result = MonadoVulkanPrerequisites.assess(report(device(
-            extensions = mapOf("VK_KHR_external_memory_fd" to true)
+            extensions = mapOf(
+                "VK_ANDROID_external_memory_android_hardware_buffer" to true
+            )
         )))
         assertEquals(MonadoVulkanPrerequisiteState.REQUIRED_EXTENSIONS_MISSING, result.state)
-        assertEquals(listOf("VK_KHR_external_semaphore_fd"), result.missingExtensions)
+        assertEquals(
+            listOf("VK_KHR_external_semaphore_fd", "VK_KHR_external_fence_fd"),
+            result.missingExtensions
+        )
     }
 
     @Test
-    fun recognizesDriverThatAdvertisesBothRequiredExtensions() {
+    fun recognizesDriverThatAdvertisesAndroidPrerequisiteExtensions() {
         val result = MonadoVulkanPrerequisites.assess(report(device(
             extensions = mapOf(
-                "VK_KHR_external_memory_fd" to true,
-                "VK_KHR_external_semaphore_fd" to true
+                "VK_ANDROID_external_memory_android_hardware_buffer" to true,
+                "VK_KHR_external_semaphore_fd" to true,
+                "VK_KHR_external_fence_fd" to true
             )
         )))
         assertEquals(MonadoVulkanPrerequisiteState.DRIVER_EXTENSION_CANDIDATE, result.state)
@@ -41,6 +47,14 @@ class MonadoVulkanPrerequisitesTest {
     fun reportsWhenExtensionEnumerationFailed() {
         val result = MonadoVulkanPrerequisites.assess(report(device(extensionEnumerationSucceeded = false)))
         assertEquals(MonadoVulkanPrerequisiteState.EXTENSION_ENUMERATION_UNAVAILABLE, result.state)
+    }
+
+    @Test
+    fun reportsWhenNoVulkanPhysicalDeviceWasEnumerated() {
+        val result = MonadoVulkanPrerequisites.assess(
+            NativeVulkanProbeReport(true, "OK", "empty", "1.1", emptyList())
+        )
+        assertEquals(MonadoVulkanPrerequisiteState.NO_VULKAN_DEVICE, result.state)
     }
 
     private fun report(device: NativeVulkanDevice) =
