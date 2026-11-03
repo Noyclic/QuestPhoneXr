@@ -25,17 +25,17 @@ data class OpenXrLoaderProbeReport(
             "ANDROID_CONTEXT_UNAVAILABLE" -> "Android Context недоступен"
             else -> "OpenXR smoke test: " + status
         })
-        loaderInitResult?.let { append("\\nxrInitializeLoaderKHR: ").append(it) }
-        extensionEnumerationResult?.let { append("\\nxrEnumerateInstanceExtensionProperties: ").append(it) }
-        instanceCreateResult?.let { append("\\nxrCreateInstance: ").append(it) }
-        getSystemResult?.let { append("\\nxrGetSystem: ").append(it) }
-        if (systemName.isNotBlank()) append("\\nHMD system: ").append(systemName)
-        append("\\n").append(message)
+        loaderInitResult?.let { append("\nxrInitializeLoaderKHR: ").append(it) }
+        extensionEnumerationResult?.let { append("\nxrEnumerateInstanceExtensionProperties: ").append(it) }
+        instanceCreateResult?.let { append("\nxrCreateInstance: ").append(it) }
+        getSystemResult?.let { append("\nxrGetSystem: ").append(it) }
+        if (systemName.isNotBlank()) append("\nHMD system: ").append(systemName)
+        append("\n").append(message)
         if (extensions.isNotEmpty()) {
-            append("\\nРасширения Runtime (").append(extensions.size).append("):\\n")
-            extensions.forEach { append("• ").append(it).append("\\n") }
+            append("\nРасширения Runtime (").append(extensions.size).append("):\\n")
+            extensions.forEach { append("• ").append(it).append("\n") }
         }
-        append("\\nНе проверены: xrCreateSession, graphics binding, swapchain, compositor, frame loop и ввод.")
+        append("\nНе проверены: xrCreateSession, graphics binding, swapchain, compositor, frame loop и ввод.")
     }
 }
 
@@ -71,7 +71,7 @@ object OpenXrLoaderProbe {
             )
         }
         return runCatching {
-            val root = JSONObject(nativeProbe(context.applicationContext))
+            val root = JSONObject(nativeProbe(context))
             val extensionsJson = root.optJSONArray("extensions")
             val extensions = buildList {
                 if (extensionsJson != null) {
