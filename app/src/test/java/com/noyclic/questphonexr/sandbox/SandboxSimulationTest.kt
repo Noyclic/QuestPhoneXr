@@ -44,7 +44,7 @@ class SandboxSimulationTest {
             1f / 30f
         )
         val moved = simulation.snapshot().objects.single { it.heldBy == HandSide.LEFT }
-        assertEquals(-0.2f, moved.position.x, 0.001f)
+        assertEquals(1.5f, moved.position.x, 0.001f)
     }
 
     @Test
@@ -134,9 +134,39 @@ class SandboxSimulationTest {
         val snapshot = simulation.snapshot()
         assertTrue(snapshot.rightHand.cameraTracked)
         assertFalse(snapshot.rightHand.grabbing)
-        assertEquals(0.66f, snapshot.rightHand.cursor.x, 0.001f)
-        assertEquals(0.602f, snapshot.rightHand.cursor.y, 0.001f)
+        assertEquals(1.32f, snapshot.rightHand.cursor.x, 0.001f)
+        assertEquals(1.204f, snapshot.rightHand.cursor.y, 0.001f)
         assertEquals(0, snapshot.grabbedObjectCount)
+    }
+
+    @Test
+    fun joyConStickMovesTheVirtualHandAcrossTheFullReachPlaneEvenWithCameraTracking() {
+        val simulation = SandboxSimulation()
+        val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+        points[8] = HandPoint(0.5f, 0.5f, 0f)
+        val cameraHand = TrackedHand(
+            points = points,
+            pinchStrength = 0.1f,
+            isPinching = false,
+            side = HandSide.LEFT
+        )
+        val leftJoyCon = controller(
+            hand = HandSide.LEFT,
+            stickX = 0.75f,
+            stickY = -0.5f
+        )
+
+        simulation.update(
+            listOf(leftJoyCon),
+            HandTrackingFrame(300L, listOf(cameraHand)),
+            1f / 30f
+        )
+
+        val moved = simulation.snapshot().leftHand
+        assertTrue(moved.cameraTracked)
+        assertEquals(2.25f, moved.cursor.x, 0.001f)
+        assertEquals(1.075f, moved.cursor.y, 0.001f)
+        assertEquals(moved.cursor, moved.landmarks[8])
     }
 
     @Test

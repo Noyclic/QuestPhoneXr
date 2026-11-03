@@ -253,16 +253,26 @@ class SandboxSimulation {
             ?.let { SandboxHandPoseMapper.map(it, handCalibration) }
             .orEmpty()
         val cameraCursor = interactionCursor(cameraLandmarks, trackedHand?.isPinching == true)
-        val baseX = if (hand == HandSide.LEFT) -0.65f else 0.65f
-        val gamepadCursor = physical?.let {
-            SandboxVector3(
-                x = (baseX + it.stickX * 0.9f).coerceIn(-1.65f, 1.65f),
-                y = (-0.1f - it.stickY * 0.85f).coerceIn(-1.15f, 1.15f),
-                z = GAMEPAD_CURSOR_DEPTH
-            )
-        }
+        // A deflected Joy-Con stick takes temporary control of the virtual hand.
+        // Releasing the stick returns control to MediaPipe (or the default hand pose).
+        val gamepadCursor = physical
+            ?.takeIf { kotlin.math.abs(it.stickX) > GAMEPAD_STICK_DEADZONE ||
+                kotlin.math.abs(it.stickY) > GAMEPAD_STICK_DEADZONE }
+            ?.let {
+                SandboxVector3(
+                    x = (it.stickX * GAMEPAD_REACH_WIDTH).coerceIn(-3.0f, 3.0f),
+                    y = (-it.stickY * GAMEPAD_REACH_HEIGHT).coerceIn(-2.15f, 2.15f),
+                    z = GAMEPAD_CURSOR_DEPTH
+                )
+            }
         val fallbackCursor = if (hand == HandSide.LEFT) DEFAULT_LEFT_CURSOR else DEFAULT_RIGHT_CURSOR
-        val cursor = cameraCursor ?: gamepadCursor ?: fallbackCursor
+        val cursor = gamepadCursor ?: cameraCursor ?: fallbackCursor
+        val renderedLandmarks = if (gamepadCursor != null && cameraCursor != null) {
+            val offset = gamepadCursor - cameraCursor
+            cameraLandmarks.map { it + offset }
+        } else {
+            cameraLandmarks
+        }
         val digitalGrab = physical?.pressedKeyCodes?.any {
             it == GamepadButtonCodes.BUTTON_L1 ||
                 it == GamepadButtonCodes.BUTTON_R1 ||
@@ -278,7 +288,7 @@ class SandboxSimulation {
             grabbing = grabbing,
             connected = trackedHand != null || physical != null,
             cameraTracked = trackedHand != null,
-            landmarks = cameraLandmarks
+            landmarks = renderedLandmarks
         )
     }
 
@@ -364,6 +374,9 @@ class SandboxSimulation {
         private val TARGET_POSITION = SandboxVector3(0f, -0.85f, -2.65f)
         private const val TARGET_HIT_RADIUS = 0.48f
         private const val GAMEPAD_CURSOR_DEPTH = -2.35f
+        private const val GAMEPAD_STICK_DEADZONE = 0.16f
+        private const val GAMEPAD_REACH_WIDTH = 3.0f
+        private const val GAMEPAD_REACH_HEIGHT = 2.15f
         private const val GRAB_THRESHOLD = 0.45f
         private const val MAX_GRAB_DISTANCE = 1.2f
         private const val MAX_THROW_SPEED = 4.5f
