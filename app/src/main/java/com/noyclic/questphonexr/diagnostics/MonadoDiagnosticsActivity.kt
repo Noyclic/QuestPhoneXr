@@ -112,6 +112,14 @@ class MonadoDiagnosticsActivity : ComponentActivity() {
                         appendLine("Exists: ${candidate.libraryFileExists}")
                         appendLine("Broker: ${candidate.brokerAuthority}")
                         appendLine("Function remapping: ${candidate.hasFunctionRemapping}")
+                        appendLine()
+                        appendLine("--- DIRECT MONADO LIBRARY LOAD / NEGOTIATION ---")
+                        appendLine("This checks dlopen + xrNegotiateLoaderRuntimeInterface only; it does not create an XrInstance or start a session.")
+                        appendLine(runCatching {
+                            OpenXrLoaderProbe.inspectRuntimeLibrary(candidate.libraryPath)
+                        }.getOrElse { error ->
+                            "Direct library probe exception: ${error.javaClass.simpleName}: ${error.message}"
+                        })
                     }
                 }
                 appendLine()
