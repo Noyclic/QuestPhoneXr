@@ -134,8 +134,8 @@ class SandboxSimulationTest {
         val snapshot = simulation.snapshot()
         assertTrue(snapshot.rightHand.cameraTracked)
         assertFalse(snapshot.rightHand.grabbing)
-        assertEquals(1.32f, snapshot.rightHand.cursor.x, 0.001f)
-        assertEquals(1.204f, snapshot.rightHand.cursor.y, 0.001f)
+        assertEquals(0.22f * 2.55f * 2.4f, snapshot.rightHand.cursor.x, 0.002f)
+        assertEquals(0.28f * 2.55f * 1.8f, snapshot.rightHand.cursor.y, 0.002f)
         assertEquals(0, snapshot.grabbedObjectCount)
     }
 
