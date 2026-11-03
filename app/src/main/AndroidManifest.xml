@@ -8,6 +8,7 @@
 
     <queries>
         <package android:name="org.khronos.openxr.runtime_broker" />
+        <package android:name="org.freedesktop.monado.openxr_runtime.out_of_process" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />

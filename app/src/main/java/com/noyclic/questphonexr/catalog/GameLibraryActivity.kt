@@ -27,6 +27,8 @@ import com.noyclic.questphonexr.sandbox.SandboxActivity
 import com.noyclic.questphonexr.diagnostics.CrashReportStore
 import com.noyclic.questphonexr.diagnostics.CrashReportFormatter
 import com.noyclic.questphonexr.runtime.OpenXrRuntimeDiscovery
+import com.noyclic.questphonexr.runtime.MonadoAndroidRuntimeProbe
+import com.noyclic.questphonexr.performance.OpenGlesEglProbe
 import com.noyclic.questphonexr.performance.AndroidDeviceCompatibilityProbe
 import com.noyclic.questphonexr.performance.DeviceCompatibilityReport
 import com.noyclic.questphonexr.performance.NativeVulkanProbe
@@ -116,42 +118,92 @@ class GameLibraryActivity : ComponentActivity() {
     }
 
     private fun showDeviceCompatibilityDetails(report: DeviceCompatibilityReport) {
-        val details = buildString {
-            append(report.deviceName)
-            append(" · Android ").append(report.androidVersion)
-            append(" (SDK ").append(report.sdkVersion).append(")\n")
-            append("CPU: ").append(report.processorCount).append(" потоков · ")
-                .append(if (report.is64BitProcess) "64-bit" else "32-bit").append("\n")
-            append("ABI: ").append(report.supportedAbis.joinToString().ifBlank { "неизвестно" }).append("\n")
-            append("RAM: ").append(report.totalRamMb).append(" МБ всего, ")
-                .append(report.availableRamMb).append(" МБ свободно сейчас\n")
-            append("OpenGL ES: ").append(report.openGlEsVersion).append("\n")
-            append("Vulkan: ").append(report.vulkanApiVersion ?: "Android не сообщил версию")
-            report.vulkanHardwareLevel?.let { append(" · hardware level ").append(it) }
-            append("\n")
-            report.rotationVectorSensorName?.let {
-                append("Датчик ориентации: ").append(it).append("\n")
-            }
-            append("\nПРОВЕРКИ\n")
-            report.checks.forEach { check ->
-                append("• ").append(check.title).append(" — ").append(check.status.label)
-                    .append("\n").append(check.detail).append("\n\n")
-            }
-            append("Важно: это аппаратная предварительная проверка, не тест производительности. ")
-            append("Android Vulkan 1.1+ также объявляет AHB external-memory и SYNC_FD semaphore/fence handles. Но точные FD extensions, compositor и запуск OpenXR пока не подтверждены.")
-            append("\n\nNATIVE VULKAN PROBE\n")
-            val nativeProbe = NativeVulkanProbe.inspect()
-            append(nativeProbe.toDisplayText())
-            append("\n\nOPENXR / MONADO\n")
-            append("Нативная инициализация OpenXR временно пропущена: предыдущий Loader smoke test приводил к сбою Android IPC-клиента Monado (IMonado был null при передаче Surface). Здесь проверяются только характеристики Android и GPU; Runtime Broker отображается отдельно и не запускает Runtime. Создание OpenXR instance/session и работа compositor пока не подтверждены.")
-            append("\n\nРезультат ничего не блокирует: он только показывает ограничения устройства.")
-        }
+        val progress = AlertDialog.Builder(this)
+            .setTitle("Проверка GPU и Monado")
+            .setMessage("Проверяем временный GLES-контекст, Vulkan capabilities, APK и Android services…")
+            .setCancelable(false)
+            .create()
+        progress.show()
 
-        AlertDialog.Builder(this)
-            .setTitle("Совместимость устройства")
-            .setMessage(details)
-            .setPositiveButton("Понятно", null)
-            .show()
+        Thread({
+            val nativeVulkan = runCatching { NativeVulkanProbe.inspect() }
+            val gles = runCatching { OpenGlesEglProbe.inspect() }
+            val monado = runCatching { MonadoAndroidRuntimeProbe.inspect(this) }
+            val activeRuntime = runCatching { OpenXrRuntimeDiscovery.inspect(this) }
+
+            val runtimeText = activeRuntime.fold(
+                { result ->
+                    buildString {
+                        append(result.message)
+                        result.processAbi?.let { append("\\nABI процесса: ").append(it) }
+                        result.activeCandidate?.let {
+                            append("\\nАктивный пакет: ").append(it.packageName)
+                            append("\\nБиблиотека: ").append(it.libraryPath)
+                        }
+                    }
+                },
+                { error -> "Ошибка Runtime Broker discovery: " + (error.message ?: error.javaClass.simpleName) }
+            )
+
+            val details = buildString {
+                append(report.deviceName)
+                append(" · Android ").append(report.androidVersion)
+                append(" (SDK ").append(report.sdkVersion).append(")\\n")
+                append("CPU: ").append(report.processorCount).append(" потоков · ")
+                    .append(if (report.is64BitProcess) "64-bit" else "32-bit").append("\\n")
+                append("ABI: ").append(report.supportedAbis.joinToString().ifBlank { "неизвестно" }).append("\\n")
+                append("RAM: ").append(report.totalRamMb).append(" МБ всего, ")
+                    .append(report.availableRamMb).append(" МБ свободно сейчас\\n")
+                append("OpenGL ES (Android): ").append(report.openGlEsVersion).append("\\n")
+                append("Vulkan (Android): ").append(report.vulkanApiVersion ?: "версия не сообщена")
+                report.vulkanHardwareLevel?.let { append(" · hardware level ").append(it) }
+                append("\\n")
+                report.rotationVectorSensorName?.let {
+                    append("Датчик ориентации: ").append(it).append("\\n")
+                }
+
+                append("\\nАППАРАТНЫЕ ПРОВЕРКИ\\n")
+                report.checks.forEach { check ->
+                    append("• ").append(check.title).append(" — ").append(check.status.label)
+                        .append("\\n").append(check.detail).append("\\n\\n")
+                }
+
+                append("NATIVE VULKAN PROBE\\n")
+                append(nativeVulkan.fold(
+                    { it.toDisplayText() },
+                    { error -> "Ошибка Vulkan probe: " + (error.message ?: error.javaClass.simpleName) }
+                ))
+                append("\\n\\nEGL / OPENGL ES PROBE\\n")
+                append(gles.fold(
+                    { it.toDisplayText() },
+                    { error -> "Ошибка EGL/GLES probe: " + (error.message ?: error.javaClass.simpleName) }
+                ))
+                append("\\n\\nMONADO ANDROID APK\\n")
+                append(monado.fold(
+                    { it.toDisplayText() },
+                    { error -> "Ошибка проверки Monado APK: " + (error.message ?: error.javaClass.simpleName) }
+                ))
+                append("\\n\\nOPENXR RUNTIME BROKER\\n").append(runtimeText)
+
+                append("\\n\\nOPENXR LOADER SMOKE TEST\\n")
+                append("Пока намеренно не запускается: прежний xrCreateInstance приводил к NullPointerException внутри Monado Client при вызове IMonado.passAppSurface(). Повторный вызов может снова закрыть приложение. Сначала проверяем APK, manifest, GPU и EGL без Binder hand-off.")
+                append("\\n\\nИТОГ\\n")
+                append("Успешные Vulkan/GLES и найденный Monado APK ещё не означают, что Binder handshake, XR session, swapchain и compositor заработают. Этот отчёт помогает отделить ограничения драйвера от ошибки Android service.")
+            }
+
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed) {
+                    runCatching { progress.dismiss() }
+                    AlertDialog.Builder(this)
+                        .setTitle("Диагностика Redmi / Monado")
+                        .setMessage(details)
+                        .setPositiveButton("Понятно", null)
+                        .show()
+                } else {
+                    runCatching { progress.dismiss() }
+                }
+            }
+        }, "QuestPhoneXR-compatibility").start()
     }
 
     private fun buildScreen() {
@@ -218,7 +270,7 @@ class GameLibraryActivity : ComponentActivity() {
             0xFFD0D7E2.toInt()
         ).apply { setPadding(0, dp(5), 0, dp(7)) }
         compatibilityPanel.addView(deviceCompatibilityStatusView)
-        compatibilityPanel.addView(button("Проверить совместимость устройства").apply {
+        compatibilityPanel.addView(button("Проверить устройство и Monado").apply {
             setOnClickListener { refreshDeviceCompatibility(showDetails = true) }
         })
         root.addView(compatibilityPanel, LinearLayout.LayoutParams(
