@@ -79,6 +79,11 @@ jobs:
           grep -q "package: name='org.freedesktop.monado.openxr_runtime.out_of_process'" monado-apk-badging.txt
           grep -q "sdkVersion:'26'" monado-apk-badging.txt
           grep -q "arm64-v8a" monado-apk-badging.txt
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump xmltree "$APK" AndroidManifest.xml | tee monado-manifest-tree.txt
+          grep -q "org.khronos.openxr.OpenXRRuntimeService" monado-manifest-tree.txt
+          grep -q "org.khronos.openxr.OpenXRRuntime.SoFilename" monado-manifest-tree.txt
+          grep -q "org.khronos.openxr.OpenXRRuntime.MajorVersion" monado-manifest-tree.txt
+          grep -q "libopenxr_monado.so" monado-manifest-tree.txt
 
       - name: Collect runtime APK and source revision
         run: |
