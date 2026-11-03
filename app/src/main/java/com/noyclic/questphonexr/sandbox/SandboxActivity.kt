@@ -50,6 +50,7 @@ import com.noyclic.questphonexr.performance.AdaptivePerformanceController
 import com.noyclic.questphonexr.performance.AdaptivePerformanceState
 import com.noyclic.questphonexr.performance.DevicePerformancePolicy
 import com.noyclic.questphonexr.performance.DevicePerformancePreset
+import com.noyclic.questphonexr.runtime.OpenXrGlSurfaceLifecycle
 
 /** Phone-first 3D sandbox for testing stereo viewing, Joy-Con input and object grabbing. */
 class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.InputDeviceListener {
@@ -70,6 +71,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
     private lateinit var glView: GLSurfaceView
     private lateinit var renderer: SandboxRenderer
+    private val xrSurfaceLifecycle = OpenXrGlSurfaceLifecycle()
     private lateinit var sensorManager: SensorManager
     private lateinit var statusView: TextView
     private lateinit var viewerProfileStore: ViewerProfileStore
@@ -208,7 +210,29 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             // The existing GLES20 calls remain compatible with an ES 3 context.
             setEGLContextClientVersion(3)
             preserveEGLContextOnPause = true
-            setRenderer(renderer)
+            setRenderer(object : GLSurfaceView.Renderer {
+                override fun onSurfaceCreated(
+                    gl: javax.microedition.khronos.opengles.GL10?,
+                    config: javax.microedition.khronos.egl.EGLConfig?
+                ) {
+                    xrSurfaceLifecycle.onGlSurfaceCreated()
+                    renderer.onSurfaceCreated(gl, config)
+                }
+
+                override fun onSurfaceChanged(
+                    gl: javax.microedition.khronos.opengles.GL10?,
+                    width: Int,
+                    height: Int
+                ) {
+                    xrSurfaceLifecycle.onGlSurfaceChanged(width, height)
+                    renderer.onSurfaceChanged(gl, width, height)
+                }
+
+                override fun onDrawFrame(gl: javax.microedition.khronos.opengles.GL10?) {
+                    xrSurfaceLifecycle.onGlFrame()
+                    renderer.onDrawFrame(gl)
+                }
+            })
             renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
         }
 
@@ -879,7 +903,11 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             append(" → модель ").append(mediaPipeInputSizeLabel)
             append('\n')
             append(pcBridgeStatus).append('\n')
-            append("OpenXR: безопасный режим · Runtime не запускается при входе в Sandbox").append('\n')
+            append("OpenXR GL: ").append(xrSurfaceLifecycle.state.name)
+            append(" · surface #").append(xrSurfaceLifecycle.surfaceGeneration)
+            append(" · ").append(xrSurfaceLifecycle.surfaceWidth).append('×')
+                .append(xrSurfaceLifecycle.surfaceHeight)
+            append(" · постоянный runtime ещё не подключён").append('\n')
             append("Joy-Con L: ").append(if (leftConnected) "подключён" else "нет")
             append(" · R: ").append(if (rightConnected) "подключён" else "нет")
             append('\n')
@@ -906,6 +934,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         super.onResume()
         if (::glView.isInitialized) {
             glView.onResume()
+            glView.queueEvent { xrSurfaceLifecycle.onActivityResumed() }
+            glView.requestRender()
             lastFrameNanos = 0L
             Choreographer.getInstance().postFrameCallback(frameCallback)
         }
@@ -923,7 +953,11 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         Choreographer.getInstance().removeFrameCallback(frameCallback)
         if (::sensorManager.isInitialized) sensorManager.unregisterListener(this)
         inputManager.unregisterInputDeviceListener(this)
-        if (::glView.isInitialized) glView.onPause()
+        if (::glView.isInitialized) {
+            glView.queueEvent { xrSurfaceLifecycle.onActivityPaused() }
+            glView.requestRender()
+            glView.onPause()
+        }
         super.onPause()
     }
 
