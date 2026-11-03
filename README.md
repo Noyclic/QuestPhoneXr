@@ -27,6 +27,12 @@ A game can become phone-compatible through one of three routes:
 
 The QuestPhoneXR input adapter is not a system-wide driver and cannot inject controller input into every unrelated Android APK. Quest-only applications may require source-level changes, replacement of Meta-specific APIs, or a separate Android build. Some games may remain incompatible.
 
+### Universal APK triage (prototype)
+
+The APK library now classifies imported archives into four honest routes: ordinary Android launch candidate, XR source/adapter required, Meta Quest runtime required, or blocked by device requirements. It scans APK archive entries for common Unity/Unreal/Godot and OpenXR/Oculus/SteamVR markers, checks Android API/ABI/required hardware, and explains the likely next step. This is static triage only; it does not prove compatibility or execute APK code.
+
+A separate action can open an installed Android package through Android's launcher. That starts the app as a normal Android application, outside QuestPhoneXR's VR renderer. Quest-only APKs still need a real compatible runtime or a source port; the classifier does not emulate Quest services.
+
 ## Development setup
 
 - Android Studio with Android SDK 36.
