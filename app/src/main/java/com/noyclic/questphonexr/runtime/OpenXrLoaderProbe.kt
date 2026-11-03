@@ -17,10 +17,10 @@ data class OpenXrLoaderProbeReport(
         append(when (status) {
             "INSTANCE_CREATED_SYSTEM_FOUND" -> "OpenXR instance создан, HMD system найден"
             "INSTANCE_CREATED_NO_HMD_SYSTEM" -> "OpenXR instance создан, HMD system не найден"
-            "INSTANCE_CREATION_FAILED" -> "Runtime найден, но xrCreateInstance завершился ошибкой"
+            "INSTANCE_CREATION_FAILED" -> "Перечисление расширений прошло; xrCreateInstance завершился ошибкой"
             "ANDROID_INSTANCE_EXTENSION_UNAVAILABLE" -> "Runtime не поддерживает Android instance"
             "RUNTIME_FOUND" -> "OpenXR Loader и активный Runtime отвечают"
-            "RUNTIME_ENUMERATION_FAILED" -> "Loader запустился, Runtime не ответил"
+            "RUNTIME_ENUMERATION_FAILED" -> "Не удалось перечислить расширения OpenXR"
             "LOADER_INITIALIZATION_FAILED" -> "Не удалось инициализировать OpenXR Loader"
             "ANDROID_CONTEXT_UNAVAILABLE" -> "Android Context недоступен"
             else -> "OpenXR smoke test: " + status
