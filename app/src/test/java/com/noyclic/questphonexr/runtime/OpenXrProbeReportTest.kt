@@ -18,6 +18,17 @@ class OpenXrProbeReportTest {
     }
 
     @Test
+    fun persistentFrameSubmissionIsRecognizedAndReportsFrameCount() {
+        val report = OpenXrProbeReport.parse(
+            """{"status":"FRAME_SUBMITTED","xrResult":0,"framesSubmitted":42,"message":"persistent session active"}"""
+        )
+
+        assertTrue(report.isSuccessful)
+        assertEquals(42L, report.framesSubmitted)
+        assertTrue(report.toDisplayText().contains("42"))
+    }
+
+    @Test
     fun legacySingleFrameSuccessRemainsRecognized() {
         val report = OpenXrProbeReport.parse(
             """{"status":"FIRST_FRAME_SUBMITTED_GLES","xrResult":0,"message":"single frame"}"""
