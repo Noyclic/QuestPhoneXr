@@ -43,12 +43,17 @@
             android:exported="false"
             android:screenOrientation="landscape" />
         <activity
+            android:name=".catalog.GameLibraryActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize|screenLayout|uiMode|density"
+            android:exported="false"
+            android:screenOrientation="landscape" />
+        <activity
             android:name=".MainActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|screenLayout|uiMode|density"
             android:exported="false"
             android:screenOrientation="landscape" />
         <activity
-            android:name=".catalog.GameLibraryActivity"
+            android:name=".ModeSelectionActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|screenLayout|uiMode|density"
             android:exported="true"
             android:screenOrientation="landscape">
