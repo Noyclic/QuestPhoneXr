@@ -194,11 +194,25 @@ class GameLibraryActivity : ComponentActivity() {
             runOnUiThread {
                 if (!isFinishing && !isDestroyed) {
                     runCatching { progress.dismiss() }
-                    AlertDialog.Builder(this)
+                    val detailsDialog = AlertDialog.Builder(this)
                         .setTitle("Диагностика Redmi / Monado")
                         .setMessage(details)
-                        .setPositiveButton("Понятно", null)
-                        .show()
+                        .setPositiveButton("Закрыть", null)
+                        .setNeutralButton("Копировать отчёт", null)
+                        .create()
+                    detailsDialog.setOnShowListener {
+                        detailsDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                            val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            clipboard.setPrimaryClip(
+                                android.content.ClipData.newPlainText(
+                                    "QuestPhoneXR compatibility report",
+                                    details
+                                )
+                            )
+                            Toast.makeText(this, "Отчёт скопирован. Теперь вставь его сюда одним сообщением.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    detailsDialog.show()
                 } else {
                     runCatching { progress.dismiss() }
                 }
