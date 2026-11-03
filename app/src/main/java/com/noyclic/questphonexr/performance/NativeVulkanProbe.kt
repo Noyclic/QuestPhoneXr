@@ -29,7 +29,9 @@ data class NativeVulkanProbeReport(
     val loaderVersion: String?,
     val devices: List<NativeVulkanDevice>
 ) {
-    fun toDisplayText(): String = buildString {
+    fun toDisplayText(): String {
+        val report = this
+        return buildString {
         append("Native Vulkan: ")
         append(if (available) "доступен" else "недоступен")
         append(" · ").append(status).append("\n")
@@ -70,7 +72,8 @@ data class NativeVulkanProbeReport(
         append(" Это только лёгкая проверка возможностей драйвера; нагрузочный тест не выполнялся.")
 
         append("\n\nПроверка Vulkan-предпосылок Monado (Android):\n")
-        append(MonadoVulkanPrerequisites.assess(this).toDisplayText())
+        append(MonadoVulkanPrerequisites.assess(report).toDisplayText())
+        }
     }
 }
 
