@@ -74,6 +74,11 @@ class SandboxRenderer : GLSurfaceView.Renderer {
         }
     }
 
+    /** Returns the current sensor rotation relative to the recentered world orientation. */
+    fun cameraToWorldRotation(): FloatArray = synchronized(rotationLock) {
+        PhoneVrMath.relativeRotation(pendingHeadRotation, referenceHeadRotation)
+    }
+
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0.018f, 0.025f, 0.04f, 1f)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
