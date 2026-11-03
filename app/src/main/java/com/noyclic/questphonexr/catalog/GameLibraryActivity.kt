@@ -43,6 +43,7 @@ class GameLibraryActivity : ComponentActivity() {
     private lateinit var reportStore: GameTestReportStore
     private lateinit var openXrRuntimeStatusView: TextView
     private lateinit var deviceCompatibilityStatusView: TextView
+    @Volatile private var runtimeCheckInProgress = false
     private val currentDevice by lazy { DeviceFingerprint.current() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,14 +87,65 @@ class GameLibraryActivity : ComponentActivity() {
             }
     }
 
-    private fun refreshOpenXrRuntimeStatus() {
-        if (!::openXrRuntimeStatusView.isInitialized) return
-        val report = OpenXrRuntimeDiscovery.inspect(this)
-        openXrRuntimeStatusView.text = buildString {
-            append(report.message)
-            report.processAbi?.let { append("\nABI процесса: ").append(it) }
-            report.activeCandidate?.let { append("\nБиблиотека: ").append(it.libraryPath) }
-        }
+    private fun refreshOpenXrRuntimeStatus(showDetails: Boolean = false) {
+        if (!::openXrRuntimeStatusView.isInitialized || runtimeCheckInProgress) return
+        runtimeCheckInProgress = true
+        openXrRuntimeStatusView.text = "Проверяем Runtime Broker и активную библиотеку…"
+
+        Thread({
+            val result = runCatching { OpenXrRuntimeDiscovery.inspect(this) }
+            runOnUiThread {
+                runtimeCheckInProgress = false
+                if (isFinishing || isDestroyed || !::openXrRuntimeStatusView.isInitialized) return@runOnUiThread
+
+                val report = result.getOrNull()
+                val details = if (report != null) buildString {
+                    append("Состояние: ").append(report.state.name)
+                    append("\n").append(report.message)
+                    append("\nABI процесса: ").append(report.processAbi ?: "не определён")
+                    if (report.candidates.isEmpty()) {
+                        append("\nАктивный runtime-кандидат от Broker не возвращён.")
+                    } else {
+                        report.candidates.forEachIndexed { index, candidate ->
+                            append("\n\nКандидат ").append(index + 1)
+                            append("\nПакет: ").append(candidate.packageName)
+                            append("\nBroker: ").append(candidate.brokerAuthority)
+                            append("\nABI Loader: ").append(candidate.loaderAbi)
+                            append("\nФайл: ").append(candidate.libraryPath)
+                            append("\nБиблиотека существует: ").append(candidate.libraryFileExists)
+                            append("\nFunction remapping: ").append(candidate.hasFunctionRemapping)
+                        }
+                    }
+                } else {
+                    "Ошибка проверки Runtime Broker: " +
+                        (result.exceptionOrNull()?.message ?: result.exceptionOrNull()?.javaClass?.simpleName ?: "неизвестная ошибка")
+                }
+
+                openXrRuntimeStatusView.text = details
+                if (showDetails) {
+                    AlertDialog.Builder(this)
+                        .setTitle("Проверка OpenXR Runtime")
+                        .setMessage(details)
+                        .setPositiveButton("Закрыть", null)
+                        .setNeutralButton("Копировать отчёт", null)
+                        .create()
+                        .also { dialog ->
+                            dialog.setOnShowListener {
+                                dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    clipboard.setPrimaryClip(
+                                        android.content.ClipData.newPlainText("OpenXR Runtime Broker report", details)
+                                    )
+                                    Toast.makeText(this, "Отчёт скопирован", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            dialog.show()
+                        }
+                } else if (report == null) {
+                    Toast.makeText(this, "Проверка OpenXR завершилась ошибкой", Toast.LENGTH_LONG).show()
+                }
+            }
+        }, "QuestPhoneXR-runtime-discovery").start()
     }
 
     private fun refreshDeviceCompatibility(showDetails: Boolean = false) {
@@ -303,7 +355,7 @@ class GameLibraryActivity : ComponentActivity() {
             .apply { setPadding(0, dp(5), 0, dp(7)) }
         runtimePanel.addView(openXrRuntimeStatusView)
         runtimePanel.addView(button("Проверить OpenXR Runtime").apply {
-            setOnClickListener { refreshOpenXrRuntimeStatus() }
+            setOnClickListener { refreshOpenXrRuntimeStatus(showDetails = true) }
         })
         runtimePanel.addView(button("Проверить реальный XR-сеанс · изолированно").apply {
             setOnClickListener {
