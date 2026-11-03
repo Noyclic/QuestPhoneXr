@@ -58,4 +58,4 @@ This is a **persistent runtime validation screen**, not yet the persistent Sandb
 
 
 ## Success criteria
-A device report says SUSTAINED_FRAMES_SUBMITTED_GLES only after one xrBeginSession and 30 complete consecutive stereo frame cycles with successful xrEndFrame calls. The legacy FIRST_FRAME_SUBMITTED_GLES status remains recognized for older APKs. A created swapchain or a single successful frame alone is not sustained-loop success.
+The bounded probe reports `SUSTAINED_FRAMES_SUBMITTED_GLES` only after one `xrBeginSession` and 30 complete consecutive stereo frame cycles with successful `xrEndFrame` calls. The persistent screen reports `FRAME_SUBMITTED` for each completed frame and carries a cumulative frame counter plus pose-validity/tracking telemetry; confidence requires many consecutive frames over time, usable orientation samples, and clean pause/resume/stop cycles. A created swapchain or one successful frame alone is not sustained-loop success. The legacy `FIRST_FRAME_SUBMITTED_GLES` status remains recognized for older APKs.
