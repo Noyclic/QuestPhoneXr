@@ -26,6 +26,7 @@ import com.noyclic.questphonexr.vr.PhoneVrPreviewActivity
 import com.noyclic.questphonexr.sandbox.SandboxActivity
 import com.noyclic.questphonexr.diagnostics.CrashReportStore
 import com.noyclic.questphonexr.diagnostics.CrashReportFormatter
+import com.noyclic.questphonexr.runtime.OpenXrRuntimeDiscovery
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -34,6 +35,7 @@ class GameLibraryActivity : ComponentActivity() {
     private lateinit var cardsContainer: LinearLayout
     private lateinit var searchInput: EditText
     private lateinit var reportStore: GameTestReportStore
+    private lateinit var openXrRuntimeStatusView: TextView
     private val currentDevice by lazy { DeviceFingerprint.current() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,12 +43,28 @@ class GameLibraryActivity : ComponentActivity() {
         reportStore = SharedPreferencesGameTestReportStore(this)
         buildScreen()
         renderGames()
+        refreshOpenXrRuntimeStatus()
         window.decorView.post {
             val crashReports = CrashReportStore(this)
             if (crashReports.shouldPromptForPendingReport()) {
                 crashReports.markPrompted()
                 showCrashReportDialog()
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::openXrRuntimeStatusView.isInitialized) refreshOpenXrRuntimeStatus()
+    }
+
+    private fun refreshOpenXrRuntimeStatus() {
+        if (!::openXrRuntimeStatusView.isInitialized) return
+        val report = OpenXrRuntimeDiscovery.inspect(this)
+        openXrRuntimeStatusView.text = buildString {
+            append(report.message)
+            report.processAbi?.let { append("\\nABI процесса: ").append(it) }
+            report.activeCandidate?.let { append("\\nБиблиотека: ").append(it.libraryPath) }
         }
     }
 
@@ -96,6 +114,22 @@ class GameLibraryActivity : ComponentActivity() {
         disclaimer.background = rounded(0xFF29251D.toInt(), dp(12).toFloat())
         disclaimer.setPadding(dp(12), dp(10), dp(12), dp(10))
         root.addView(disclaimer)
+
+        val runtimePanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF202630.toInt(), dp(12).toFloat())
+        }
+        runtimePanel.addView(text("OPENXR RUNTIME", 12f, 0xFF9BC7F5.toInt(), Typeface.BOLD))
+        openXrRuntimeStatusView = text("Проверяем активный Runtime…", 12f, 0xFFD0D7E2.toInt())
+            .apply { setPadding(0, dp(5), 0, dp(7)) }
+        runtimePanel.addView(openXrRuntimeStatusView)
+        runtimePanel.addView(button("Проверить OpenXR Runtime").apply {
+            setOnClickListener { refreshOpenXrRuntimeStatus() }
+        })
+        root.addView(runtimePanel, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(8) })
 
         val importApkButton = button("Мои APK · импорт и анализ").apply {
             setOnClickListener {

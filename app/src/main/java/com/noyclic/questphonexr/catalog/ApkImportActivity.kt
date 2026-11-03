@@ -25,6 +25,9 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.Executors
+import com.noyclic.questphonexr.runtime.OpenXrRuntimeDiscovery
+import com.noyclic.questphonexr.runtime.OpenXrRuntimeDiscoveryReport
+import com.noyclic.questphonexr.runtime.OpenXrLaunchCoordinator
 
 /** Imports APK archives into app-private storage and displays a manifest-only report. */
 class ApkImportActivity : ComponentActivity() {
@@ -192,10 +195,11 @@ class ApkImportActivity : ComponentActivity() {
             ).apply { setPadding(0, dp(16), 0, dp(16)) })
             return
         }
-        entries.forEach { info -> entriesContainer.addView(createEntryCard(info)) }
+        val runtimeReport = OpenXrRuntimeDiscovery.inspect(this)
+        entries.forEach { info -> entriesContainer.addView(createEntryCard(info, runtimeReport)) }
     }
 
-    private fun createEntryCard(info: ImportedApkInfo): LinearLayout {
+    private fun createEntryCard(info: ImportedApkInfo, runtimeReport: OpenXrRuntimeDiscoveryReport): LinearLayout {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(0xFF202630.toInt(), dp(12).toFloat())
@@ -256,6 +260,16 @@ class ApkImportActivity : ComponentActivity() {
             card.addView(text("• $detail", 11f, 0xFFAAB4C2.toInt())
                 .apply { setPadding(0, dp(4), 0, 0) })
         }
+        if (runtimeAssessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE) {
+            val readiness = OpenXrLaunchCoordinator.evaluate(
+                runtimeAssessment.route,
+                runtimeReport,
+                packageManager.getLaunchIntentForPackage(info.packageName) != null
+            )
+            card.addView(text("OpenXR preflight: ${readiness.message}", 11f,
+                if (readiness.canHandOffToAndroid) 0xFF8FE0B5.toInt() else 0xFFFFD28A.toInt())
+                .apply { setPadding(0, dp(7), 0, dp(2)) })
+        }
         card.addView(text(
             "Импортировано: " + SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
                 .format(Date(info.importedAtEpochMs)),
@@ -293,12 +307,35 @@ class ApkImportActivity : ComponentActivity() {
     private fun launchInstalled(info: ImportedApkInfo) {
         val launchIntent = packageManager.getLaunchIntentForPackage(info.packageName)
         if (launchIntent == null) {
-            statusView.text = "Для ${info.displayName} не найдено установленное Android-приложение с экраном запуска. Сначала установи APK или проверь, поддерживает ли он обычный Android."
+            statusView.text = "Для ${info.displayName} не найдено установленное Android-приложение с экраном запуска. Сначала установи APK."
+            return
+        }
+        val archive = File(filesDir, "imported-apks/${info.fileName}")
+        val missing = info.requiredFeatures.filterNot { packageManager.hasSystemFeature(it) }.toSet()
+        val assessment = ApkRuntimeCompatibility.inspect(info, archive, android.os.Build.VERSION.SDK_INT,
+            android.os.Build.SUPPORTED_ABIS.toList(), missing)
+        if (assessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE ||
+            assessment.route == ApkLaunchRoute.QUEST_RUNTIME_REQUIRED ||
+            assessment.route == ApkLaunchRoute.DEVICE_REQUIREMENTS_BLOCKED
+        ) {
+            val readiness = OpenXrLaunchCoordinator.evaluate(
+                assessment.route, OpenXrRuntimeDiscovery.inspect(this), isInstalled = true
+            )
+            if (!readiness.canHandOffToAndroid) {
+                statusView.text = "Предварительная проверка остановила запуск: ${readiness.message}"
+                return
+            }
+            runCatching {
+                startActivity(launchIntent)
+                statusView.text = "Передано Android. Runtime найден, но xrCreateInstance, графика и запуск игры ещё не подтверждены."
+            }.onFailure { error ->
+                statusView.text = "Не удалось открыть приложение: ${error.message ?: "ошибка запуска"}"
+            }
             return
         }
         runCatching {
             startActivity(launchIntent)
-            statusView.text = "Открываем ${info.displayName} как отдельное Android-приложение. Это не запуск внутри VR-оболочки."
+            statusView.text = "Открываем ${info.displayName} как обычное Android-приложение, вне XR-сессии."
         }.onFailure { error ->
             statusView.text = "Android не смог открыть приложение: ${error.message ?: "ошибка запуска"}"
         }
