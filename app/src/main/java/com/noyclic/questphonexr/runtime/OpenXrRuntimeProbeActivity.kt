@@ -3,6 +3,7 @@ package com.noyclic.questphonexr.runtime
 import android.graphics.Color
 import android.opengl.GLSurfaceView
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -14,15 +15,20 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 
 /**
- * Runs the native OpenXR/Monado smoke test away from the app's main process.
- * The native probe is invoked only on GLSurfaceView's GLES 3 thread.
+ * Runs a persistent OpenXR GLES session in a dedicated process.
+ * Each GLSurfaceView callback submits at most one XR frame; the native session
+ * and swapchain remain alive between callbacks. The separate process contains
+ * native runtime failures while the persistent session is still being validated.
  */
 class OpenXrRuntimeProbeActivity : ComponentActivity() {
     private lateinit var glView: GLSurfaceView
     private lateinit var statusView: TextView
     private lateinit var runButton: Button
+
     @Volatile private var glReady = false
-    @Volatile private var probeRunning = false
+    @Volatile private var sessionRequested = false
+    @Volatile private var nativeSessionCreated = false
+    @Volatile private var lastStatusUpdateMs = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,54 +40,87 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
             setEGLContextClientVersion(3)
             preserveEGLContextOnPause = true
             setRenderer(object : GLSurfaceView.Renderer {
-                override fun onSurfaceCreated(gl: javax.microedition.khronos.opengles.GL10?, config: javax.microedition.khronos.egl.EGLConfig?) {
+                override fun onSurfaceCreated(
+                    gl: javax.microedition.khronos.opengles.GL10?,
+                    config: javax.microedition.khronos.egl.EGLConfig?
+                ) {
                     glReady = true
-                    runOnUiThread {
-                        statusView.text = "GLES 3 готов. Тест проверит один OpenXR-сеанс и 30 последовательных стереокадров."
-                        runButton.isEnabled = true
+                    // A new EGL context invalidates the old graphics binding. Rebuild
+                    // the session on this GL thread instead of reusing stale handles.
+                    if (sessionRequested) {
+                        if (nativeSessionCreated) {
+                            OpenXrPersistentGlesSession.destroy()
+                            nativeSessionCreated = false
+                        }
+                        val report = OpenXrPersistentGlesSession.create(this@OpenXrRuntimeProbeActivity)
+                        nativeSessionCreated = report.status == "SESSION_CREATED_WAITING_FOR_READY"
+                        publishReport(report, stopOnFailure = !nativeSessionCreated)
+                    } else {
+                        runOnUiThread {
+                            if (::statusView.isInitialized) {
+                                statusView.text = "GLES 3 готов. Нажми «Запустить постоянную XR-сессию»."
+                            }
+                            if (::runButton.isInitialized) runButton.isEnabled = true
+                        }
                     }
                 }
 
-                override fun onSurfaceChanged(gl: javax.microedition.khronos.opengles.GL10?, width: Int, height: Int) = Unit
-                override fun onDrawFrame(gl: javax.microedition.khronos.opengles.GL10?) = Unit
+                override fun onSurfaceChanged(
+                    gl: javax.microedition.khronos.opengles.GL10?,
+                    width: Int,
+                    height: Int
+                ) = Unit
+
+                override fun onDrawFrame(gl: javax.microedition.khronos.opengles.GL10?) {
+                    if (!sessionRequested || !nativeSessionCreated) return
+                    val report = OpenXrPersistentGlesSession.renderFrame()
+                    val now = SystemClock.uptimeMillis()
+                    if (now - lastStatusUpdateMs >= STATUS_UPDATE_INTERVAL_MS ||
+                        report.status != "FRAME_SUBMITTED"
+                    ) {
+                        lastStatusUpdateMs = now
+                        publishReport(report, stopOnFailure = false)
+                    }
+                }
             })
             renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
         }
 
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(Color.rgb(12, 16, 23))
-            addView(glView, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            ))
-        }
-
         statusView = TextView(this).apply {
-            text = "Запускаем отдельный процесс XR…"
+            text = "Запускаем изолированный GLES-поток…"
             setTextColor(Color.WHITE)
-            textSize = 15f
+            textSize = 14f
             setPadding(16, 14, 16, 14)
             setBackgroundColor(0xE6101722.toInt())
         }
         runButton = Button(this).apply {
-            text = "Проверить 30 XR-кадров"
+            text = "Запустить постоянную XR-сессию"
             isAllCaps = false
             isEnabled = false
-            setOnClickListener { runProbe() }
+            setOnClickListener {
+                if (sessionRequested) stopPersistentSession() else startPersistentSession()
+            }
         }
         val closeButton = Button(this).apply {
             text = "Назад в библиотеку"
             isAllCaps = false
             setOnClickListener { finish() }
         }
+
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(12, 10, 12, 10)
             setBackgroundColor(0xE6101722.toInt())
             addView(TextView(this@OpenXrRuntimeProbeActivity).apply {
-                text = "OPENXR · ИЗОЛИРОВАННЫЙ ТЕСТ"
+                text = "OPENXR · PERSISTENT GLES SESSION"
                 setTextColor(0xFF8FC7FF.toInt())
                 textSize = 12f
+            })
+            addView(TextView(this@OpenXrRuntimeProbeActivity).apply {
+                text = "Сессия и swapchain создаются один раз. Каждый GL callback отправляет один стереокадр; пауза и возврат обрабатываются отдельно."
+                setTextColor(0xFFD4DCE8.toInt())
+                textSize = 12f
+                setPadding(0, 6, 0, 8)
             })
             addView(ScrollView(this@OpenXrRuntimeProbeActivity).apply {
                 addView(statusView)
@@ -93,25 +132,79 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
             addView(runButton)
             addView(closeButton)
         }
-        root.addView(panel, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.BOTTOM
-        ))
+
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(Color.rgb(12, 16, 23))
+            addView(
+                glView,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            )
+            addView(
+                panel,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.BOTTOM
+                )
+            )
+        }
         setContentView(root)
     }
 
-    private fun runProbe() {
-        if (!glReady || probeRunning || isFinishing) return
-        probeRunning = true
+    private fun startPersistentSession() {
+        if (!glReady || sessionRequested || isFinishing) return
+        sessionRequested = true
         runButton.isEnabled = false
-        statusView.text = "Подключаемся к Monado и проверяем 30 последовательных стереокадров в одном XR-сеансе…"
+        runButton.text = "Создаём XR-сессию…"
+        statusView.text = "Инициализация OpenXR выполняется на GLES GL-потоке…"
+        glView.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         glView.queueEvent {
-            val report = OpenXrGlesSessionProbe.inspectReport(this@OpenXrRuntimeProbeActivity)
+            val report = OpenXrPersistentGlesSession.create(this@OpenXrRuntimeProbeActivity)
+            nativeSessionCreated = report.status == "SESSION_CREATED_WAITING_FOR_READY"
+            publishReport(report, stopOnFailure = !nativeSessionCreated)
+        }
+        glView.requestRender()
+    }
+
+    private fun stopPersistentSession() {
+        if (!sessionRequested && !nativeSessionCreated) return
+        sessionRequested = false
+        runButton.isEnabled = false
+        runButton.text = "Останавливаем XR-сессию…"
+        glView.queueEvent {
+            val report = OpenXrPersistentGlesSession.destroy()
+            nativeSessionCreated = false
+            publishReport(report, stopOnFailure = false)
             runOnUiThread {
-                statusView.text = report.toDisplayText()
-                probeRunning = false
-                runButton.isEnabled = glReady && !isFinishing
+                if (!isFinishing && !isDestroyed) {
+                    glView.renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
+                    runButton.text = "Запустить постоянную XR-сессию"
+                    runButton.isEnabled = glReady
+                }
+            }
+        }
+        glView.requestRender()
+    }
+
+    private fun publishReport(report: OpenXrProbeReport, stopOnFailure: Boolean) {
+        runOnUiThread {
+            if (isFinishing || isDestroyed || !::statusView.isInitialized) return@runOnUiThread
+            statusView.text = report.toDisplayText()
+            if (::runButton.isInitialized) {
+                runButton.text = if (sessionRequested && nativeSessionCreated) {
+                    "Остановить XR-сессию"
+                } else {
+                    "Запустить постоянную XR-сессию"
+                }
+                runButton.isEnabled = glReady
+            }
+            if (stopOnFailure) {
+                sessionRequested = false
+                nativeSessionCreated = false
+                glView.renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
             }
         }
     }
@@ -127,11 +220,47 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (::glView.isInitialized) glView.onResume()
+        if (::glView.isInitialized) {
+            glView.onResume()
+            if (sessionRequested && nativeSessionCreated) {
+                glView.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
+                glView.queueEvent {
+                    val report = OpenXrPersistentGlesSession.resume()
+                    publishReport(report, stopOnFailure = false)
+                }
+            }
+            glView.requestRender()
+        }
+        applyImmersiveMode()
     }
 
     override fun onPause() {
-        if (::glView.isInitialized) glView.onPause()
+        if (::glView.isInitialized) {
+            val shouldDestroy = isFinishing
+            if (nativeSessionCreated) {
+                glView.queueEvent {
+                    val report = if (shouldDestroy) {
+                        OpenXrPersistentGlesSession.destroy().also {
+                            nativeSessionCreated = false
+                        }
+                    } else {
+                        OpenXrPersistentGlesSession.pause()
+                    }
+                    publishReport(report, stopOnFailure = false)
+                }
+                glView.requestRender()
+            }
+            glView.onPause()
+        }
         super.onPause()
+    }
+
+    override fun onDestroy() {
+        sessionRequested = false
+        super.onDestroy()
+    }
+
+    companion object {
+        private const val STATUS_UPDATE_INTERVAL_MS = 500L
     }
 }
