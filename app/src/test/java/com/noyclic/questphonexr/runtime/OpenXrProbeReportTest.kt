@@ -7,14 +7,23 @@ import org.junit.Test
 
 class OpenXrProbeReportTest {
     @Test
-    fun firstFrameStatusIsTheOnlySuccessfulRuntimeProbeResult() {
+    fun sustainedFrameLoopIsRecognizedAsSuccessful() {
         val report = OpenXrProbeReport.parse(
-            """{"status":"FIRST_FRAME_SUBMITTED_GLES","xrResult":0,"message":"xrEndFrame submitted two views"}"""
+            """{"status":"SUSTAINED_FRAMES_SUBMITTED_GLES","xrResult":0,"message":"30 stereo frames submitted"}"""
         )
 
         assertTrue(report.isSuccessful)
         assertEquals(0, report.xrResult)
-        assertEquals("xrEndFrame submitted two views", report.message)
+        assertEquals("30 stereo frames submitted", report.message)
+    }
+
+    @Test
+    fun legacySingleFrameSuccessRemainsRecognized() {
+        val report = OpenXrProbeReport.parse(
+            """{"status":"FIRST_FRAME_SUBMITTED_GLES","xrResult":0,"message":"single frame"}"""
+        )
+
+        assertTrue(report.isSuccessful)
     }
 
     @Test
