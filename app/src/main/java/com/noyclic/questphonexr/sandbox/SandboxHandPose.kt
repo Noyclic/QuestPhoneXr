@@ -11,7 +11,9 @@ internal object SandboxHandPoseMapper {
 
     fun map(
         points: List<HandPoint>,
-        calibration: SandboxHandCalibration = SandboxHandCalibration.DEFAULT
+        calibration: SandboxHandCalibration = SandboxHandCalibration.DEFAULT,
+        estimatedDistanceMeters: Float? = null,
+        worldPoints: List<HandPoint> = emptyList()
     ): List<SandboxVector3> {
         val safeCalibration = calibration.normalized()
         return points.take(HAND_LANDMARK_COUNT).mapIndexed { index, point ->
@@ -24,8 +26,10 @@ internal object SandboxHandPoseMapper {
                     (0.5f - point.y) * CURSOR_HEIGHT * safeCalibration.verticalScale +
                         safeCalibration.verticalOffset
                     ).coerceIn(-2.15f, 2.15f),
-                z = CURSOR_DEPTH +
-                    point.z.coerceIn(-MAX_RELATIVE_DEPTH, MAX_RELATIVE_DEPTH) *
+                z = -(estimatedDistanceMeters ?: -CURSOR_DEPTH) +
+                    (worldPoints.getOrNull(index)?.z
+                        ?: point.z.coerceIn(-MAX_RELATIVE_DEPTH, MAX_RELATIVE_DEPTH))
+                        .coerceIn(-MAX_RELATIVE_DEPTH, MAX_RELATIVE_DEPTH) *
                     safeCalibration.relativeDepthScale
             )
         }
