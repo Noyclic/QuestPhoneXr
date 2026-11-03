@@ -1,5 +1,6 @@
 package com.noyclic.questphonexr
 
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.graphics.Color
@@ -12,8 +13,10 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import com.noyclic.questphonexr.catalog.GameLibraryActivity
+import com.noyclic.questphonexr.diagnostics.CrashReportStore
 import com.noyclic.questphonexr.sandbox.SandboxActivity
 import com.noyclic.questphonexr.vr.PhoneVrPreviewActivity
 
@@ -24,6 +27,33 @@ class ModeSelectionActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         buildScreen()
+        showPendingCrashReportIfNeeded()
+    }
+
+
+    private fun showPendingCrashReportIfNeeded() {
+        val store = CrashReportStore(this)
+        if (!store.shouldPromptForPendingReport()) return
+
+        val report = store.readPendingReport().orEmpty()
+        store.markPrompted()
+        AlertDialog.Builder(this)
+            .setTitle("Предыдущий запуск завершился с ошибкой")
+            .setMessage(report.ifBlank { "Android сохранил сведения о предыдущем завершении приложения." })
+            .setPositiveButton("Открыть GitHub") { _, _ ->
+                runCatching {
+                    startActivity(Intent(Intent.ACTION_VIEW, store.githubIssueUri()))
+                }.onFailure {
+                    Toast.makeText(this, "Не удалось открыть GitHub.", Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNeutralButton("Поделиться отчётом") { _, _ ->
+                if (!store.sharePendingReport(this)) {
+                    Toast.makeText(this, "Не удалось подготовить файл отчёта.", Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNegativeButton("Закрыть", null)
+            .show()
     }
 
     private fun buildScreen() {

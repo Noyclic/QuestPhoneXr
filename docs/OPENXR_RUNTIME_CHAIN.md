@@ -13,12 +13,12 @@ The discovery layer:
 
 The APK preflight distinguishes plain OpenXR markers from Quest/Meta-specific markers. It requires an installed package and a discovered active runtime before handing an OpenXR candidate to Android's package launcher.
 
-The native diagnostics now cover two levels:
+The native diagnostic functions remain in the codebase, but they are deliberately not called by normal navigation:
 
-- The library/status probe initializes the Khronos Android loader, enumerates active-runtime extensions, requests `XR_KHR_android_create_instance`, calls `xrCreateInstance`, requests the HMD form factor with `xrGetSystem`, reads system properties and destroys the diagnostic instance.
-- When the Sandbox starts, a second probe runs on its GL thread. It requests `XR_KHR_opengl_es_enable`, queries the Runtime's GLES version range, creates a temporary GLES 3 EGL pbuffer/context, calls `xrCreateSession`, enumerates primary-stereo view configuration and swapchain formats, creates a color swapchain, and enumerates its GLES images. The temporary session and swapchain are then destroyed, and the Sandbox EGL context is restored.
+- The Sandbox now starts its own GLES scene without initializing the Khronos loader, opening a Monado IPC connection, or attempting `xrCreateSession`. Camera/MediaPipe tracking, controller input and the phone-side stereo preview remain independent of an external Runtime.
+- The compatibility dialog keeps Android-reported device/GPU checks and the standalone Vulkan probe. It skips the OpenXR Loader smoke test because the tested Monado Android IPC path crashed while handing off the app Surface (`IMonado` was null in the client stack). Runtime Broker discovery remains metadata-only and does not initialize the Runtime.
 
-The second probe is a smoke test, not the final renderer. It does not begin the session, acquire/wait/release swapchain images, call `xrWaitFrame`/`xrBeginFrame`/`xrEndFrame`, or submit projection layers to the compositor. A successful swapchain test proves resource setup only, not that an APK can display frames.
+The native OpenXR loader and GLES-session probes are therefore diagnostic building blocks only; they must be re-enabled explicitly after the Runtime IPC path has been corrected and tested. They are not part of Sandbox startup and must never run from the GLSurfaceView render callback. Even a successful loader/session smoke test would not prove a working compositor: the complete frame loop and projection-layer submission are still required.
 
 ## Android loader contract
 

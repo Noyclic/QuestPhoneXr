@@ -1,13 +1,11 @@
 package com.noyclic.questphonexr.sandbox
 
-import android.content.Context
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import com.noyclic.questphonexr.tracking.HandSide
 import com.noyclic.questphonexr.vr.PhoneVrMath
 import com.noyclic.questphonexr.vr.ViewerProfile
-import com.noyclic.questphonexr.runtime.OpenXrGlesSessionProbe
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -19,11 +17,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /** Stereo OpenGL ES renderer for the interactive phone-VR sandbox. */
-class SandboxRenderer(
-    private val activityContext: Context,
-    private val onOpenXrSessionProbe: (String) -> Unit
-) : GLSurfaceView.Renderer {
-    private var openXrSessionProbeAttempted = false
+class SandboxRenderer : GLSurfaceView.Renderer {
     private val rotationLock = Any()
     private var pendingHeadRotation = identity3()
     private var referenceHeadRotation: FloatArray? = null
@@ -103,11 +97,6 @@ class SandboxRenderer(
         startedAtNanos = System.nanoTime()
         frameRateCounter.reset()
         measuredFramesPerSecond = 0f
-        if (!openXrSessionProbeAttempted) {
-            openXrSessionProbeAttempted = true
-            val probeResult = OpenXrGlesSessionProbe.inspect(activityContext)
-            onOpenXrSessionProbe(probeResult)
-        }
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {

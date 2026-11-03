@@ -87,7 +87,6 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private var lastStatusUpdateMs = 0L
     private var trackingSender: XrTrackingUdpSender? = null
     @Volatile private var latestHeadRotationMatrix: FloatArray? = null
-    @Volatile private var openXrSessionProbeMessage = "проверка ожидает запуска песочницы"
     private var pcBridgeHost = ""
     private var pcBridgeStatus = "ПК: отключён"
     private var shouldOpenPcBridgeOnStart = false
@@ -200,12 +199,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             .getString(KEY_PC_HOST, "")
             .orEmpty()
 
-        renderer = SandboxRenderer(this) { result ->
-            runOnUiThread {
-                openXrSessionProbeMessage = result
-                updateStatus()
-            }
-        }.apply {
+        renderer = SandboxRenderer().apply {
             applyViewerProfile(viewerProfile)
             updateScene(simulation.snapshot())
         }
@@ -848,7 +842,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             append(" → модель ").append(mediaPipeInputSizeLabel)
             append('\n')
             append(pcBridgeStatus).append('\n')
-            append("OpenXR GLES: ").append(openXrSessionProbeMessage).append('\n')
+            append("OpenXR: безопасный режим · Runtime не запускается при входе в Sandbox").append('\n')
             append("Joy-Con L: ").append(if (leftConnected) "подключён" else "нет")
             append(" · R: ").append(if (rightConnected) "подключён" else "нет")
             append('\n')

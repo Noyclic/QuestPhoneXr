@@ -9,10 +9,12 @@ import kotlin.system.exitProcess
 class QuestPhoneXRApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        val crashReports = CrashReportStore(this)
+        crashReports.capturePreviousProcessExit()
         val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
             runCatching {
-                CrashReportStore(this).saveCrash(thread, error)
+                crashReports.saveCrash(thread, error)
             }
             if (previousHandler != null) {
                 previousHandler.uncaughtException(thread, error)

@@ -30,7 +30,6 @@ import com.noyclic.questphonexr.runtime.OpenXrRuntimeDiscovery
 import com.noyclic.questphonexr.performance.AndroidDeviceCompatibilityProbe
 import com.noyclic.questphonexr.performance.DeviceCompatibilityReport
 import com.noyclic.questphonexr.performance.NativeVulkanProbe
-import com.noyclic.questphonexr.runtime.OpenXrLoaderProbe
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -143,8 +142,8 @@ class GameLibraryActivity : ComponentActivity() {
             append("\n\nNATIVE VULKAN PROBE\n")
             val nativeProbe = NativeVulkanProbe.inspect()
             append(nativeProbe.toDisplayText())
-            append("\n\nOPENXR LOADER SMOKE TEST\n")
-            append(OpenXrLoaderProbe.inspect(this@GameLibraryActivity).toDisplayText())
+            append("\n\nOPENXR / MONADO\n")
+            append("Нативная инициализация OpenXR временно пропущена: предыдущий Loader smoke test приводил к сбою Android IPC-клиента Monado (IMonado был null при передаче Surface). Здесь проверяются только характеристики Android и GPU; Runtime Broker отображается отдельно и не запускает Runtime. Создание OpenXR instance/session и работа compositor пока не подтверждены.")
             append("\n\nРезультат ничего не блокирует: он только показывает ограничения устройства.")
         }
 
