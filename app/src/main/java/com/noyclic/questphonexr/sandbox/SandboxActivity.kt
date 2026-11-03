@@ -290,10 +290,11 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         )
 
         // Keep a small always-visible toggle so the scene can be used without UI clutter.
-        val settingsToggle = controlButton("Скрыть настройки") {
+        lateinit var settingsToggle: Button
+        settingsToggle = controlButton("Скрыть настройки") {
             val willShow = topPanel.visibility != View.VISIBLE
             topPanel.visibility = if (willShow) View.VISIBLE else View.GONE
-            text = if (willShow) "Скрыть настройки" else "Показать настройки"
+            settingsToggle.text = if (willShow) "Скрыть настройки" else "Показать настройки"
         }
         root.addView(
             settingsToggle,
