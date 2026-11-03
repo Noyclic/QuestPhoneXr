@@ -13,9 +13,12 @@ The discovery layer:
 
 The APK preflight distinguishes plain OpenXR markers from Quest/Meta-specific markers. It requires an installed package and a discovered active runtime before handing an OpenXR candidate to Android's package launcher.
 
-The native diagnostic now initializes the Khronos Android loader, enumerates active-runtime extensions, requests `XR_KHR_android_create_instance`, calls `xrCreateInstance`, requests the HMD form factor with `xrGetSystem`, reads system properties and destroys the diagnostic instance. The Activity object is passed separately from the application Context as required by the Android create-instance structure.
+The native diagnostics now cover two levels:
 
-This is a smoke test only. It does not create an XR session, graphics binding, swapchain or compositor frame loop, and a successful system query is not proof that an APK can render.
+- The library/status probe initializes the Khronos Android loader, enumerates active-runtime extensions, requests `XR_KHR_android_create_instance`, calls `xrCreateInstance`, requests the HMD form factor with `xrGetSystem`, reads system properties and destroys the diagnostic instance.
+- When the Sandbox starts, a second probe runs on its GL thread. It requests `XR_KHR_opengl_es_enable`, queries the Runtime's GLES version range, creates a temporary GLES 3 EGL pbuffer/context, calls `xrCreateSession`, enumerates primary-stereo view configuration and swapchain formats, creates a color swapchain, and enumerates its GLES images. The temporary session and swapchain are then destroyed, and the Sandbox EGL context is restored.
+
+The second probe is a smoke test, not the final renderer. It does not begin the session, acquire/wait/release swapchain images, call `xrWaitFrame`/`xrBeginFrame`/`xrEndFrame`, or submit projection layers to the compositor. A successful swapchain test proves resource setup only, not that an APK can display frames.
 
 ## Android loader contract
 
@@ -47,7 +50,7 @@ Monado Android is not automatically a universal Quest runtime. Meta/Oculus APIs 
 
 1. Runtime discovery and APK preflight — implemented as the current foundation.
 2. Native graphics capability probe on the target device.
-3. Create a graphics-bound OpenXR session and run a minimal frame loop against an Android runtime candidate.
+3. Begin the graphics-bound session and implement a minimal wait/begin/acquire/wait/release/end frame loop with projection-layer submission.
 4. Integrate a phone-viewer compositor and IMU-based 3DoF head tracking.
 5. Add controller/action input and connect the existing QuestPhoneXR virtual-controller model.
 6. Run a known OpenXR test APK and capture loader/runtime logs.
