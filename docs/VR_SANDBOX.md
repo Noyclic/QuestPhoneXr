@@ -4,10 +4,13 @@ The VR sandbox is the first interactive scene for testing QuestPhoneXR's phone-b
 
 ## Scene
 
+- The sandbox is presented as a small arena rather than a floating test slab: a broad 12 m × 12 m platform, low perimeter rails, and a few lightweight distant landmarks establish a visible environment.
+- Joy-Con locomotion is clamped to the platform bounds so the player cannot walk far out into the void.
 - Two colored low-poly 3D hands built from the live 21-point MediaPipe pose; virtual cursors remain as the gamepad/no-camera fallback.
 - Two cubes, one ball, and one target object at startup.
 - A floor plane with gravity, a small bounce, and friction.
 - A target that awards a point when a movable object reaches it; scored objects respawn at their starting positions.
+- An in-scene **Игры** picker opens a compact game-selection dialog without leaving Sandbox. The physics sandbox is the currently playable entry; the tactical shooter, shooting range, survival, parkour, and robot arena are catalog entries awaiting their own scenes.
 - Buttons to spawn more cubes, assign controllers, recenter the phone, and reset the scene.
 
 ## Camera hand controls
