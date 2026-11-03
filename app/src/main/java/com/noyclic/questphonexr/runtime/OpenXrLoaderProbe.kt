@@ -49,8 +49,9 @@ object OpenXrLoaderProbe {
     @Volatile private var loadError: String? = null
 
     private external fun nativeProbe(context: Context): String
+    private external fun nativeProbeRuntimeLibrary(path: String): String
 
-    fun inspect(context: Context): OpenXrLoaderProbeReport {
+    private fun ensureNativeLibraryLoaded(): Boolean {
         if (!libraryLoaded) {
             synchronized(this) {
                 if (!libraryLoaded) {
@@ -63,7 +64,23 @@ object OpenXrLoaderProbe {
                 }
             }
         }
-        if (!libraryLoaded) {
+        return libraryLoaded
+    }
+
+    /** Mirrors the Khronos loader's dlopen step without creating an OpenXR instance. */
+    fun inspectRuntimeLibrary(path: String): String {
+        if (!ensureNativeLibraryLoaded()) {
+            return "Native diagnostic library unavailable: " + (loadError ?: "unknown error")
+        }
+        return runCatching { nativeProbeRuntimeLibrary(path) }
+            .getOrElse { error ->
+                "Native runtime dlopen probe failed: " +
+                    (error.message ?: error.javaClass.simpleName)
+            }
+    }
+
+    fun inspect(context: Context): OpenXrLoaderProbeReport {
+        if (!ensureNativeLibraryLoaded()) {
             return OpenXrLoaderProbeReport(
                 "NATIVE_LIBRARY_UNAVAILABLE", null, null, null, null, "",
                 "Native XR probe library unavailable: " + (loadError ?: "unknown error"),
