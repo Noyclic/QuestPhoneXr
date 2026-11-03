@@ -29,7 +29,7 @@ QuestPhoneXR must not manually duplicate this private protocol in parallel with 
 - The sustained probe uses a GLES 3 texture-array swapchain with one layer per stereo view, a LOCAL reference space, the runtime's located eye poses/FOVs, and a minimal clear-only render.
 - The probe processes session-state events, waits for READY, begins one session, then submits 30 consecutive stereo frames. Every rendered frame performs xrWaitFrame, xrBeginFrame, xrLocateViews, acquire/wait/release of the swapchain image, and xrEndFrame with a projection layer. The loop is bounded by 8 seconds and 90 frame attempts; swapchain image waits are bounded to 250 ms.
 - Always tear down in reverse order and report the exact failing stage and XrResult.
-- This remains a bounded hardware-validation probe. It does not yet keep an OpenXR session alive between frames/callbacks, render the Sandbox scene into the OpenXR swapchain, provide camera passthrough, expose hand tracking as OpenXR actions, add controller actions, or execute arbitrary Quest APKs.
+- The earlier 30-frame probe remains a bounded hardware-validation test. The newer persistent owner keeps an OpenXR session alive between GL callbacks, but still renders only a diagnostic clear into the swapchain. Neither path renders the Sandbox scene, provides camera passthrough, exposes hand tracking as OpenXR actions, adds controller actions, or executes arbitrary Quest APKs.
 
 ## Persistent-session implementation status
 
@@ -40,6 +40,8 @@ The first persistent-session slice is now implemented in the isolated `:xr_runti
 - A render callback submits at most one stereo projection frame. It does not create or destroy the OpenXR instance/session/swapchain for each frame.
 - The loop processes READY and STOPPING events, begins only after READY, and pauses by requesting session exit before the Activity releases its GL thread.
 - The diagnostic screen displays a submitted-frame counter and stops issuing native frame calls after a stage failure.
+- Each successful `xrLocateViews` sample records orientation and position validity separately, plus how often both are valid together. This matters because a phone-based runtime may provide 3DoF orientation without valid positional tracking.
+- The persistent report includes the current OpenXR session state, latest view-state flags, pose sample counts and maximum observed head-position/rotation deltas from the first valid sample. Teardown snapshots these metrics before native resources are reset.
 - EGL context identity is checked on every render callback. If the context is recreated, the Activity destroys stale session resources and creates a new session on the new GL context.
 - The process remains isolated because Monado's Android Surface/IPC path previously caused a native-side crash. Binder reachability is not proof that Surface handoff is safe.
 
