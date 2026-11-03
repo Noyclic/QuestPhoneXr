@@ -7,6 +7,7 @@
 #include <openxr/openxr_platform.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <mutex>
 #include <sstream>
 #include <string>
