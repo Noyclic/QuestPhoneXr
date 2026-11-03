@@ -39,7 +39,7 @@ object OpenXrPersistentGlesSession {
         nativeDestroySession()
     }
 
-    private inline fun invokeNative(block: () -> String): OpenXrProbeReport {
+    private fun invokeNative(block: () -> String): OpenXrProbeReport {
         if (!ensureLibraryLoaded()) {
             return OpenXrProbeReport(
                 status = "NATIVE_LIBRARY_UNAVAILABLE",
