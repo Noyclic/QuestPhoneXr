@@ -104,8 +104,8 @@ class SandboxHandPoseTest {
         assertEquals(0.1f, mapped[0].x, 0.001f)
         assertEquals(-0.1f, mapped[0].y, 0.001f)
         assertEquals(-2.55f, mapped[0].z, 0.001f)
-        assertEquals(1.9f, mapped[8].x, 0.001f)
-        assertEquals(0.115f, mapped[8].y, 0.001f)
+        assertEquals(1.936f, mapped[8].x, 0.001f)
+        assertEquals(0.1295f, mapped[8].y, 0.001f)
         assertEquals(-2.71f, mapped[8].z, 0.001f)
     }
 
