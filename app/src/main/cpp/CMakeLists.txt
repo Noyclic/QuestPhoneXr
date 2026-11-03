@@ -3,7 +3,7 @@ project(questphonexr_vulkan_probe LANGUAGES CXX)
 
 find_package(OpenXR REQUIRED CONFIG)
 
-add_library(questphonexr_vulkan_probe SHARED vulkan_probe.cpp openxr_loader_probe.cpp)
+add_library(questphonexr_vulkan_probe SHARED\n    vulkan_probe.cpp\n    openxr_loader_probe.cpp\n    endxr_runtime_core.cpp\n)
 
 find_library(android-log-lib log)
 find_library(dl-lib dl)
