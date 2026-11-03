@@ -26,10 +26,6 @@ import com.noyclic.questphonexr.vr.PhoneVrPreviewActivity
 import com.noyclic.questphonexr.sandbox.SandboxActivity
 import com.noyclic.questphonexr.diagnostics.CrashReportStore
 import com.noyclic.questphonexr.diagnostics.CrashReportFormatter
-import com.noyclic.questphonexr.runtime.OpenXrRuntimeDiscovery
-import com.noyclic.questphonexr.runtime.OpenXrRuntimeProbeActivity
-import com.noyclic.questphonexr.runtime.OpenXrLoaderProbe
-import com.noyclic.questphonexr.runtime.MonadoAndroidRuntimeProbe
 import com.noyclic.questphonexr.performance.OpenGlesEglProbe
 import com.noyclic.questphonexr.performance.AndroidDeviceCompatibilityProbe
 import com.noyclic.questphonexr.performance.DeviceCompatibilityReport
@@ -42,9 +38,7 @@ class GameLibraryActivity : ComponentActivity() {
     private lateinit var cardsContainer: LinearLayout
     private lateinit var searchInput: EditText
     private lateinit var reportStore: GameTestReportStore
-    private lateinit var openXrRuntimeStatusView: TextView
     private lateinit var deviceCompatibilityStatusView: TextView
-    @Volatile private var runtimeCheckInProgress = false
     private val currentDevice by lazy { DeviceFingerprint.current() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,7 +46,6 @@ class GameLibraryActivity : ComponentActivity() {
         reportStore = SharedPreferencesGameTestReportStore(this)
         buildScreen()
         renderGames()
-        refreshOpenXrRuntimeStatus()
         refreshDeviceCompatibility()
         window.decorView.post {
             val crashReports = CrashReportStore(this)
@@ -61,92 +54,6 @@ class GameLibraryActivity : ComponentActivity() {
                 showCrashReportDialog()
             }
         }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        if (::openXrRuntimeStatusView.isInitialized) refreshOpenXrRuntimeStatus()
-    }
-
-    private fun openRuntimeBrokerSetup() {
-        val brokerPackage = "org.khronos.openxr.runtime_broker"
-        val launchIntent = packageManager.getLaunchIntentForPackage(brokerPackage)
-        if (launchIntent != null) {
-            runCatching { startActivity(launchIntent) }
-                .onFailure {
-                    Toast.makeText(this, "Не удалось открыть OpenXR Runtime Broker.", Toast.LENGTH_LONG).show()
-                }
-            return
-        }
-
-        val storeUri = Uri.parse(
-            "https://play.google.com/store/apps/details?id=org.khronos.openxr.runtime_broker"
-        )
-        runCatching { startActivity(Intent(Intent.ACTION_VIEW, storeUri)) }
-            .onFailure {
-                Toast.makeText(this, "Открой Google Play и найди OpenXR Runtime Broker от Khronos.", Toast.LENGTH_LONG).show()
-            }
-    }
-
-    private fun refreshOpenXrRuntimeStatus(showDetails: Boolean = false) {
-        if (!::openXrRuntimeStatusView.isInitialized || runtimeCheckInProgress) return
-        runtimeCheckInProgress = true
-        openXrRuntimeStatusView.text = "Проверяем Runtime Broker и активную библиотеку…"
-
-        Thread({
-            val result = runCatching { OpenXrRuntimeDiscovery.inspect(this) }
-            runOnUiThread {
-                runtimeCheckInProgress = false
-                if (isFinishing || isDestroyed || !::openXrRuntimeStatusView.isInitialized) return@runOnUiThread
-
-                val report = result.getOrNull()
-                val details = if (report != null) buildString {
-                    append("Состояние: ").append(report.state.name)
-                    append("\n").append(report.message)
-                    append("\nABI процесса: ").append(report.processAbi ?: "не определён")
-                    if (report.candidates.isEmpty()) {
-                        append("\nАктивный runtime-кандидат от Broker не возвращён.")
-                    } else {
-                        report.candidates.forEachIndexed { index, candidate ->
-                            append("\n\nКандидат ").append(index + 1)
-                            append("\nПакет: ").append(candidate.packageName)
-                            append("\nBroker: ").append(candidate.brokerAuthority)
-                            append("\nABI Loader: ").append(candidate.loaderAbi)
-                            append("\nФайл: ").append(candidate.libraryPath)
-                            append("\nБиблиотека существует: ").append(candidate.libraryFileExists)
-                            append("\nFunction remapping: ").append(candidate.hasFunctionRemapping)
-                        }
-                    }
-                } else {
-                    "Ошибка проверки Runtime Broker: " +
-                        (result.exceptionOrNull()?.message ?: result.exceptionOrNull()?.javaClass?.simpleName ?: "неизвестная ошибка")
-                }
-
-                openXrRuntimeStatusView.text = details
-                if (showDetails) {
-                    AlertDialog.Builder(this)
-                        .setTitle("Проверка OpenXR Runtime")
-                        .setMessage(details)
-                        .setPositiveButton("Закрыть", null)
-                        .setNeutralButton("Копировать отчёт", null)
-                        .create()
-                        .also { dialog ->
-                            dialog.setOnShowListener {
-                                dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-                                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                    clipboard.setPrimaryClip(
-                                        android.content.ClipData.newPlainText("OpenXR Runtime Broker report", details)
-                                    )
-                                    Toast.makeText(this, "Отчёт скопирован", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                            dialog.show()
-                        }
-                } else if (report == null) {
-                    Toast.makeText(this, "Проверка OpenXR завершилась ошибкой", Toast.LENGTH_LONG).show()
-                }
-            }
-        }, "QuestPhoneXR-runtime-discovery").start()
     }
 
     private fun refreshDeviceCompatibility(showDetails: Boolean = false) {
@@ -173,7 +80,7 @@ class GameLibraryActivity : ComponentActivity() {
 
     private fun showDeviceCompatibilityDetails(report: DeviceCompatibilityReport) {
         val progress = AlertDialog.Builder(this)
-            .setTitle("Проверка GPU и Monado")
+            .setTitle("Проверка GPU и графики")
             .setMessage("Проверяем временный GLES-контекст, Vulkan capabilities, APK и Android services…")
             .setCancelable(false)
             .create()
@@ -182,23 +89,6 @@ class GameLibraryActivity : ComponentActivity() {
         Thread({
             val nativeVulkan = runCatching { NativeVulkanProbe.inspect() }
             val gles = runCatching { OpenGlesEglProbe.inspect() }
-            val monado = runCatching { MonadoAndroidRuntimeProbe.inspect(this) }
-            val activeRuntime = runCatching { OpenXrRuntimeDiscovery.inspect(this) }
-
-            val runtimeText = activeRuntime.fold(
-                { result ->
-                    buildString {
-                        append(result.message)
-                        result.processAbi?.let { append("\nABI процесса: ").append(it) }
-                        result.activeCandidate?.let {
-                            append("\nАктивный пакет: ").append(it.packageName)
-                            append("\nБиблиотека: ").append(it.libraryPath)
-                        }
-                    }
-                },
-                { error -> "Ошибка Runtime Broker discovery: " + (error.message ?: error.javaClass.simpleName) }
-            )
-
             val details = buildString {
                 append(report.deviceName)
                 append(" · Android ").append(report.androidVersion)
@@ -232,24 +122,15 @@ class GameLibraryActivity : ComponentActivity() {
                     { it.toDisplayText() },
                     { error -> "Ошибка EGL/GLES probe: " + (error.message ?: error.javaClass.simpleName) }
                 ))
-                append("\n\nMONADO ANDROID APK\n")
-                append(monado.fold(
-                    { it.toDisplayText() },
-                    { error -> "Ошибка проверки Monado APK: " + (error.message ?: error.javaClass.simpleName) }
-                ))
-                append("\n\nOPENXR RUNTIME BROKER\n").append(runtimeText)
-
-                append("\n\nOPENXR LOADER SMOKE TEST\n")
-                append("Пока намеренно не запускается: прежний xrCreateInstance приводил к NullPointerException внутри Monado Client при вызове IMonado.passAppSurface(). Повторный вызов может снова закрыть приложение. Сначала проверяем APK, manifest, GPU и EGL без Binder hand-off.")
                 append("\n\nИТОГ\n")
-                append("Успешные Vulkan/GLES и найденный Monado APK ещё не означают, что Binder handshake, XR session, swapchain и compositor заработают. Этот отчёт помогает отделить ограничения драйвера от ошибки Android service.")
+                append("Проверки Vulkan/GLES показывают доступность графических API, но сами по себе не подтверждают готовность EndXR Runtime.")
             }
 
             runOnUiThread {
                 if (!isFinishing && !isDestroyed) {
                     runCatching { progress.dismiss() }
                     val detailsDialog = AlertDialog.Builder(this)
-                        .setTitle("Диагностика Redmi / Monado")
+                        .setTitle("Диагностика устройства / GPU")
                         .setMessage(details)
                         .setPositiveButton("Закрыть", null)
                         .setNeutralButton("Копировать отчёт", null)
@@ -338,36 +219,12 @@ class GameLibraryActivity : ComponentActivity() {
             0xFFD0D7E2.toInt()
         ).apply { setPadding(0, dp(5), 0, dp(7)) }
         compatibilityPanel.addView(deviceCompatibilityStatusView)
-        compatibilityPanel.addView(button("Проверить устройство и Monado").apply {
+        compatibilityPanel.addView(button("Проверить устройство и GPU").apply {
             setOnClickListener { refreshDeviceCompatibility(showDetails = true) }
         })
         root.addView(compatibilityPanel, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = dp(8) })
-
-        val runtimePanel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            background = rounded(0xFF202630.toInt(), dp(12).toFloat())
-        }
-        runtimePanel.addView(text("OPENXR RUNTIME", 12f, 0xFF9BC7F5.toInt(), Typeface.BOLD))
-        openXrRuntimeStatusView = text("Проверяем активный Runtime…", 12f, 0xFFD0D7E2.toInt())
-            .apply { setPadding(0, dp(5), 0, dp(7)) }
-        runtimePanel.addView(openXrRuntimeStatusView)
-        runtimePanel.addView(button("Проверить OpenXR Runtime").apply {
-            setOnClickListener { refreshOpenXrRuntimeStatus(showDetails = true) }
-        })
-        runtimePanel.addView(button("Проверить реальный XR-сеанс · изолированно").apply {
-            setOnClickListener {
-                startActivity(Intent(this@GameLibraryActivity, OpenXrRuntimeProbeActivity::class.java))
-            }
-        })
-        runtimePanel.addView(button("Установить / выбрать OpenXR Runtime").apply {
-            setOnClickListener { openRuntimeBrokerSetup() }
-        })
-        root.addView(runtimePanel, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = dp(8) })
 
         val importApkButton = button("Мои APK · импорт и анализ").apply {
