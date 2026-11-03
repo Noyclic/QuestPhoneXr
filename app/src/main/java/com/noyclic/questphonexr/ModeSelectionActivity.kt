@@ -17,7 +17,6 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import com.noyclic.questphonexr.catalog.GameLibraryActivity
 import com.noyclic.questphonexr.diagnostics.CrashReportStore
-import com.noyclic.questphonexr.diagnostics.MonadoDiagnosticsActivity
 import com.noyclic.questphonexr.sandbox.SandboxActivity
 import com.noyclic.questphonexr.vr.PhoneVrPreviewActivity
 
@@ -143,14 +142,6 @@ class ModeSelectionActivity : ComponentActivity() {
         tools.addView(
             actionButton("VR Shinecon · стерео-тест") {
                 startActivity(Intent(this@ModeSelectionActivity, PhoneVrPreviewActivity::class.java))
-            },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(5)
-            }
-        )
-        tools.addView(
-            actionButton("Собрать отчёт Monado / OpenXR") {
-                startActivity(Intent(this@ModeSelectionActivity, MonadoDiagnosticsActivity::class.java))
             },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(5)
