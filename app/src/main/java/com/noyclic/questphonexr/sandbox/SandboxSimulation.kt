@@ -281,9 +281,17 @@ class SandboxSimulation {
         trackedHand: TrackedHand?
     ): ControllerState {
         val physical = controllers.firstOrNull { it.hand == hand }
-        val cameraLandmarks = trackedHand?.points
-            ?.let { SandboxHandPoseMapper.map(it, handCalibration) }
-            .orEmpty()
+        val depthEstimator = if (hand == HandSide.LEFT) leftDepthEstimator else rightDepthEstimator
+        val cameraLandmarks = trackedHand?.let { tracked ->
+            val estimatedDistance = depthEstimator.update(tracked.points)
+            SandboxHandPoseMapper.map(
+                points = tracked.points,
+                calibration = handCalibration,
+                estimatedDistanceMeters = estimatedDistance,
+                worldPoints = tracked.worldPoints
+            )
+        }.orEmpty()
+        if (trackedHand == null) depthEstimator.reset()
         val cameraCursor = interactionCursor(cameraLandmarks, trackedHand?.isPinching == true)
         // A deflected Joy-Con stick takes temporary control of the virtual hand.
         // Releasing the stick returns control to MediaPipe (or the default hand pose).
