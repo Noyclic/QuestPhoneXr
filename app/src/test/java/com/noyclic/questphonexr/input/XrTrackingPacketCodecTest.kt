@@ -23,6 +23,7 @@ class XrTrackingPacketCodecTest {
         assertTrue(json.contains("\"protocol\":\"QuestPhoneXR\""))
         assertTrue(json.contains("\"type\":\"tracking\""))
         assertTrue(json.contains("\"schemaVersion\":1"))
+        assertTrue(json.contains("\"sessionId\":\"test-session\""))
         assertTrue(json.contains("\"sequence\":9"))
         assertTrue(json.contains("\"timestampMs\":1234"))
         assertTrue(json.contains("\"rotationMatrix\":[1.0,0.0,0.0"))

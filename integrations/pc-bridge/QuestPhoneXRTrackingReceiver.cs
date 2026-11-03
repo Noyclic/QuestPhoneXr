@@ -67,7 +67,10 @@ public sealed class QuestPhoneXRTrackingReceiver : MonoBehaviour
 
             lock (StateLock)
             {
-                if (latest != null && packet.sequence <= latest.sequence) return;
+                if (latest != null &&
+                    string.Equals(packet.sessionId, latest.sessionId, StringComparison.Ordinal) &&
+                    packet.sequence <= latest.sequence)
+                    return;
                 latest = packet;
                 lastPacketUtcTicks = DateTime.UtcNow.Ticks;
             }
@@ -84,6 +87,7 @@ public sealed class QuestPhoneXRTrackingReceiver : MonoBehaviour
             packet.protocol != "QuestPhoneXR" ||
             packet.type != "tracking" ||
             packet.schemaVersion != 1 ||
+            string.IsNullOrEmpty(packet.sessionId) ||
             packet.sequence < 0 ||
             packet.hands == null ||
             packet.hands.Length > 2)
@@ -169,6 +173,7 @@ public sealed class QuestPhoneXRTrackingPacket
     public string protocol;
     public string type;
     public int schemaVersion;
+    public string sessionId;
     public long sequence;
     public long timestampMs;
     public QuestPhoneXRHeadPose head;

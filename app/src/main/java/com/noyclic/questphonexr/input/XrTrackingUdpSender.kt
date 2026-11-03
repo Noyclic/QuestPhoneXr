@@ -13,6 +13,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
+import java.util.UUID
 
 /**
  * Sends phone head orientation and MediaPipe hand landmarks to a companion PC receiver.
@@ -31,6 +32,7 @@ class XrTrackingUdpSender(
     @Volatile private var targetAddress: InetAddress? = null
     @Volatile private var running = false
     private val sequence = AtomicLong(0L)
+    private val sessionId = UUID.randomUUID().toString()
     private val executor = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "QuestPhoneXR-TrackingUDP").apply { isDaemon = true }
     }
@@ -89,7 +91,8 @@ class XrTrackingUdpSender(
             val payload = XrTrackingPacketCodec.encode(
                 frame,
                 latestHeadRotation,
-                sequence.incrementAndGet()
+                sequence.incrementAndGet(),
+                sessionId
             ).toByteArray(StandardCharsets.UTF_8)
             if (payload.size > MAX_DATAGRAM_BYTES) {
                 throw IllegalStateException("XR-пакет превысил безопасный размер UDP.")
@@ -145,9 +148,11 @@ internal object XrTrackingPacketCodec {
     fun encode(
         frame: HandTrackingFrame,
         headRotationMatrix: FloatArray?,
-        sequence: Long
+        sequence: Long,
+        sessionId: String = "test-session"
     ): String = buildString {
         append("{\"protocol\":\"QuestPhoneXR\",\"type\":\"tracking\",\"schemaVersion\":1")
+        append(",\"sessionId\":\"").append(sessionId).append('\"')
         append(",\"sequence\":").append(sequence.coerceAtLeast(0L))
         append(",\"timestampMs\":").append(frame.timestampMs.coerceAtLeast(0L))
         append(",\"head\":{\"tracked\":")
