@@ -27,6 +27,8 @@ import com.noyclic.questphonexr.sandbox.SandboxActivity
 import com.noyclic.questphonexr.diagnostics.CrashReportStore
 import com.noyclic.questphonexr.diagnostics.CrashReportFormatter
 import com.noyclic.questphonexr.runtime.OpenXrRuntimeDiscovery
+import com.noyclic.questphonexr.performance.AndroidDeviceCompatibilityProbe
+import com.noyclic.questphonexr.performance.DeviceCompatibilityReport
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -36,6 +38,7 @@ class GameLibraryActivity : ComponentActivity() {
     private lateinit var searchInput: EditText
     private lateinit var reportStore: GameTestReportStore
     private lateinit var openXrRuntimeStatusView: TextView
+    private lateinit var deviceCompatibilityStatusView: TextView
     private val currentDevice by lazy { DeviceFingerprint.current() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,6 +47,7 @@ class GameLibraryActivity : ComponentActivity() {
         buildScreen()
         renderGames()
         refreshOpenXrRuntimeStatus()
+        refreshDeviceCompatibility()
         window.decorView.post {
             val crashReports = CrashReportStore(this)
             if (crashReports.shouldPromptForPendingReport()) {
@@ -66,6 +70,62 @@ class GameLibraryActivity : ComponentActivity() {
             report.processAbi?.let { append("\nABI процесса: ").append(it) }
             report.activeCandidate?.let { append("\nБиблиотека: ").append(it.libraryPath) }
         }
+    }
+
+    private fun refreshDeviceCompatibility(showDetails: Boolean = false) {
+        if (!::deviceCompatibilityStatusView.isInitialized) return
+        val report = runCatching { AndroidDeviceCompatibilityProbe.inspect(this) }
+            .getOrElse {
+                deviceCompatibilityStatusView.text = "Не удалось прочитать характеристики устройства: " +
+                    (it.message ?: "неизвестная ошибка")
+                deviceCompatibilityStatusView.setTextColor(0xFFFF9696.toInt())
+                return
+            }
+
+        val levelColor = when (report.level) {
+            com.noyclic.questphonexr.performance.DeviceCompatibilityLevel.SUITABLE -> 0xFF8FE0B5.toInt()
+            com.noyclic.questphonexr.performance.DeviceCompatibilityLevel.LIMITED -> 0xFFFFD28A.toInt()
+            com.noyclic.questphonexr.performance.DeviceCompatibilityLevel.NOT_RECOMMENDED -> 0xFFFFB36B.toInt()
+            com.noyclic.questphonexr.performance.DeviceCompatibilityLevel.XR_TRACKING_UNSUPPORTED -> 0xFFFF9696.toInt()
+        }
+        deviceCompatibilityStatusView.text = report.level.label + "\n" + report.summary
+        deviceCompatibilityStatusView.setTextColor(levelColor)
+
+        if (showDetails) showDeviceCompatibilityDetails(report)
+    }
+
+    private fun showDeviceCompatibilityDetails(report: DeviceCompatibilityReport) {
+        val details = buildString {
+            append(report.deviceName)
+            append(" · Android ").append(report.androidVersion)
+            append(" (SDK ").append(report.sdkVersion).append(")\n")
+            append("CPU: ").append(report.processorCount).append(" потоков · ")
+                .append(if (report.is64BitProcess) "64-bit" else "32-bit").append("\n")
+            append("ABI: ").append(report.supportedAbis.joinToString().ifBlank { "неизвестно" }).append("\n")
+            append("RAM: ").append(report.totalRamMb).append(" МБ всего, ")
+                .append(report.availableRamMb).append(" МБ свободно сейчас\n")
+            append("OpenGL ES: ").append(report.openGlEsVersion).append("\n")
+            append("Vulkan: ").append(report.vulkanApiVersion ?: "Android не сообщил версию")
+            report.vulkanHardwareLevel?.let { append(" · hardware level ").append(it) }
+            append("\n")
+            report.rotationVectorSensorName?.let {
+                append("Датчик ориентации: ").append(it).append("\n")
+            }
+            append("\nПРОВЕРКИ\n")
+            report.checks.forEach { check ->
+                append("• ").append(check.title).append(" — ").append(check.status.label)
+                    .append("\n").append(check.detail).append("\n\n")
+            }
+            append("Важно: это аппаратная предварительная проверка, не тест производительности. ")
+            append("Android Vulkan 1.1+ также объявляет AHB external-memory и SYNC_FD semaphore/fence handles. Но точные FD extensions, compositor и запуск OpenXR пока не подтверждены.")
+            append("\nРезультат ничего не блокирует: он только показывает ограничения устройства.")
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Совместимость устройства")
+            .setMessage(details)
+            .setPositiveButton("Понятно", null)
+            .show()
     }
 
     private fun buildScreen() {
@@ -114,6 +174,31 @@ class GameLibraryActivity : ComponentActivity() {
         disclaimer.background = rounded(0xFF29251D.toInt(), dp(12).toFloat())
         disclaimer.setPadding(dp(12), dp(10), dp(12), dp(10))
         root.addView(disclaimer)
+
+        val compatibilityPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF202630.toInt(), dp(12).toFloat())
+        }
+        compatibilityPanel.addView(text(
+            "ДИАГНОСТИКА УСТРОЙСТВА / GPU",
+            12f,
+            0xFF8FD3B5.toInt(),
+            Typeface.BOLD
+        ))
+        deviceCompatibilityStatusView = text(
+            "Проверяем датчики, память и графику…",
+            12f,
+            0xFFD0D7E2.toInt()
+        ).apply { setPadding(0, dp(5), 0, dp(7)) }
+        compatibilityPanel.addView(deviceCompatibilityStatusView)
+        compatibilityPanel.addView(button("Проверить совместимость устройства").apply {
+            setOnClickListener { refreshDeviceCompatibility(showDetails = true) }
+        })
+        root.addView(compatibilityPanel, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(8) })
 
         val runtimePanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL

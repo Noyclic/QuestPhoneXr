@@ -50,6 +50,10 @@ Open the repository root in Android Studio and sync Gradle. GitHub Actions build
 4. Phone-native runtime and first game port/adaptation, starting with a lightweight test project.
 5. Carefully scoped Quest/OpenXR compatibility adapters for games that can legally and technically be ported.
 
+## Device compatibility diagnostics
+
+The library includes a non-blocking device preflight for phone-VR sensors, OpenGL ES, Android-reported Vulkan features, memory and CPU/ABI. It reports missing capabilities without preventing users from trying available modes. See [docs/DEVICE_COMPATIBILITY.md](docs/DEVICE_COMPATIBILITY.md) for the limits of the probe; in particular, Vulkan compositor extensions and real runtime compatibility are not yet verified.
+
 ## OpenXR runtime work
 
 See [docs/OPENXR_RUNTIME_CHAIN.md](docs/OPENXR_RUNTIME_CHAIN.md) for the runtime discovery contract, current limitations and native integration roadmap.
