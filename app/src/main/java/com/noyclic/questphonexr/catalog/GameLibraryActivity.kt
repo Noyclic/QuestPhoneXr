@@ -121,7 +121,7 @@ class GameLibraryActivity : ComponentActivity() {
                         }
                     }
                     report.activeCandidate?.let {
-                        append("\n\nПРЯМАЯ ПРОВЕРКА DLOPEN")
+                        append("\n\nПРЯМАЯ ПРОВЕРКА DLOPEN + NEGOTIATION")
                         append("\n").append(loadProbe ?: "Не удалось запустить проверку динамической библиотеки.")
                     }
                 } else {
