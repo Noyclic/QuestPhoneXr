@@ -204,7 +204,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             updateScene(simulation.snapshot())
         }
         glView = GLSurfaceView(this).apply {
-            setEGLContextClientVersion(2)
+            // OpenXR's GLES binding must use the same GLES 3 context that renders the scene.
+            // The existing GLES20 calls remain compatible with an ES 3 context.
+            setEGLContextClientVersion(3)
             preserveEGLContextOnPause = true
             setRenderer(renderer)
             renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
