@@ -168,8 +168,10 @@ class SandboxSimulationTest {
         assertEquals(0.06f, snapshot.playerPosition.x, 0.001f)
         assertEquals(-0.04f, snapshot.playerPosition.z, 0.001f)
         // The hand follows the camera in local space; the stick moves the player, not the hand.
-        // The camera-tracked fingertip stays attached to the hand pose while locomotion
-        // is applied as a shared world offset to the hand and its landmarks.
+        // The camera-tracked hand moves with the player in world space, but the stick
+        // does not take control of its local pose.
+        assertEquals(snapshot.playerPosition.x, moved.cursor.x, 0.001f)
+        assertEquals(snapshot.playerPosition.z - 2.55f, moved.cursor.z, 0.001f)
         assertEquals(moved.cursor, moved.landmarks[8])
     }
 
