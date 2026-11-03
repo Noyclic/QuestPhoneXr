@@ -84,6 +84,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     @Volatile private var latestHeadRotationMatrix: FloatArray? = null
     private var pcBridgeHost = ""
     private var pcBridgeStatus = "ПК: отключён"
+    private var shouldOpenPcBridgeOnStart = false
 
     private val gamepadInput = AndroidGamepadInputAdapter { snapshots ->
         controllerSnapshots = snapshots
@@ -98,6 +99,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             cameraStatusMessage = "Камера рук: разрешение не выдано · можно управлять Joy-Con"
             updateStatus()
         }
+        openPcBridgeDialogIfRequested()
     }
 
     private val frameCallback = object : Choreographer.FrameCallback {
@@ -196,10 +198,12 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         }
 
         buildScreen()
+        shouldOpenPcBridgeOnStart = intent.getBooleanExtra(EXTRA_OPEN_PC_BRIDGE, false)
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
         ) {
             startHandTracking()
+            openPcBridgeDialogIfRequested()
         } else {
             cameraPermission.launch(Manifest.permission.CAMERA)
         }
@@ -628,6 +632,14 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             .show()
     }
 
+    private fun openPcBridgeDialogIfRequested() {
+        if (!shouldOpenPcBridgeOnStart) return
+        shouldOpenPcBridgeOnStart = false
+        window.decorView.post {
+            if (!isFinishing && !isDestroyed) showPcBridgeDialog()
+        }
+    }
+
     private fun showPcBridgeDialog() {
         val hostInput = EditText(this).apply {
             hint = "Например: 192.168.1.25"
@@ -892,12 +904,13 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         super.onDestroy()
     }
 
-    private companion object {
-        const val NANOS_PER_SECOND = 1_000_000_000L
-        const val MAX_PHYSICS_STEP_SECONDS = 0.05f
-        const val STATUS_REFRESH_INTERVAL_MS = 250L
-        const val HAND_FRAME_STALE_MS = 500L
-        const val PC_BRIDGE_PREFERENCES = "pc_tracking_bridge"
-        const val KEY_PC_HOST = "host"
+    companion object {
+        const val EXTRA_OPEN_PC_BRIDGE = "com.noyclic.questphonexr.OPEN_PC_BRIDGE"
+        private const val NANOS_PER_SECOND = 1_000_000_000L
+        private const val MAX_PHYSICS_STEP_SECONDS = 0.05f
+        private const val STATUS_REFRESH_INTERVAL_MS = 250L
+        private const val HAND_FRAME_STALE_MS = 500L
+        private const val PC_BRIDGE_PREFERENCES = "pc_tracking_bridge"
+        private const val KEY_PC_HOST = "host"
     }
 }
