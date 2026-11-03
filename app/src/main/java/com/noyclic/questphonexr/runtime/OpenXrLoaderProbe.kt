@@ -72,11 +72,25 @@ object OpenXrLoaderProbe {
         if (!ensureNativeLibraryLoaded()) {
             return "Native diagnostic library unavailable: " + (loadError ?: "unknown error")
         }
-        return runCatching { nativeProbeRuntimeLibrary(path) }
-            .getOrElse { error ->
-                "Native runtime dlopen probe failed: " +
-                    (error.message ?: error.javaClass.simpleName)
+        return runCatching {
+            val root = JSONObject(nativeProbeRuntimeLibrary(path))
+            buildString {
+                append("Результат: ").append(root.optString("status", "UNKNOWN"))
+                root.optString("path").takeIf { it.isNotBlank() }?.let {
+                    append("\\nПуть: ").append(it)
+                }
+                if (root.has("negotiationExportFound")) {
+                    append("\\nЭкспорт xrNegotiateLoaderRuntimeInterface: ")
+                        .append(if (root.optBoolean("negotiationExportFound")) "найден" else "не найден")
+                }
+                root.optString("message").takeIf { it.isNotBlank() }?.let {
+                    append("\\n").append(it)
+                }
             }
+        }.getOrElse { error ->
+            "Native runtime dlopen probe failed: " +
+                (error.message ?: error.javaClass.simpleName)
+        }
     }
 
     fun inspect(context: Context): OpenXrLoaderProbeReport {
