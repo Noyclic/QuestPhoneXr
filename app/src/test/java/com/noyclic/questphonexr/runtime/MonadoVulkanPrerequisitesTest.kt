@@ -52,7 +52,7 @@ class MonadoVulkanPrerequisitesTest {
     @Test
     fun reportsWhenNoVulkanPhysicalDeviceWasEnumerated() {
         val result = MonadoVulkanPrerequisites.assess(
-            NativeVulkanProbeReport(true, "OK", "empty", "1.1", emptyList())
+            NativeVulkanProbeReport(false, "NO_PHYSICAL_DEVICE", "empty", "1.1", emptyList())
         )
         assertEquals(MonadoVulkanPrerequisiteState.NO_VULKAN_DEVICE, result.state)
     }
