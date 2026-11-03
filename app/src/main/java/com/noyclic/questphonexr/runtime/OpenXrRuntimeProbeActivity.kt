@@ -53,7 +53,9 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
                             nativeSessionCreated = false
                         }
                         val report = OpenXrPersistentGlesSession.create(this@OpenXrRuntimeProbeActivity)
-                        nativeSessionCreated = report.status == "SESSION_CREATED_WAITING_FOR_READY"
+                        nativeSessionCreated = report.status == "SESSION_CREATED_WAITING_FOR_READY" ||
+                report.status == "SESSION_ALREADY_CREATED" ||
+                            report.status == "SESSION_ALREADY_CREATED"
                         publishReport(report, stopOnFailure = !nativeSessionCreated)
                     } else {
                         runOnUiThread {
@@ -75,9 +77,21 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
                     if (!sessionRequested || !nativeSessionCreated) return
                     val report = OpenXrPersistentGlesSession.renderFrame()
                     val now = SystemClock.uptimeMillis()
-                    if (now - lastStatusUpdateMs >= STATUS_UPDATE_INTERVAL_MS ||
-                        report.status != "FRAME_SUBMITTED"
-                    ) {
+                    val isSteadyFrame = report.status == "FRAME_SUBMITTED" ||
+                        report.status == "FRAME_NOT_RENDERED" ||
+                        report.status == "WAITING_FOR_SESSION_READY"
+                    if (!isSteadyFrame) {
+                        // Stop issuing XR calls after a real stage failure; the session
+                        // is torn down on this same GL thread before the error is shown.
+                        val cleanup = OpenXrPersistentGlesSession.destroy()
+                        nativeSessionCreated = false
+                        sessionRequested = false
+                        lastStatusUpdateMs = now
+                        publishReport(
+                            report.copy(message = report.message + "\\nCleanup: " + cleanup.message),
+                            stopOnFailure = true
+                        )
+                    } else if (now - lastStatusUpdateMs >= STATUS_UPDATE_INTERVAL_MS) {
                         lastStatusUpdateMs = now
                         publishReport(report, stopOnFailure = false)
                     }
