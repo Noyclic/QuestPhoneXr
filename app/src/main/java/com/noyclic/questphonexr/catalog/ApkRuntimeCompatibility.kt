@@ -6,6 +6,7 @@ import java.util.zip.ZipFile
 enum class ApkLaunchRoute(val label: String) {
     DEVICE_REQUIREMENTS_BLOCKED("Телефон не соответствует требованиям APK"),
     QUEST_RUNTIME_REQUIRED("Требуется Meta Quest Runtime — напрямую не запускается"),
+    OPENXR_RUNTIME_CANDIDATE("Обнаружен OpenXR — нужен активный совместимый Runtime"),
     XR_SOURCE_ADAPTATION_REQUIRED("Нужен XR-порт или совместимый адаптер"),
     ANDROID_APP_CANDIDATE("Кандидат на обычный Android-запуск")
 }
@@ -111,6 +112,7 @@ object ApkRuntimeCompatibility {
         val route = when {
             blockers.isNotEmpty() -> ApkLaunchRoute.DEVICE_REQUIREMENTS_BLOCKED
             questSignals.isNotEmpty() -> ApkLaunchRoute.QUEST_RUNTIME_REQUIRED
+            "OpenXR" in xrTechnologies -> ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE
             xrTechnologies.isNotEmpty() -> ApkLaunchRoute.XR_SOURCE_ADAPTATION_REQUIRED
             else -> ApkLaunchRoute.ANDROID_APP_CANDIDATE
         }
@@ -122,6 +124,8 @@ object ApkRuntimeCompatibility {
                     add("Сначала нужно устранить ограничения устройства; установка или запуск могут завершиться ошибкой.")
                 ApkLaunchRoute.QUEST_RUNTIME_REQUIRED ->
                     add("APK использует признаки Quest/Meta. На обычном Android нет системного Quest Runtime и Meta XR-сервисов; нужен отдельный порт или полноценная совместимая среда.")
+                ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE ->
+                    add("Обнаружены OpenXR-маркеры. Нужен активный Android OpenXR Runtime с поддержкой расширений и графического API. Один OpenXR Loader в QuestPhoneXR не является Runtime.")
                 ApkLaunchRoute.XR_SOURCE_ADAPTATION_REQUIRED ->
                     add("Обнаружены XR-компоненты. Для телефона потребуется адаптация графики, трекинга и ввода под runtime QuestPhoneXR.")
                 ApkLaunchRoute.ANDROID_APP_CANDIDATE ->
