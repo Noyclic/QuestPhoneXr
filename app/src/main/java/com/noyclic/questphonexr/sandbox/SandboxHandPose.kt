@@ -2,10 +2,10 @@ package com.noyclic.questphonexr.sandbox
 
 import com.noyclic.questphonexr.tracking.HandPoint
 
-/** Maps MediaPipe image landmarks into the sandbox's phone-VR interaction plane. */
+/** Maps MediaPipe image landmarks across the wider free-space sandbox reach volume, not just the platform footprint. */
 internal object SandboxHandPoseMapper {
-    private const val CURSOR_WIDTH = 3.0f
-    private const val CURSOR_HEIGHT = 2.15f
+    private const val CURSOR_WIDTH = 6.0f
+    private const val CURSOR_HEIGHT = 4.3f
     private const val CURSOR_DEPTH = -2.55f
     private const val MAX_RELATIVE_DEPTH = 0.45f
 
@@ -19,11 +19,11 @@ internal object SandboxHandPoseMapper {
                 x = (
                     (point.x - 0.5f) * CURSOR_WIDTH * safeCalibration.horizontalScale +
                         safeCalibration.horizontalOffset
-                    ).coerceIn(-1.65f, 1.65f),
+                    ).coerceIn(-3.0f, 3.0f),
                 y = (
                     (0.5f - point.y) * CURSOR_HEIGHT * safeCalibration.verticalScale +
                         safeCalibration.verticalOffset
-                    ).coerceIn(-1.15f, 1.15f),
+                    ).coerceIn(-2.15f, 2.15f),
                 z = CURSOR_DEPTH +
                     point.z.coerceIn(-MAX_RELATIVE_DEPTH, MAX_RELATIVE_DEPTH) *
                     safeCalibration.relativeDepthScale

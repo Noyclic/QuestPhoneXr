@@ -23,6 +23,20 @@ class SandboxHandPoseTest {
     }
 
     @Test
+    fun mapsHandsToTheFullFreeSpaceInsteadOfClampingThemToThePlatform() {
+        val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+        points[0] = HandPoint(0f, 0f, 0f)
+        points[8] = HandPoint(1f, 1f, 0f)
+
+        val mapped = SandboxHandPoseMapper.map(points)
+
+        assertEquals(-3.0f, mapped[0].x, 0.001f)
+        assertEquals(2.15f, mapped[0].y, 0.001f)
+        assertEquals(3.0f, mapped[8].x, 0.001f)
+        assertEquals(-2.15f, mapped[8].y, 0.001f)
+    }
+
+    @Test
     fun ignoresLandmarksBeyondTheMediaPipeHandDefinition() {
         val mapped = SandboxHandPoseMapper.map(
             List(24) { HandPoint(0.5f, 0.5f, 0f) }
