@@ -251,6 +251,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 orientation = LinearLayout.HORIZONTAL
             }
             buttons.addView(
+                controlButton("Игры") { showGameSelectionDialog() },
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            )
+            buttons.addView(
                 controlButton("Добавить куб") { spawnCube() },
                 LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             )
@@ -774,6 +778,37 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 trackingSender?.stop()
                 pcBridgeStatus = "ПК: отключён"
                 updateStatus()
+            }
+            .setNegativeButton("Закрыть", null)
+            .show()
+    }
+
+    /**
+     * The game picker is intentionally an in-scene dialog: choosing a mode must not
+     * send the user back to the app's top-level Sandbox / APK / PC mode selector.
+     * Only the physics sandbox is wired to a playable scene at this stage.
+     */
+    private fun showGameSelectionDialog() {
+        val games = arrayOf(
+            "Физическая песочница · доступна",
+            "Тактический шутер с ботами · скоро",
+            "Тир и тренировка меткости · скоро",
+            "Выживание с волнами ботов · скоро",
+            "Паркур и испытания · скоро",
+            "Арена роботов · скоро"
+        )
+        AlertDialog.Builder(this)
+            .setTitle("Выбор игры")
+            .setItems(games) { _, which ->
+                if (which == 0) {
+                    Toast.makeText(this, "Вы уже в физической песочнице", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(
+                        this,
+                        "Этот режим появится после стабилизации OpenXR runtime",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
             .setNegativeButton("Закрыть", null)
             .show()
