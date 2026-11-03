@@ -38,6 +38,7 @@ class CrashReportFormatterTest {
             Authorization: Bearer abc.def.ghi
             refresh_token=refresh-secret
             password: "my-private-password"
+            Request failed with Bearer standalone.token.value
             Failed to open /storage/emulated/0/DCIM/private-photo.jpg
         """.trimIndent()
 
@@ -48,6 +49,7 @@ class CrashReportFormatterTest {
         assertTrue(sanitized.contains("password: [REDACTED]"))
         assertTrue(sanitized.contains("[USER_STORAGE_PATH]"))
         assertTrue(!sanitized.contains("abc.def.ghi"))
+        assertTrue(!sanitized.contains("standalone.token.value"))
         assertTrue(!sanitized.contains("refresh-secret"))
         assertTrue(!sanitized.contains("my-private-password"))
         assertTrue(!sanitized.contains("private-photo.jpg"))
