@@ -995,12 +995,16 @@ PersistentGlesSessionState persistentSession;
 std::string persistentReport(
     const char* status,
     const std::string& message,
-    XrResult result = XR_SUCCESS
+    XrResult result = XR_SUCCESS,
+    bool overrideFrameCount = false,
+    uint64_t frameCount = 0
 ) {
+    const uint64_t displayedFrameCount =
+        overrideFrameCount ? frameCount : persistentSession.submittedFrames;
     std::ostringstream out;
     out << R"({"status":")" << status
         << R"(","xrResult":)" << static_cast<int>(result)
-        << R"(","framesSubmitted":)" << persistentSession.submittedFrames
+        << R"(","framesSubmitted":)" << displayedFrameCount
         << R"(,"message":")" << jsonEscape(message) << R"("})";
     return out.str();
 }
@@ -1081,6 +1085,13 @@ bool persistentPollEvents(std::string& errorMessage, XrResult& errorResult) {
                 reinterpret_cast<const XrEventDataSessionStateChanged*>(&event);
             if (changed->session == state.session) {
                 state.sessionState = changed->state;
+                if (changed->state == XR_SESSION_STATE_EXITING ||
+                    changed->state == XR_SESSION_STATE_LOSS_PENDING) {
+                    state.sessionBegun = false;
+                    errorMessage = "The runtime is exiting or has lost the OpenXR session.";
+                    errorResult = XR_ERROR_SESSION_LOST;
+                    return false;
+                }
                 if (changed->state == XR_SESSION_STATE_STOPPING && state.sessionBegun) {
                     const XrResult endResult = xrEndSession(state.session);
                     if (endResult != XR_SUCCESS) {
@@ -1089,13 +1100,6 @@ bool persistentPollEvents(std::string& errorMessage, XrResult& errorResult) {
                         return false;
                     }
                     state.sessionBegun = false;
-                } else if ((changed->state == XR_SESSION_STATE_EXITING ||
-                            changed->state == XR_SESSION_STATE_LOSS_PENDING) &&
-                           state.sessionBegun) {
-                    state.sessionBegun = false;
-                    errorMessage = "The runtime is exiting or has lost the OpenXR session.";
-                    errorResult = XR_ERROR_SESSION_LOST;
-                    return false;
                 }
             }
         }
@@ -1869,6 +1873,6 @@ Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativeDestroyS
     message << "Persistent OpenXR instance, session, space and swapchain destroyed. "
             << "Stereo frames submitted during this run: " << frames << ".";
     return env->NewStringUTF(persistentReport(
-        "SESSION_DESTROYED", message.str()
+        "SESSION_DESTROYED", message.str(), XR_SUCCESS, true, frames
     ).c_str());
 }
