@@ -904,7 +904,7 @@ Java_com_noyclic_questphonexr_runtime_OpenXrGlesSessionProbe_nativeProbeSession(
                 << "; stereo swapchain " << swapchainWidth << "x" << swapchainHeight
                 << " with " << imageCount << " images.";
         return env->NewStringUTF(report(
-            "FIRST_FRAME_SUBMITTED_GLES",
+            "SUSTAINED_FRAMES_SUBMITTED_GLES",
             details.str(),
             frameSubmission.result
         ).c_str());
