@@ -6,10 +6,12 @@
 #include <openxr/openxr_platform.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -64,6 +66,276 @@ std::string makeReport(
     out << "]}";
     return out.str();
 }
+
+struct OneFrameSubmission {
+    const char* status;
+    XrResult result;
+    std::string message;
+    bool submitted;
+};
+
+XrResult waitForSessionState(
+    XrInstance instance,
+    XrSession session,
+    XrSessionState target,
+    std::chrono::milliseconds timeout
+) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        XrEventDataBuffer event{};
+        event.type = XR_TYPE_EVENT_DATA_BUFFER;
+        const XrResult pollResult = xrPollEvent(instance, &event);
+        if (pollResult == XR_SUCCESS) {
+            if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
+                const auto* changed =
+                    reinterpret_cast<const XrEventDataSessionStateChanged*>(&event);
+                if (changed->session == session) {
+                    if (changed->state == target) return XR_SUCCESS;
+                    if (changed->state == XR_SESSION_STATE_EXITING ||
+                        changed->state == XR_SESSION_STATE_LOSS_PENDING) {
+                        return XR_ERROR_SESSION_LOST;
+                    }
+                }
+            }
+        } else if (pollResult != XR_EVENT_UNAVAILABLE) {
+            return pollResult;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    return XR_TIMEOUT_EXPIRED;
+}
+
+OneFrameSubmission submitOneGlesFrame(
+    XrInstance instance,
+    XrSession session,
+    XrSwapchain swapchain,
+    const std::vector<XrSwapchainImageOpenGLESKHR>& swapchainImages,
+    uint32_t viewCount,
+    uint32_t width,
+    uint32_t height
+) {
+    XrSpace space = XR_NULL_HANDLE;
+    bool sessionBegun = false;
+    bool frameBegun = false;
+    bool imageAcquired = false;
+    uint32_t imageIndex = 0;
+    XrFrameState frameState{};
+    frameState.type = XR_TYPE_FRAME_STATE;
+
+    auto stopSession = [&]() {
+        if (sessionBegun) {
+            (void)xrRequestExitSession(session);
+            const XrResult stopping = waitForSessionState(
+                instance, session, XR_SESSION_STATE_STOPPING, std::chrono::milliseconds(1500)
+            );
+            if (stopping == XR_SUCCESS) (void)xrEndSession(session);
+        }
+        if (space != XR_NULL_HANDLE) {
+            (void)xrDestroySpace(space);
+            space = XR_NULL_HANDLE;
+        }
+    };
+
+    auto fail = [&](const char* status, XrResult result, const std::string& message) {
+        if (imageAcquired) {
+            XrSwapchainImageReleaseInfo releaseInfo{};
+            releaseInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
+            (void)xrReleaseSwapchainImage(swapchain, &releaseInfo);
+            imageAcquired = false;
+        }
+        if (frameBegun) {
+            XrFrameEndInfo endInfo{};
+            endInfo.type = XR_TYPE_FRAME_END_INFO;
+            endInfo.displayTime = frameState.predictedDisplayTime;
+            endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+            (void)xrEndFrame(session, &endInfo);
+            frameBegun = false;
+        }
+        stopSession();
+        return OneFrameSubmission{status, result, message, false};
+    };
+
+    const XrResult readyResult = waitForSessionState(
+        instance, session, XR_SESSION_STATE_READY, std::chrono::milliseconds(5000)
+    );
+    if (readyResult != XR_SUCCESS) {
+        return fail(
+            "SESSION_READY_TIMEOUT", readyResult,
+            "Monado did not move the session to READY within 5 seconds."
+        );
+    }
+
+    XrSessionBeginInfo beginInfo{};
+    beginInfo.type = XR_TYPE_SESSION_BEGIN_INFO;
+    beginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+    XrResult result = xrBeginSession(session, &beginInfo);
+    if (result != XR_SUCCESS) {
+        return fail("SESSION_BEGIN_FAILED", result, "xrBeginSession failed.");
+    }
+    sessionBegun = true;
+
+    XrReferenceSpaceCreateInfo spaceInfo{};
+    spaceInfo.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
+    spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+    spaceInfo.poseInReferenceSpace.orientation.w = 1.0f;
+    result = xrCreateReferenceSpace(session, &spaceInfo, &space);
+    if (result != XR_SUCCESS) {
+        return fail("REFERENCE_SPACE_FAILED", result, "Could not create the LOCAL reference space.");
+    }
+
+    XrFrameWaitInfo waitInfo{};
+    waitInfo.type = XR_TYPE_FRAME_WAIT_INFO;
+    result = xrWaitFrame(session, &waitInfo, &frameState);
+    if (result != XR_SUCCESS) {
+        return fail("WAIT_FRAME_FAILED", result, "xrWaitFrame failed.");
+    }
+
+    XrFrameBeginInfo frameBeginInfo{};
+    frameBeginInfo.type = XR_TYPE_FRAME_BEGIN_INFO;
+    result = xrBeginFrame(session, &frameBeginInfo);
+    if (result != XR_SUCCESS) {
+        return fail("BEGIN_FRAME_FAILED", result, "xrBeginFrame failed.");
+    }
+    frameBegun = true;
+
+    if (frameState.shouldRender == XR_FALSE) {
+        return fail(
+            "FRAME_NOT_RENDERED", XR_SUCCESS,
+            "The runtime accepted the session but marked the first frame as not renderable."
+        );
+    }
+
+    std::vector<XrView> locatedViews(viewCount);
+    for (auto& view : locatedViews) {
+        view.type = XR_TYPE_VIEW;
+        view.next = nullptr;
+    }
+    XrViewState viewState{};
+    viewState.type = XR_TYPE_VIEW_STATE;
+    XrViewLocateInfo locateInfo{};
+    locateInfo.type = XR_TYPE_VIEW_LOCATE_INFO;
+    locateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+    locateInfo.displayTime = frameState.predictedDisplayTime;
+    locateInfo.space = space;
+    uint32_t locatedViewCount = viewCount;
+    result = xrLocateViews(
+        session, &locateInfo, &viewState, viewCount, &locatedViewCount, locatedViews.data()
+    );
+    if (result != XR_SUCCESS || locatedViewCount != viewCount) {
+        return fail(
+            "LOCATE_VIEWS_FAILED", result,
+            "xrLocateViews did not return the expected stereo eye poses."
+        );
+    }
+
+    XrSwapchainImageAcquireInfo acquireInfo{};
+    acquireInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO;
+    result = xrAcquireSwapchainImage(swapchain, &acquireInfo, &imageIndex);
+    if (result != XR_SUCCESS) {
+        return fail("ACQUIRE_IMAGE_FAILED", result, "xrAcquireSwapchainImage failed.");
+    }
+    imageAcquired = true;
+
+    XrSwapchainImageWaitInfo imageWaitInfo{};
+    imageWaitInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
+    imageWaitInfo.timeout = XR_INFINITE_DURATION;
+    result = xrWaitSwapchainImage(swapchain, &imageWaitInfo);
+    if (result != XR_SUCCESS) {
+        return fail("WAIT_IMAGE_FAILED", result, "xrWaitSwapchainImage failed.");
+    }
+    if (imageIndex >= swapchainImages.size()) {
+        return fail(
+            "SWAPCHAIN_IMAGE_INDEX_INVALID", XR_ERROR_INDEX_OUT_OF_RANGE,
+            "Runtime returned a swapchain image index outside the enumerated image list."
+        );
+    }
+
+    GLuint framebuffer = 0;
+    glGenFramebuffers(1, &framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    for (uint32_t eye = 0; eye < viewCount; ++eye) {
+        glFramebufferTextureLayer(
+            GL_FRAMEBUFFER,
+            GL_COLOR_ATTACHMENT0,
+            swapchainImages[imageIndex].image,
+            0,
+            static_cast<GLint>(eye)
+        );
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glDeleteFramebuffers(1, &framebuffer);
+            return fail(
+                "GLES_FRAMEBUFFER_INCOMPLETE", XR_ERROR_GRAPHICS_DEVICE_INVALID,
+                "The runtime swapchain texture array could not be attached for both eyes."
+            );
+        }
+        glViewport(0, 0, static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+        glClearColor(eye == 0 ? 0.06f : 0.02f, 0.18f, eye == 0 ? 0.32f : 0.24f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glDeleteFramebuffers(1, &framebuffer);
+    glFinish();
+    const GLenum glError = glGetError();
+    if (glError != GL_NO_ERROR) {
+        return fail(
+            "GLES_RENDER_FAILED", XR_ERROR_GRAPHICS_DEVICE_INVALID,
+            "OpenGL ES reported an error while clearing the two swapchain array layers."
+        );
+    }
+
+    XrSwapchainImageReleaseInfo releaseInfo{};
+    releaseInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
+    result = xrReleaseSwapchainImage(swapchain, &releaseInfo);
+    imageAcquired = false;
+    if (result != XR_SUCCESS) {
+        return fail("RELEASE_IMAGE_FAILED", result, "xrReleaseSwapchainImage failed.");
+    }
+
+    std::vector<XrCompositionLayerProjectionView> projectionViews(viewCount);
+    for (uint32_t eye = 0; eye < viewCount; ++eye) {
+        auto& projectionView = projectionViews[eye];
+        projectionView.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+        projectionView.pose = locatedViews[eye].pose;
+        projectionView.fov = locatedViews[eye].fov;
+        projectionView.subImage.swapchain = swapchain;
+        projectionView.subImage.imageRect.offset = {0, 0};
+        projectionView.subImage.imageRect.extent = {
+            static_cast<int32_t>(width), static_cast<int32_t>(height)
+        };
+        projectionView.subImage.imageArrayIndex = eye;
+    }
+
+    XrCompositionLayerProjection projectionLayer{};
+    projectionLayer.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
+    projectionLayer.space = space;
+    projectionLayer.viewCount = viewCount;
+    projectionLayer.views = projectionViews.data();
+    const XrCompositionLayerBaseHeader* layers[] = {
+        reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projectionLayer)
+    };
+
+    XrFrameEndInfo endInfo{};
+    endInfo.type = XR_TYPE_FRAME_END_INFO;
+    endInfo.displayTime = frameState.predictedDisplayTime;
+    endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+    endInfo.layerCount = 1;
+    endInfo.layers = layers;
+    result = xrEndFrame(session, &endInfo);
+    frameBegun = false;
+    if (result != XR_SUCCESS) {
+        return fail("END_FRAME_FAILED", result, "xrEndFrame rejected the stereo projection layer.");
+    }
+
+    stopSession();
+    return OneFrameSubmission{
+        "FIRST_FRAME_SUBMITTED_GLES",
+        XR_SUCCESS,
+        "A complete stereo GLES frame was submitted with xrEndFrame.",
+        true
+    };
+}
+
 } // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -443,98 +715,106 @@ Java_com_noyclic_questphonexr_runtime_OpenXrGlesSessionProbe_nativeProbeSession(
     sessionInfo.systemId = systemId;
     XrSession session = XR_NULL_HANDLE;
     const XrResult sessionResult = xrCreateSession(instance, &sessionInfo, &session);
+
     XrResult swapchainResult = XR_SUCCESS;
     std::string swapchainMessage = "Stereo swapchain was not attempted.";
     XrSwapchain swapchain = XR_NULL_HANDLE;
+    XrSpace referenceSpace = XR_NULL_HANDLE;
     uint32_t imageCount = 0;
     int64_t selectedFormat = 0;
     uint32_t swapchainWidth = 0;
     uint32_t swapchainHeight = 0;
+    uint32_t viewCount = 0;
+    std::vector<XrViewConfigurationView> viewConfigurationViews;
+    std::vector<XrSwapchainImageOpenGLESKHR> swapchainImages;
+    OneFrameSubmission frameSubmission{
+        "SESSION_CREATION_FAILED", sessionResult,
+        "Runtime did not create an OpenXR session.", false
+    };
 
     if (sessionResult == XR_SUCCESS) {
-        uint32_t viewCount = 0;
         swapchainResult = xrEnumerateViewConfigurationViews(
             instance, systemId, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
             0, &viewCount, nullptr
         );
-        if (swapchainResult == XR_SUCCESS && viewCount > 0) {
-            std::vector<XrViewConfigurationView> views(viewCount);
-            for (auto& view : views) {
+        if (swapchainResult == XR_SUCCESS && viewCount != 2) {
+            swapchainResult = XR_ERROR_VIEW_CONFIGURATION_TYPE_UNSUPPORTED;
+        }
+        if (swapchainResult == XR_SUCCESS) {
+            viewConfigurationViews.resize(viewCount);
+            for (auto& view : viewConfigurationViews) {
                 view.type = XR_TYPE_VIEW_CONFIGURATION_VIEW;
                 view.next = nullptr;
             }
             swapchainResult = xrEnumerateViewConfigurationViews(
                 instance, systemId, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
-                viewCount, &viewCount, views.data()
+                viewCount, &viewCount, viewConfigurationViews.data()
             );
-            if (swapchainResult == XR_SUCCESS) {
-                swapchainWidth = 1;
-                swapchainHeight = 1;
-                uint32_t sampleCount = 1;
-                for (const auto& view : views) {
-                    swapchainWidth = std::max(swapchainWidth, view.recommendedImageRectWidth);
-                    swapchainHeight = std::max(swapchainHeight, view.recommendedImageRectHeight);
-                    sampleCount = std::max(sampleCount, view.recommendedSwapchainSampleCount);
-                }
+        }
+        if (swapchainResult == XR_SUCCESS) {
+            swapchainWidth = 1;
+            swapchainHeight = 1;
+            for (const auto& view : viewConfigurationViews) {
+                swapchainWidth = std::max(swapchainWidth, view.recommendedImageRectWidth);
+                swapchainHeight = std::max(swapchainHeight, view.recommendedImageRectHeight);
+            }
 
-                uint32_t formatCount = 0;
-                swapchainResult = xrEnumerateSwapchainFormats(session, 0, &formatCount, nullptr);
+            uint32_t formatCount = 0;
+            swapchainResult = xrEnumerateSwapchainFormats(session, 0, &formatCount, nullptr);
+            if (swapchainResult == XR_SUCCESS && formatCount > 0) {
+                std::vector<int64_t> formats(formatCount);
+                swapchainResult = xrEnumerateSwapchainFormats(
+                    session, formatCount, &formatCount, formats.data()
+                );
                 if (swapchainResult == XR_SUCCESS && formatCount > 0) {
-                    std::vector<int64_t> formats(formatCount);
-                    swapchainResult = xrEnumerateSwapchainFormats(
-                        session, formatCount, &formatCount, formats.data()
-                    );
-                    if (swapchainResult == XR_SUCCESS && formatCount > 0) {
-                        const auto rgba = std::find(formats.begin(), formats.end(), static_cast<int64_t>(GL_RGBA8));
-                        const auto srgb = std::find(formats.begin(), formats.end(), static_cast<int64_t>(GL_SRGB8_ALPHA8));
-                        selectedFormat = rgba != formats.end() ? *rgba :
-                            (srgb != formats.end() ? *srgb : formats.front());
+                    const auto rgba = std::find(formats.begin(), formats.end(), static_cast<int64_t>(GL_RGBA8));
+                    const auto srgb = std::find(formats.begin(), formats.end(), static_cast<int64_t>(GL_SRGB8_ALPHA8));
+                    selectedFormat = rgba != formats.end() ? *rgba :
+                        (srgb != formats.end() ? *srgb : formats.front());
 
-                        XrSwapchainCreateInfo swapchainInfo{};
-                        swapchainInfo.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
-                        swapchainInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
-                        swapchainInfo.format = selectedFormat;
-                        swapchainInfo.sampleCount = sampleCount;
-                        swapchainInfo.width = swapchainWidth;
-                        swapchainInfo.height = swapchainHeight;
-                        swapchainInfo.faceCount = 1;
-                        swapchainInfo.arraySize = 1;
-                        swapchainInfo.mipCount = 1;
-                        swapchainResult = xrCreateSwapchain(session, &swapchainInfo, &swapchain);
-                        if (swapchainResult == XR_SUCCESS) {
-                            swapchainResult = xrEnumerateSwapchainImages(swapchain, 0, &imageCount, nullptr);
-                            if (swapchainResult == XR_SUCCESS && imageCount > 0) {
-                                std::vector<XrSwapchainImageOpenGLESKHR> images(imageCount);
-                                for (auto& image : images) {
-                                    image.type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
-                                    image.next = nullptr;
-                                }
-                                swapchainResult = xrEnumerateSwapchainImages(
-                                    swapchain, imageCount, &imageCount,
-                                    reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data())
-                                );
-                            } else if (swapchainResult == XR_SUCCESS) {
-                                swapchainResult = XR_ERROR_RUNTIME_FAILURE;
+                    XrSwapchainCreateInfo swapchainInfo{};
+                    swapchainInfo.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
+                    swapchainInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+                    swapchainInfo.format = selectedFormat;
+                    swapchainInfo.sampleCount = 1;
+                    swapchainInfo.width = swapchainWidth;
+                    swapchainInfo.height = swapchainHeight;
+                    swapchainInfo.faceCount = 1;
+                    swapchainInfo.arraySize = viewCount;
+                    swapchainInfo.mipCount = 1;
+                    swapchainResult = xrCreateSwapchain(session, &swapchainInfo, &swapchain);
+                    if (swapchainResult == XR_SUCCESS) {
+                        swapchainResult = xrEnumerateSwapchainImages(swapchain, 0, &imageCount, nullptr);
+                        if (swapchainResult == XR_SUCCESS && imageCount > 0) {
+                            swapchainImages.resize(imageCount);
+                            for (auto& image : swapchainImages) {
+                                image.type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+                                image.next = nullptr;
                             }
+                            swapchainResult = xrEnumerateSwapchainImages(
+                                swapchain, imageCount, &imageCount,
+                                reinterpret_cast<XrSwapchainImageBaseHeader*>(swapchainImages.data())
+                            );
+                        } else if (swapchainResult == XR_SUCCESS) {
+                            swapchainResult = XR_ERROR_RUNTIME_FAILURE;
                         }
-                    } else if (swapchainResult == XR_SUCCESS) {
-                        swapchainResult = XR_ERROR_SWAPCHAIN_FORMAT_UNSUPPORTED;
                     }
                 } else if (swapchainResult == XR_SUCCESS) {
                     swapchainResult = XR_ERROR_SWAPCHAIN_FORMAT_UNSUPPORTED;
                 }
+            } else if (swapchainResult == XR_SUCCESS) {
+                swapchainResult = XR_ERROR_SWAPCHAIN_FORMAT_UNSUPPORTED;
             }
-        } else if (swapchainResult == XR_SUCCESS) {
-            swapchainResult = XR_ERROR_VIEW_CONFIGURATION_TYPE_UNSUPPORTED;
         }
+
         if (swapchainResult == XR_SUCCESS) {
-            std::ostringstream details;
-            details << "Created primary-stereo GLES swapchain " << swapchainWidth << "x"
-                    << swapchainHeight << ", format 0x" << std::hex << selectedFormat
-                    << ", images " << std::dec << imageCount << ". No frames were submitted.";
-            swapchainMessage = details.str();
+            frameSubmission = submitOneGlesFrame(
+                instance, session, swapchain, swapchainImages,
+                viewCount, swapchainWidth, swapchainHeight
+            );
+            swapchainMessage = frameSubmission.message;
         } else {
-            swapchainMessage = "Session exists, but stereo swapchain setup failed.";
+            swapchainMessage = "Stereo swapchain setup failed before the first frame.";
         }
     }
 
@@ -552,18 +832,27 @@ Java_com_noyclic_questphonexr_runtime_OpenXrGlesSessionProbe_nativeProbeSession(
             sessionResult
         ).c_str());
     }
-    if (swapchainResult == XR_SUCCESS) {
+    if (swapchainResult != XR_SUCCESS) {
         return env->NewStringUTF(report(
-            "SWAPCHAIN_CREATED_GLES",
-            "xrCreateSession succeeded with a temporary GLES context (" + glVersion +
-            "). " + swapchainMessage +
-            " The session and swapchain were destroyed after this smoke test; frame loop and compositor submission remain untested."
+            "SWAPCHAIN_CREATION_FAILED_GLES",
+            "xrCreateSession succeeded, but stereo swapchain setup failed: " + swapchainMessage,
+            swapchainResult
+        ).c_str());
+    }
+    if (frameSubmission.submitted) {
+        std::ostringstream details;
+        details << frameSubmission.message << " GLES " << glVersion
+                << "; stereo swapchain " << swapchainWidth << "x" << swapchainHeight
+                << " with " << imageCount << " images.";
+        return env->NewStringUTF(report(
+            "FIRST_FRAME_SUBMITTED_GLES",
+            details.str(),
+            frameSubmission.result
         ).c_str());
     }
     return env->NewStringUTF(report(
-        "SWAPCHAIN_CREATION_FAILED_GLES",
-        "xrCreateSession succeeded with GLES context (" + glVersion + "), but swapchain setup failed: " +
-            swapchainMessage,
-        swapchainResult
+        frameSubmission.status,
+        "XR session or first-frame submission did not complete: " + frameSubmission.message,
+        frameSubmission.result
     ).c_str());
 }
