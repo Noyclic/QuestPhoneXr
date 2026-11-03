@@ -69,7 +69,7 @@ std::string makeReport(
     return out.str();
 }
 
-struct OneFrameSubmission {
+struct FrameLoopSubmission {
     const char* status;
     XrResult result;
     std::string message;
@@ -107,7 +107,7 @@ XrResult waitForSessionState(
     return XR_TIMEOUT_EXPIRED;
 }
 
-OneFrameSubmission submitOneGlesFrame(
+FrameLoopSubmission submitGlesFrameLoop(
     XrInstance instance,
     XrSession session,
     XrSwapchain swapchain,
@@ -129,7 +129,7 @@ OneFrameSubmission submitOneGlesFrame(
     XrFrameState frameState{};
     frameState.type = XR_TYPE_FRAME_STATE;
     uint32_t submittedFrames = 0;
-    const auto frameLoopStarted = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point frameLoopStarted{};
 
     auto stopSession = [&]() {
         if (sessionBegun) {
@@ -164,7 +164,7 @@ OneFrameSubmission submitOneGlesFrame(
         stopSession();
         std::ostringstream details;
         details << message << " Frames submitted: " << submittedFrames << "/" << kTargetFrames << ".";
-        return OneFrameSubmission{status, result, details.str(), false};
+        return FrameLoopSubmission{status, result, details.str(), false};
     };
 
     const XrResult readyResult = waitForSessionState(
@@ -195,6 +195,8 @@ OneFrameSubmission submitOneGlesFrame(
         return fail("REFERENCE_SPACE_FAILED", result, "Could not create the LOCAL reference space.");
     }
 
+    // Session startup and READY waits are excluded from the frame-loop deadline.
+    frameLoopStarted = std::chrono::steady_clock::now();
     uint32_t attempts = 0;
     uint32_t validTrackingSamples = 0;
     bool haveTrackingBaseline = false;
@@ -420,7 +422,7 @@ OneFrameSubmission submitOneGlesFrame(
         std::ostringstream details;
         details << "Only " << submittedFrames << " of " << kTargetFrames
                 << " stereo frames were submitted before the attempt limit.";
-        return OneFrameSubmission{"SUSTAINED_FRAME_LIMIT_REACHED", XR_TIMEOUT_EXPIRED, details.str(), false};
+        return FrameLoopSubmission{"SUSTAINED_FRAME_LIMIT_REACHED", XR_TIMEOUT_EXPIRED, details.str(), false};
     }
 
     const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -434,7 +436,7 @@ OneFrameSubmission submitOneGlesFrame(
             << std::fixed << std::setprecision(3) << maxHeadPositionDeltaMeters
             << " m / " << std::setprecision(1) << maxHeadRotationDeltaDegrees
             << " deg. This validates runtime pose delivery during a short frame loop, not yet the app's permanent renderer.";
-    return OneFrameSubmission{
+    return FrameLoopSubmission{
         "SUSTAINED_FRAMES_SUBMITTED_GLES", XR_SUCCESS, details.str(), true
     };
 }
@@ -745,41 +747,44 @@ Java_com_noyclic_questphonexr_runtime_OpenXrGlesSessionProbe_nativeProbeSession(
         return env->NewStringUTF(report("GLES_REQUIREMENTS_FAILED", "Runtime rejected the OpenGL ES requirements query.", result).c_str());
     }
 
+    // Bind OpenXR to the EGL context that is already drawing this GLSurfaceView.
+    // A second context would validate a different context than the app renderer.
     EGLDisplay display = eglGetCurrentDisplay();
-    EGLContext previousContext = eglGetCurrentContext();
-    EGLSurface previousDraw = eglGetCurrentSurface(EGL_DRAW);
-    EGLSurface previousRead = eglGetCurrentSurface(EGL_READ);
-    if (display == EGL_NO_DISPLAY || previousContext == EGL_NO_CONTEXT) {
+    EGLContext currentContext = eglGetCurrentContext();
+    EGLSurface currentDrawSurface = eglGetCurrentSurface(EGL_DRAW);
+    EGLSurface currentReadSurface = eglGetCurrentSurface(EGL_READ);
+    if (display == EGL_NO_DISPLAY || currentContext == EGL_NO_CONTEXT ||
+        currentDrawSurface == EGL_NO_SURFACE || currentReadSurface == EGL_NO_SURFACE) {
         xrDestroyInstance(instance);
-        return env->NewStringUTF(report("EGL_CONTEXT_UNAVAILABLE", "The sandbox GL thread has no current EGL display/context.", XR_ERROR_GRAPHICS_DEVICE_INVALID).c_str());
+        return env->NewStringUTF(report(
+            "EGL_CONTEXT_UNAVAILABLE",
+            "The XR GL thread has no current EGL display, context, and window surfaces.",
+            XR_ERROR_GRAPHICS_DEVICE_INVALID
+        ).c_str());
     }
 
-    const EGLint configAttributes[] = {
-        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
-        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT_KHR,
-        EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8,
-        EGL_NONE
-    };
+    EGLint contextConfigId = 0;
+    if (eglQueryContext(display, currentContext, EGL_CONFIG_ID, &contextConfigId) != EGL_TRUE ||
+        contextConfigId == 0) {
+        xrDestroyInstance(instance);
+        return env->NewStringUTF(report(
+            "EGL_CONFIG_QUERY_FAILED",
+            "Could not read the EGL config ID belonging to the active renderer context.",
+            XR_ERROR_GRAPHICS_DEVICE_INVALID
+        ).c_str());
+    }
+
+    const EGLint configAttributes[] = { EGL_CONFIG_ID, contextConfigId, EGL_NONE };
     EGLConfig config = nullptr;
     EGLint configCount = 0;
-    if (eglChooseConfig(display, configAttributes, &config, 1, &configCount) != EGL_TRUE || configCount < 1) {
+    if (eglChooseConfig(display, configAttributes, &config, 1, &configCount) != EGL_TRUE ||
+        configCount != 1) {
         xrDestroyInstance(instance);
-        return env->NewStringUTF(report("GLES3_EGL_CONFIG_UNAVAILABLE", "No EGL config supports an OpenGL ES 3 pbuffer.", XR_ERROR_GRAPHICS_DEVICE_INVALID).c_str());
-    }
-
-    const EGLint pbufferAttributes[] = { EGL_WIDTH, 16, EGL_HEIGHT, 16, EGL_NONE };
-    EGLSurface pbuffer = eglCreatePbufferSurface(display, config, pbufferAttributes);
-    if (pbuffer == EGL_NO_SURFACE) {
-        xrDestroyInstance(instance);
-        return env->NewStringUTF(report("EGL_PBUFFER_FAILED", "Could not create a temporary EGL pbuffer.", XR_ERROR_GRAPHICS_DEVICE_INVALID).c_str());
-    }
-    const EGLint contextAttributes[] = { EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
-    EGLContext probeContext = eglCreateContext(display, config, EGL_NO_CONTEXT, contextAttributes);
-    if (probeContext == EGL_NO_CONTEXT || eglMakeCurrent(display, pbuffer, pbuffer, probeContext) != EGL_TRUE) {
-        if (probeContext != EGL_NO_CONTEXT) eglDestroyContext(display, probeContext);
-        eglDestroySurface(display, pbuffer);
-        xrDestroyInstance(instance);
-        return env->NewStringUTF(report("GLES3_CONTEXT_FAILED", "Could not create or activate a temporary OpenGL ES 3 context.", XR_ERROR_GRAPHICS_DEVICE_INVALID).c_str());
+        return env->NewStringUTF(report(
+            "EGL_CONFIG_QUERY_FAILED",
+            "Could not resolve the exact EGL config belonging to the active renderer context.",
+            XR_ERROR_GRAPHICS_DEVICE_INVALID
+        ).c_str());
     }
 
     const char* glVersionValue = reinterpret_cast<const char*>(glGetString(GL_VERSION));
@@ -792,12 +797,9 @@ Java_com_noyclic_questphonexr_runtime_OpenXrGlesSessionProbe_nativeProbeSession(
     const XrVersion actualVersion = XR_MAKE_VERSION(glMajor, glMinor, 0);
     if (glMajor == 0 || actualVersion < requirements.minApiVersionSupported ||
         actualVersion > requirements.maxApiVersionSupported) {
-        eglMakeCurrent(display, previousDraw, previousRead, previousContext);
-        eglDestroyContext(display, probeContext);
-        eglDestroySurface(display, pbuffer);
         xrDestroyInstance(instance);
         std::ostringstream message;
-        message << "Temporary GLES context " << glVersion
+        message << "Active renderer GLES context " << glVersion
                 << " is outside Runtime range "
                 << XR_VERSION_MAJOR(requirements.minApiVersionSupported) << "."
                 << XR_VERSION_MINOR(requirements.minApiVersionSupported) << " - "
@@ -810,7 +812,7 @@ Java_com_noyclic_questphonexr_runtime_OpenXrGlesSessionProbe_nativeProbeSession(
     graphicsBinding.type = XR_TYPE_GRAPHICS_BINDING_OPENGL_ES_ANDROID_KHR;
     graphicsBinding.display = display;
     graphicsBinding.config = config;
-    graphicsBinding.context = probeContext;
+    graphicsBinding.context = currentContext;
     XrSessionCreateInfo sessionInfo{};
     sessionInfo.type = XR_TYPE_SESSION_CREATE_INFO;
     sessionInfo.next = &graphicsBinding;
@@ -829,7 +831,7 @@ Java_com_noyclic_questphonexr_runtime_OpenXrGlesSessionProbe_nativeProbeSession(
     uint32_t viewCount = 0;
     std::vector<XrViewConfigurationView> viewConfigurationViews;
     std::vector<XrSwapchainImageOpenGLESKHR> swapchainImages;
-    OneFrameSubmission frameSubmission{
+    FrameLoopSubmission frameSubmission{
         "SESSION_CREATION_FAILED", sessionResult,
         "Runtime did not create an OpenXR session.", false
     };
@@ -910,7 +912,7 @@ Java_com_noyclic_questphonexr_runtime_OpenXrGlesSessionProbe_nativeProbeSession(
         }
 
         if (swapchainResult == XR_SUCCESS) {
-            frameSubmission = submitOneGlesFrame(
+            frameSubmission = submitGlesFrameLoop(
                 instance, session, swapchain, swapchainImages,
                 viewCount, swapchainWidth, swapchainHeight
             );
@@ -922,9 +924,7 @@ Java_com_noyclic_questphonexr_runtime_OpenXrGlesSessionProbe_nativeProbeSession(
 
     if (swapchain != XR_NULL_HANDLE) xrDestroySwapchain(swapchain);
     if (session != XR_NULL_HANDLE) xrDestroySession(session);
-    eglMakeCurrent(display, previousDraw, previousRead, previousContext);
-    eglDestroyContext(display, probeContext);
-    eglDestroySurface(display, pbuffer);
+    // GLSurfaceView owns the EGL context and window surface.
     xrDestroyInstance(instance);
 
     if (sessionResult != XR_SUCCESS) {
