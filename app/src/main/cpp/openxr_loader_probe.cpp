@@ -1115,6 +1115,17 @@ bool persistentPollEvents(std::string& errorMessage, XrResult& errorResult) {
         return false;
     }
 
+    // Keep terminal states sticky across pause/resume calls. The event may have
+    // been consumed by nativePauseSession, so do not rely on seeing it again.
+    if (state.sessionState == XR_SESSION_STATE_EXITING ||
+        state.sessionState == XR_SESSION_STATE_LOSS_PENDING) {
+        errorMessage = state.sessionState == XR_SESSION_STATE_EXITING
+            ? "The runtime moved the session to EXITING."
+            : "The runtime moved the session to LOSS_PENDING.";
+        errorResult = XR_ERROR_SESSION_LOST;
+        return false;
+    }
+
     if (!state.paused && !state.sessionBegun &&
         state.sessionState == XR_SESSION_STATE_READY) {
         XrSessionBeginInfo beginInfo{};
