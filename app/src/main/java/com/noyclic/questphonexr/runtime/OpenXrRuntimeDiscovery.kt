@@ -19,7 +19,7 @@ object OpenXrRuntimeDiscovery {
   val resolver=context.applicationContext.contentResolver
   var brokers=0
   val candidates=mutableListOf<OpenXrRuntimeCandidate>()
-  listOf(SYSTEM,INSTALLABLE).forEach{authority->
+  listOf(INSTALLABLE,SYSTEM).forEach{authority->
    if(runCatching{context.packageManager.resolveContentProvider(authority,0)!=null}.getOrDefault(false)) brokers++
    val uri=Uri.parse("content://$authority/openxr/1/abi/$abi/runtimes/active")
    val rows=runCatching{
@@ -51,6 +51,7 @@ object OpenXrRuntimeDiscovery {
  }
  internal fun currentProcessLoaderAbi(supportedAbis:List<String> = Build.SUPPORTED_ABIS.toList(),is64Bit:Boolean=Process.is64Bit()):String? =
   supportedAbis.firstNotNullOfOrNull{abi->val bits=abi=="arm64-v8a"||abi=="x86_64"||abi=="riscv64";if(bits!=is64Bit)null else toLoaderAbi(abi)}
- internal fun toLoaderAbi(androidAbi:String):String?=when(androidAbi){"arm64-v8a"->"aarch64";"armeabi-v7a"->"armv7a-vfp";"x86_64"->"x86_64";"x86"->"i686";"riscv64"->"riscv64";else->null}
+ /** Android ContentProvider ABI values match the Khronos loader's NDK ABI string. */
+ internal fun toLoaderAbi(androidAbi:String):String?=when(androidAbi){"arm64-v8a"->"arm64-v8a";"armeabi-v7a"->"armeabi-v7a";"x86_64"->"x86_64";"x86"->"x86";"riscv64"->"riscv64";else->null}
  private fun report(s:OpenXrRuntimeDiscoveryState,m:String,a:String?,c:List<OpenXrRuntimeCandidate> = emptyList())=OpenXrRuntimeDiscoveryReport(s,m,a,c)
 }
