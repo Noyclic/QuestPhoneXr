@@ -1,5 +1,6 @@
 package com.noyclic.questphonexr.performance
 
+import com.noyclic.questphonexr.runtime.MonadoVulkanPrerequisites
 import org.json.JSONObject
 
 data class NativeVulkanExternalHandle(
