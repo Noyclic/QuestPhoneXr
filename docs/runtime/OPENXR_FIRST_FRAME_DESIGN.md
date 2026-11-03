@@ -40,8 +40,9 @@ The first persistent-session slice is now implemented in the isolated `:xr_runti
 - A render callback submits at most one stereo projection frame. It does not create or destroy the OpenXR instance/session/swapchain for each frame.
 - The loop processes READY and STOPPING events, begins only after READY, and pauses by requesting session exit before the Activity releases its GL thread.
 - The diagnostic screen displays a submitted-frame counter and stops issuing native frame calls after a stage failure.
-- Each successful `xrLocateViews` sample records orientation and position validity separately, plus how often both are valid together. This matters because a phone-based runtime may provide 3DoF orientation without valid positional tracking.
-- The persistent report includes the current OpenXR session state, latest view-state flags, pose sample counts and maximum observed head-position/rotation deltas from the first valid sample. Teardown snapshots these metrics before native resources are reset.
+- Each successful `xrLocateViews` sample records orientation and position validity separately, then separately counts the `ORIENTATION_TRACKED` and `POSITION_TRACKED` flags. A pose may be valid but not actively tracked; that distinction is especially useful for a phone runtime where 3DoF orientation may be available without positional tracking.
+- The persistent report includes the current OpenXR session state, latest view-state flags, pose sample counts, valid/tracked sample counts and maximum observed head-position/rotation deltas from the first valid sample. Teardown snapshots these metrics before native resources are reset.
+- The report can be copied directly from the diagnostic screen with the one-tap copy button, so on-device test results can be shared as text.
 - EGL context identity is checked on every render callback. If the context is recreated, the Activity destroys stale session resources and creates a new session on the new GL context.
 - The process remains isolated because Monado's Android Surface/IPC path previously caused a native-side crash. Binder reachability is not proof that Surface handoff is safe.
 
