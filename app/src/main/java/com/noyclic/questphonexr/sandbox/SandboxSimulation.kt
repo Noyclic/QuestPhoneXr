@@ -299,12 +299,9 @@ class SandboxSimulation {
             }
         val fallbackCursor = if (hand == HandSide.LEFT) DEFAULT_LEFT_CURSOR else DEFAULT_RIGHT_CURSOR
         val cursor = cameraCursor ?: gamepadCursor ?: fallbackCursor
-        val renderedLandmarks = if (gamepadCursor != null && cameraCursor != null) {
-            val offset = gamepadCursor - cameraCursor
-            cameraLandmarks.map { it + offset }
-        } else {
-            cameraLandmarks
-        }
+        // Locomotion must never translate a camera-tracked hand. The gamepad cursor
+        // remains available only as a fallback when MediaPipe is not tracking this hand.
+        val renderedLandmarks = cameraLandmarks
         val digitalGrab = physical?.pressedKeyCodes?.any {
             it == GamepadButtonCodes.BUTTON_L1 ||
                 it == GamepadButtonCodes.BUTTON_R1 ||
