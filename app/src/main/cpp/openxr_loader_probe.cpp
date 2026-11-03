@@ -1633,7 +1633,7 @@ Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativeRenderFr
         (void)xrEndFrame(state.session, &endInfo);
         return env->NewStringUTF(persistentReport(
             "LOCATE_VIEWS_FAILED", "xrLocateViews did not return both stereo eye poses.",
-            result == XR_SUCCESS ? XR_ERROR_VIEW_INVALID : result
+            result == XR_SUCCESS ? XR_ERROR_VALIDATION_FAILURE : result
         ).c_str());
     }
 
@@ -1674,7 +1674,7 @@ Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativeRenderFr
         ).c_str());
     }
 
-    while (glGetError() != GL_NO_ERROR) {}
+    for (int staleError = 0; staleError < 8 && glGetError() != GL_NO_ERROR; ++staleError) {}
     if (state.framebuffer == 0) glGenFramebuffers(1, &state.framebuffer);
     glBindFramebuffer(GL_FRAMEBUFFER, state.framebuffer);
     bool framebufferComplete = true;
