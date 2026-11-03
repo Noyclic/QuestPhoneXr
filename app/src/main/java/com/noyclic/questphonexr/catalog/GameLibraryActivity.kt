@@ -95,9 +95,6 @@ class GameLibraryActivity : ComponentActivity() {
 
         Thread({
             val result = runCatching { OpenXrRuntimeDiscovery.inspect(this) }
-            val loadProbe = result.getOrNull()?.activeCandidate?.let { candidate ->
-                OpenXrLoaderProbe.inspectRuntimeLibrary(candidate.libraryPath)
-            }
             runOnUiThread {
                 runtimeCheckInProgress = false
                 if (isFinishing || isDestroyed || !::openXrRuntimeStatusView.isInitialized) return@runOnUiThread
@@ -119,10 +116,6 @@ class GameLibraryActivity : ComponentActivity() {
                             append("\nБиблиотека существует: ").append(candidate.libraryFileExists)
                             append("\nFunction remapping: ").append(candidate.hasFunctionRemapping)
                         }
-                    }
-                    report.activeCandidate?.let {
-                        append("\n\nПРЯМАЯ ПРОВЕРКА DLOPEN + NEGOTIATION")
-                        append("\n").append(loadProbe ?: "Не удалось запустить проверку динамической библиотеки.")
                     }
                 } else {
                     "Ошибка проверки Runtime Broker: " +
