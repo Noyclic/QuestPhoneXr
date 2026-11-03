@@ -1,6 +1,5 @@
 package com.noyclic.questphonexr.performance
 
-import com.noyclic.questphonexr.runtime.MonadoVulkanPrerequisites
 import org.json.JSONObject
 
 data class NativeVulkanExternalHandle(
@@ -71,8 +70,6 @@ data class NativeVulkanProbeReport(
         append("конкретный XR compositor сможет создать swapchain, импортировать ресурсы и синхронизировать кадры.")
         append(" Это только лёгкая проверка возможностей драйвера; нагрузочный тест не выполнялся.")
 
-        append("\n\nПроверка Vulkan-предпосылок Monado (Android):\n")
-        append(MonadoVulkanPrerequisites.assess(report).toDisplayText())
         }
     }
 }
@@ -89,7 +86,7 @@ object NativeVulkanProbe {
             synchronized(this) {
                 if (!libraryLoaded) {
                     try {
-                        System.loadLibrary("questphonexr_vulkan_probe")
+                        System.loadLibrary("questphonexr_native")
                         libraryLoaded = true
                     } catch (error: Throwable) {
                         loadError = error.message ?: error.javaClass.simpleName

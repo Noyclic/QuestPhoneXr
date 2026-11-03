@@ -69,7 +69,6 @@ dependencies {
     implementation("androidx.camera:camera-view:$cameraXVersion")
 
     implementation("com.google.mediapipe:tasks-vision:1.1.1")
-    implementation("org.khronos.openxr:openxr_loader_for_android:1.1.65")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

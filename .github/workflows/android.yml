@@ -46,6 +46,17 @@ jobs:
         with:
           gradle-version: "8.13"
 
+      - name: Run native EndXR core tests
+        run: |
+          set -euo pipefail
+          mkdir -p ci-results
+          c++ -std=c++17 -pthread -Wall -Wextra -Werror \
+            -I app/src/main/cpp \
+            app/src/test/cpp/endxr_runtime_core_test.cpp \
+            app/src/main/cpp/endxr_runtime_core.cpp \
+            -o ci-results/endxr-runtime-core-tests
+          ci-results/endxr-runtime-core-tests
+
       - name: Run JVM unit tests
         run: gradle --no-daemon :app:testDebugUnitTest
 
@@ -63,7 +74,7 @@ jobs:
 
           APK_FILES="$(unzip -Z1 "$APK")"
           grep -qx "assets/hand_landmarker.task" <<< "$APK_FILES"
-          grep -qx "lib/arm64-v8a/libquestphonexr_vulkan_probe.so" <<< "$APK_FILES"
+          grep -qx "lib/arm64-v8a/libquestphonexr_native.so" <<< "$APK_FILES"
           echo "APK package, MediaPipe model and arm64 native library are present." | tee ci-results/apk-validation.txt
 
       - name: Run navigation smoke test on Android emulator
@@ -88,18 +99,8 @@ jobs:
 
             mkdir -p ci-results/screenshots
             adb logcat -b all -d -v threadtime > ci-results/emulator-logcat.txt
-            grep -Ei 'monado|openxr|xr[A-Z_]|XR_ERROR|RuntimeBroker|org\\.khronos|Binder|FATAL EXCEPTION|Fatal signal|DEBUG   :' ci-results/emulator-logcat.txt > ci-results/openxr-monado-filtered.log || true
+            grep -Ei 'endxr|vulkan|OpenGLRenderer|FATAL EXCEPTION|Fatal signal|DEBUG   :' ci-results/emulator-logcat.txt > ci-results/endxr-native-filtered.log || true
 
-            {
-              echo "=== Installed runtime-related packages ==="
-              adb shell pm list packages | grep -i -E 'monado|openxr|khronos' || true
-              echo "=== Monado package ==="
-              adb shell dumpsys package org.freedesktop.monado.openxr_runtime.out_of_process 2>&1 || true
-              echo "=== OpenXR Runtime Broker ==="
-              adb shell dumpsys package org.khronos.openxr.runtime_broker 2>&1 || true
-              echo "=== Runtime services ==="
-              adb shell dumpsys activity services 2>&1 | grep -i -C 4 -E 'monado|openxr|runtime_broker' || true
-            } > ci-results/openxr-runtime-inventory.txt
 
             adb pull /sdcard/Android/data/com.noyclic.questphonexr/files/ci-screenshots/. ci-results/screenshots/ || true
 

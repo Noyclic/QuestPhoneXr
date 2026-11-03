@@ -44,27 +44,27 @@ Open the repository root in Android Studio and sync Gradle. GitHub Actions build
 
 ## Automated CI checks
 
-Every push or pull request to `main` runs the JVM unit-test suite, builds the debug APK, and validates that the application package, MediaPipe hand model, and arm64 native library are present. It then installs the app on an Android 15 x86_64 emulator and checks the real navigation flow: mode selection → game library → mode selection.
+Every push or pull request to `main` runs the native EndXR core tests and Kotlin/JVM unit tests, builds the debug APK, and validates that the application package, MediaPipe hand model, and arm64 native library are present. This automatic path does not require manually starting a workflow.
 
-The emulator test saves screenshots of the mode-selection and library screens. GitHub Actions stores these screenshots, emulator `logcat`, and test reports in the `QuestPhoneXR-CI-diagnostics` artifact for 14 days. The debug APK is uploaded only if the entire workflow succeeds.
+The navigation smoke test on an Android emulator is available as an optional manual-dispatch CI step. When run, it saves screenshots, emulator `logcat`, and test reports in the `QuestPhoneXR-CI-diagnostics` artifact for 14 days. The debug APK is uploaded by the normal automatic build when that build succeeds.
 
-An emulator pass is a launch/navigation smoke test, not proof of Redmi hardware compatibility. It cannot validate the physical camera feed, MediaPipe performance on Adreno 610, Monado Binder/runtime startup, Joy-Con Bluetooth behavior, thermal throttling, or real 20–30 FPS. Those still need a device test.
+An emulator pass is a launch/navigation smoke test, not proof of Redmi hardware compatibility. It cannot validate the physical camera feed, MediaPipe performance on Adreno 610, EndXR rendering on the phone GPU, Joy-Con Bluetooth behavior, thermal throttling, or real 20–30 FPS. Those still need a device test.
 
 ## Roadmap
 
 1. Phone-first library, device-specific compatibility records, and game-adapter contracts.
 2. Calibrated VR Shinecon viewer profile, lens distortion correction and stereo alignment.
 3. Stable phone-VR head tracking, hand/controller calibration and Joy-Con mapping.
-4. Phone-native runtime and first game port/adaptation, starting with a lightweight test project.
+4. EndXR phone runtime and first game port/adaptation, starting with a lightweight test project.
 5. Carefully scoped Quest/OpenXR compatibility adapters for games that can legally and technically be ported.
 
 ## Device compatibility diagnostics
 
 The library includes a non-blocking device preflight for phone-VR sensors, OpenGL ES, Android-reported Vulkan features, memory and CPU/ABI. It reports missing capabilities without preventing users from trying available modes. See [docs/DEVICE_COMPATIBILITY.md](docs/DEVICE_COMPATIBILITY.md) for the limits of the probe; in particular, Vulkan compositor extensions and real runtime compatibility are not yet verified.
 
-## OpenXR runtime work
+## EndXR runtime work
 
-See [docs/OPENXR_RUNTIME_CHAIN.md](docs/OPENXR_RUNTIME_CHAIN.md) for the runtime discovery contract, current limitations and native integration roadmap.
+See [docs/ENDXR_RUNTIME.md](docs/ENDXR_RUNTIME.md) for the implementation status, milestones and explicit compatibility limits.
 
 ## Licensing
 
