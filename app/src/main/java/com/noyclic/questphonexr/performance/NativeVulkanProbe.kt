@@ -67,6 +67,9 @@ data class NativeVulkanProbeReport(
         append("\nВажно: наличие расширений и поддержка handle type не доказывают, что ")
         append("конкретный XR compositor сможет создать swapchain, импортировать ресурсы и синхронизировать кадры.")
         append(" Это только лёгкая проверка возможностей драйвера; нагрузочный тест не выполнялся.")
+
+        append("\n\nПроверка Vulkan-предпосылок Monado (Android):\n")
+        append(MonadoVulkanPrerequisites.assess(this).toDisplayText())
     }
 }
 
