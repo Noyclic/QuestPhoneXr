@@ -1983,11 +1983,13 @@ Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativeDestroyS
         ).c_str());
     }
     const uint64_t frames = persistentSession.submittedFrames;
-    destroyPersistentGlesSession(env);
     std::ostringstream message;
     message << "Persistent OpenXR instance, session, space and swapchain destroyed. "
             << "Stereo frames submitted during this run: " << frames << ".";
-    return env->NewStringUTF(persistentReport(
+    // Snapshot the report before teardown resets the native counters and state.
+    const std::string finalReport = persistentReport(
         "SESSION_DESTROYED", message.str(), XR_SUCCESS, true, frames
-    ).c_str());
+    );
+    destroyPersistentGlesSession(env);
+    return env->NewStringUTF(finalReport.c_str());
 }
