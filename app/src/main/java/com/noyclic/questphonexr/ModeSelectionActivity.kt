@@ -77,7 +77,8 @@ class ModeSelectionActivity : ComponentActivity() {
                 startActivity(Intent(this@ModeSelectionActivity, GameLibraryActivity::class.java))
             },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginHorizontal = dp(7)
+                marginStart = dp(7)
+                marginEnd = dp(7)
             }
         )
         modes.addView(
