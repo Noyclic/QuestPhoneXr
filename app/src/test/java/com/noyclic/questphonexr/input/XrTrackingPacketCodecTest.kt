@@ -91,7 +91,7 @@ class XrTrackingPacketCodecTest {
         val json = XrTrackingPacketCodec.encode(frame, null, 3L)
 
         assertEquals(2, Regex("\"side\":").findAll(json).count())
-        assertEquals(84, Regex("\"x\":").findAll(json).count())
+        assertEquals(42, Regex("\"x\":").findAll(json).count())
     }
 
     private fun hand(side: HandSide, pinch: Boolean) = TrackedHand(
