@@ -64,6 +64,26 @@ class GameLibraryActivity : ComponentActivity() {
         if (::openXrRuntimeStatusView.isInitialized) refreshOpenXrRuntimeStatus()
     }
 
+    private fun openRuntimeBrokerSetup() {
+        val brokerPackage = "org.khronos.openxr.runtime_broker"
+        val launchIntent = packageManager.getLaunchIntentForPackage(brokerPackage)
+        if (launchIntent != null) {
+            runCatching { startActivity(launchIntent) }
+                .onFailure {
+                    Toast.makeText(this, "Не удалось открыть OpenXR Runtime Broker.", Toast.LENGTH_LONG).show()
+                }
+            return
+        }
+
+        val storeUri = Uri.parse(
+            "https://play.google.com/store/apps/details?id=org.khronos.openxr.runtime_broker"
+        )
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, storeUri)) }
+            .onFailure {
+                Toast.makeText(this, "Открой Google Play и найди OpenXR Runtime Broker от Khronos.", Toast.LENGTH_LONG).show()
+            }
+    }
+
     private fun refreshOpenXrRuntimeStatus() {
         if (!::openXrRuntimeStatusView.isInitialized) return
         val report = OpenXrRuntimeDiscovery.inspect(this)
@@ -218,6 +238,9 @@ class GameLibraryActivity : ComponentActivity() {
         runtimePanel.addView(openXrRuntimeStatusView)
         runtimePanel.addView(button("Проверить OpenXR Runtime").apply {
             setOnClickListener { refreshOpenXrRuntimeStatus() }
+        })
+        runtimePanel.addView(button("Установить / выбрать OpenXR Runtime").apply {
+            setOnClickListener { openRuntimeBrokerSetup() }
         })
         root.addView(runtimePanel, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
