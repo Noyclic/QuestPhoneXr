@@ -166,7 +166,8 @@ class SandboxSimulation {
     fun update(
         controllers: List<PhysicalControllerSnapshot>,
         handFrame: HandTrackingFrame,
-        deltaSeconds: Float
+        deltaSeconds: Float,
+        cameraToWorldRotation: FloatArray? = null
     ) {
         val dt = deltaSeconds.takeIf { it.isFinite() }?.coerceIn(MIN_STEP_SECONDS, MAX_STEP_SECONDS)
             ?: MIN_STEP_SECONDS
@@ -174,8 +175,12 @@ class SandboxSimulation {
         val handsBySide = handFrame.hands
             .filter { it.side != HandSide.UNKNOWN }
             .associateBy { it.side }
-        val leftRaw = controllerFor(HandSide.LEFT, controllers, handsBySide[HandSide.LEFT])
-        val rightRaw = controllerFor(HandSide.RIGHT, controllers, handsBySide[HandSide.RIGHT])
+        val leftRaw = controllerFor(
+            HandSide.LEFT, controllers, handsBySide[HandSide.LEFT], cameraToWorldRotation
+        )
+        val rightRaw = controllerFor(
+            HandSide.RIGHT, controllers, handsBySide[HandSide.RIGHT], cameraToWorldRotation
+        )
         val leftTrackingLost = leftCameraTracked && !leftRaw.cameraTracked &&
             leftGrabbing && !leftRaw.grabbing
         val rightTrackingLost = rightCameraTracked && !rightRaw.cameraTracked &&
@@ -280,7 +285,8 @@ class SandboxSimulation {
     private fun controllerFor(
         hand: HandSide,
         controllers: List<PhysicalControllerSnapshot>,
-        trackedHand: TrackedHand?
+        trackedHand: TrackedHand?,
+        cameraToWorldRotation: FloatArray?
     ): ControllerState {
         val physical = controllers.firstOrNull { it.hand == hand }
         val depthEstimator = if (hand == HandSide.LEFT) leftDepthEstimator else rightDepthEstimator
@@ -290,7 +296,8 @@ class SandboxSimulation {
                 points = tracked.points,
                 calibration = handCalibration,
                 estimatedDistanceMeters = estimatedDistance,
-                worldPoints = tracked.worldPoints
+                worldPoints = tracked.worldPoints,
+                cameraToWorldRotation = cameraToWorldRotation
             )
         }.orEmpty()
         if (trackedHand == null) depthEstimator.reset()
