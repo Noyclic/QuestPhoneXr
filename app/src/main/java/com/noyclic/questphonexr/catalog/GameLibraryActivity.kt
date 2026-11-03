@@ -57,6 +57,13 @@ class GameLibraryActivity : ComponentActivity() {
             setBackgroundColor(Color.rgb(14, 17, 23))
         }
 
+        root.addView(button("← Выбор режима").apply {
+            setOnClickListener { finish() }
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(6) })
+
         root.addView(text(
             "QuestPhoneXR  /  БИБЛИОТЕКА",
             12f,
@@ -129,18 +136,13 @@ class GameLibraryActivity : ComponentActivity() {
         ).apply { topMargin = dp(12); bottomMargin = dp(10) }
         root.addView(searchInput, searchParams)
 
-        val scroll = ScrollView(this).apply {
-            isFillViewport = false
-            clipToPadding = false
-        }
         cardsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
-        scroll.addView(cardsContainer)
-        root.addView(
-            scroll,
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
-        )
+        root.addView(cardsContainer, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(4) })
 
         val vrPreviewButton = button("VR Shinecon · запустить стерео-тест")
         vrPreviewButton.setOnClickListener {
@@ -178,7 +180,17 @@ class GameLibraryActivity : ComponentActivity() {
             0xFF8994A5.toInt()
         ).apply { setPadding(0, dp(8), 0, 0) })
 
-        setContentView(root)
+        val pageScroll = ScrollView(this).apply {
+            isFillViewport = true
+            clipToPadding = false
+            isVerticalScrollBarEnabled = true
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            addView(root, ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+        }
+        setContentView(pageScroll)
     }
 
 
