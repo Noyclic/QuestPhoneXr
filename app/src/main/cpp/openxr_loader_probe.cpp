@@ -2219,14 +2219,12 @@ Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbeRuntimeLibrar
 
 
 
-// Diagnostic-only direct runtime call. Invoke this AFTER the Khronos Loader smoke
-// test has successfully enumerated extensions in this same process. The Loader
-// forwards xrInitializeLoaderKHR to the selected runtime during that enumeration;
-// we deliberately do not initialize it a second time here. Calling the negotiated
-// runtime GIPA directly bypasses the Khronos Loader dispatch and API-layer chain,
-// allowing us to determine whether -51 is returned by Monado itself or above it.
+// Clean-process direct runtime call. Invoked by a dedicated Android process
+// before any Khronos Loader calls or previous instance-creation attempts. It
+// negotiates, initializes Monado directly, enumerates runtime extensions, and
+// invokes xrCreateInstance through the runtime GIPA without API layers.
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbeRuntimeInstance(
+Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbeRuntimeInstanceFresh(
     JNIEnv* env,
     jobject /* thiz */,
     jstring javaPath,
@@ -2256,6 +2254,8 @@ Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbeRuntimeInstan
 
     void* handle = nullptr;
     XrResult negotiationResult = XR_ERROR_INITIALIZATION_FAILED;
+    XrResult loaderInitProcResult = XR_ERROR_FUNCTION_UNSUPPORTED;
+    XrResult loaderInitResult = XR_ERROR_INITIALIZATION_FAILED;
     XrResult extensionProcResult = XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult enumerationResult = XR_ERROR_INITIALIZATION_FAILED;
     XrResult createProcResult = XR_ERROR_FUNCTION_UNSUPPORTED;
@@ -2273,6 +2273,9 @@ Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbeRuntimeInstan
             << R"(","path":")" << jsonEscape(path)
             << R"(","negotiationResult":)" << static_cast<int>(negotiationResult)
             << R"(,"negotiationResultName":")" << xrResultName(negotiationResult) << "\""
+            << R"(,"directLoaderInitProcResult":)" << static_cast<int>(loaderInitProcResult)
+            << R"(,"directLoaderInitResult":)" << static_cast<int>(loaderInitResult)
+            << R"(,"directLoaderInitResultName":")" << xrResultName(loaderInitResult) << "\""
             << R"(,"directExtensionProcResult":)" << static_cast<int>(extensionProcResult)
             << R"(,"directExtensionEnumerationResult":)" << static_cast<int>(enumerationResult)
             << R"(,"directExtensionCount":)" << extensionCount
@@ -2335,11 +2338,70 @@ Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbeRuntimeInstan
         );
     }
 
-    // The immediately preceding Khronos Loader smoke test successfully enumerated
-    // extensions in this process. Khronos 1.1.65 loads the RuntimeInterface during
-    // that call and forwards xrInitializeLoaderKHR to the negotiated runtime.
-    // Do not call xrInitializeLoaderKHR again here: Android runtimes may reject a
-    // second initialization attempt in the same process.
+    // This probe runs in a dedicated Android process with no prior Khronos Loader
+    // calls and no previous xrCreateInstance attempt. Initialize the negotiated
+    // Monado runtime directly, then call its entry points through the negotiated GIPA.
+    PFN_xrInitializeLoaderKHR initializeLoader = nullptr;
+    loaderInitProcResult = runtimeRequest.getInstanceProcAddr(
+        XR_NULL_HANDLE, "xrInitializeLoaderKHR",
+        reinterpret_cast<PFN_xrVoidFunction*>(&initializeLoader)
+    );
+    if (loaderInitProcResult != XR_SUCCESS || initializeLoader == nullptr) {
+        return finish(
+            "DIRECT_RUNTIME_LOADER_INIT_FUNCTION_UNAVAILABLE",
+            "The negotiated Monado runtime did not provide xrInitializeLoaderKHR."
+        );
+    }
+
+    jclass activityClass = env->GetObjectClass(activityContext);
+    if (activityClass == nullptr) {
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        return finish(
+            "DIRECT_RUNTIME_ANDROID_CONTEXT_UNAVAILABLE",
+            "Could not inspect the Android Activity to obtain its application Context."
+        );
+    }
+    jmethodID getApplicationContext = env->GetMethodID(
+        activityClass, "getApplicationContext", "()Landroid/content/Context;"
+    );
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    if (getApplicationContext == nullptr) {
+        env->DeleteLocalRef(activityClass);
+        return finish(
+            "DIRECT_RUNTIME_ANDROID_CONTEXT_UNAVAILABLE",
+            "Android Activity.getApplicationContext() is unavailable."
+        );
+    }
+    jobject applicationContext = env->CallObjectMethod(
+        activityContext, getApplicationContext
+    );
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        applicationContext = nullptr;
+    }
+    env->DeleteLocalRef(activityClass);
+    if (applicationContext == nullptr) {
+        return finish(
+            "DIRECT_RUNTIME_ANDROID_CONTEXT_UNAVAILABLE",
+            "Android Activity returned a null application Context."
+        );
+    }
+
+    XrLoaderInitInfoAndroidKHR loaderInitInfo{};
+    loaderInitInfo.type = XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR;
+    loaderInitInfo.next = nullptr;
+    loaderInitInfo.applicationVM = vm;
+    loaderInitInfo.applicationContext = applicationContext;
+    loaderInitResult = initializeLoader(
+        reinterpret_cast<const XrLoaderInitInfoBaseHeaderKHR*>(&loaderInitInfo)
+    );
+    env->DeleteLocalRef(applicationContext);
+    if (loaderInitResult != XR_SUCCESS) {
+        return finish(
+            "DIRECT_RUNTIME_LOADER_INITIALIZATION_FAILED",
+            "Monado's direct xrInitializeLoaderKHR call failed before extension enumeration or instance creation."
+        );
+    }
 
     PFN_xrEnumerateInstanceExtensionProperties enumerateExtensions = nullptr;
     extensionProcResult = runtimeRequest.getInstanceProcAddr(

@@ -63,6 +63,11 @@
             android:process=":xr_diagnostics"
             android:screenOrientation="landscape" />
         <activity
+            android:name=".diagnostics.IsolatedMonadoRuntimeProbeActivity"
+            android:exported="false"
+            android:process=":xr_direct_runtime_probe"
+            android:screenOrientation="landscape" />
+        <activity
             android:name=".runtime.OpenXrRuntimeProbeActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|screenLayout|uiMode|density"
             android:exported="false"

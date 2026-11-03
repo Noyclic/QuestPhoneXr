@@ -14,13 +14,16 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import com.noyclic.questphonexr.runtime.MonadoAndroidRuntimeProbe
 import com.noyclic.questphonexr.runtime.OpenXrLoaderProbe
 import com.noyclic.questphonexr.runtime.OpenXrRuntimeDiscovery
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * On-device, user-triggered Monado/OpenXR report.
@@ -36,6 +39,18 @@ class MonadoDiagnosticsActivity : ComponentActivity() {
     private lateinit var copyButton: Button
     private lateinit var shareButton: Button
     @Volatile private var latestReport = ""
+    @Volatile private var pendingDirectProbe: CompletableFuture<String>? = null
+    private val directProbeLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val report = result.data?.getStringExtra(
+            IsolatedMonadoRuntimeProbeActivity.EXTRA_REPORT
+        )
+        pendingDirectProbe?.complete(
+            report ?: "Isolated direct Monado probe did not return a report (resultCode=${result.resultCode})."
+        )
+        pendingDirectProbe = null
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -141,29 +156,13 @@ class MonadoDiagnosticsActivity : ComponentActivity() {
                     }
                 loader?.let { appendLine(it.toDisplayText()) }
                 appendLine()
-                appendLine("=== DIRECT MONADO xrCreateInstance (WITHOUT LOADER / API LAYERS) ===")
-                val loaderFailedAfterEnumeration = loader?.let {
-                    it.extensionEnumerationResult == 0 &&
-                        it.instanceCreateResult != null &&
-                        it.instanceCreateResult != 0
-                } == true
-                if (loaderFailedAfterEnumeration) {
-                    val directCandidate = discovery?.activeCandidate
-                    if (directCandidate == null) {
-                        appendLine("Skipped: the active runtime library path was not discovered.")
-                    } else {
-                        appendLine("Runs after the Khronos Loader test in this same process. It reuses runtime initialization forwarded by the Loader and deliberately does not initialize Monado a second time.")
-                        appendLine(runCatching {
-                            OpenXrLoaderProbe.inspectRuntimeInstance(
-                                this@MonadoDiagnosticsActivity,
-                                directCandidate.libraryPath
-                            )
-                        }.getOrElse { error ->
-                            "Direct Monado instance probe exception: " + error.javaClass.simpleName + ": " + error.message
-                        })
-                    }
+                appendLine("=== CLEAN DIRECT MONADO xrCreateInstance (SEPARATE PROCESS; NO KHRONOS LOADER CALLS) ===")
+                val directCandidate = discovery?.activeCandidate
+                if (directCandidate == null) {
+                    appendLine("Skipped: the active runtime library path was not discovered.")
                 } else {
-                    appendLine("Skipped: direct comparison requires successful Khronos Loader extension enumeration followed by a failed xrCreateInstance in this process.")
+                    appendLine("This test runs in a fresh Android process with its own Activity. It calls Monado's xrInitializeLoaderKHR directly, then enumerates extensions and calls Monado's xrCreateInstance directly. No Khronos Loader entry point or API layer is used in this process.")
+                    appendLine(runIsolatedDirectProbe(directCandidate.libraryPath))
                 }
                 appendLine()
                 appendLine("=== LIMITATIONS ===")
@@ -180,6 +179,39 @@ class MonadoDiagnosticsActivity : ComponentActivity() {
                 copyButton.isEnabled = true
                 shareButton.isEnabled = true
             }
+        }
+    }
+
+    private fun runIsolatedDirectProbe(libraryPath: String): String {
+        val future = CompletableFuture<String>()
+        pendingDirectProbe = future
+        runOnUiThread {
+            if (isFinishing || isDestroyed) {
+                future.complete("Skipped: diagnostics Activity is closing.")
+            } else {
+                val intent = Intent(
+                    this@MonadoDiagnosticsActivity,
+                    IsolatedMonadoRuntimeProbeActivity::class.java
+                ).putExtra(
+                    IsolatedMonadoRuntimeProbeActivity.EXTRA_RUNTIME_LIBRARY_PATH,
+                    libraryPath
+                )
+                runCatching { directProbeLauncher.launch(intent) }
+                    .onFailure { error ->
+                        future.complete(
+                            "Could not launch the isolated Monado process: " +
+                                (error.message ?: error.javaClass.simpleName)
+                        )
+                    }
+            }
+        }
+        return try {
+            future.get(60, TimeUnit.SECONDS)
+        } catch (error: Throwable) {
+            "Isolated direct Monado probe did not finish: " +
+                (error.cause?.message ?: error.message ?: error.javaClass.simpleName)
+        } finally {
+            if (pendingDirectProbe === future) pendingDirectProbe = null
         }
     }
 

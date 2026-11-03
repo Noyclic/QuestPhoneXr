@@ -50,7 +50,7 @@ object OpenXrLoaderProbe {
 
     private external fun nativeProbe(context: Context): String
     private external fun nativeProbeRuntimeLibrary(path: String): String
-    private external fun nativeProbeRuntimeInstance(path: String, activity: Context): String
+    private external fun nativeProbeRuntimeInstanceFresh(path: String, activity: Context): String
 
     private fun ensureNativeLibraryLoaded(): Boolean {
         if (!libraryLoaded) {
@@ -125,12 +125,12 @@ object OpenXrLoaderProbe {
      * Calls the negotiated Monado runtime directly after the Khronos Loader smoke
      * test has initialized it in this same process. This bypasses API layers.
      */
-    fun inspectRuntimeInstance(context: Context, path: String): String {
+    fun inspectRuntimeInstanceFresh(context: Context, path: String): String {
         if (!ensureNativeLibraryLoaded()) {
             return "Direct runtime probe unavailable: " + (loadError ?: "unknown error")
         }
         return runCatching {
-            val root = JSONObject(nativeProbeRuntimeInstance(path, context))
+            val root = JSONObject(nativeProbeRuntimeInstanceFresh(path, context))
             buildString {
                 append("Результат прямого вызова Monado: ")
                     .append(root.optString("status", "UNKNOWN"))
@@ -140,6 +140,18 @@ object OpenXrLoaderProbe {
                 if (root.has("negotiationResult")) {
                     append("\nDirect negotiation: ")
                         .append(root.optString("negotiationResultName", root.optInt("negotiationResult").toString()))
+                }
+                if (root.has("directLoaderInitProcResult")) {
+                    append("\nПрямое получение xrInitializeLoaderKHR: ")
+                        .append(root.optInt("directLoaderInitProcResult"))
+                }
+                if (root.has("directLoaderInitResult")) {
+                    append("\nПрямая инициализация Monado xrInitializeLoaderKHR: ")
+                        .append(root.optString(
+                            "directLoaderInitResultName",
+                            root.optInt("directLoaderInitResult").toString()
+                        ))
+                        .append(" (").append(root.optInt("directLoaderInitResult")).append(")")
                 }
                 if (root.has("directExtensionProcResult")) {
                     append("\nПрямое получение xrEnumerateInstanceExtensionProperties: ")

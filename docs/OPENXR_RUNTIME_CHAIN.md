@@ -46,20 +46,28 @@ The xrGetSystem: -6 entry following a failed xrCreateInstance is not a second in
 
 This diagnosis applies only when extension enumeration and instance creation came from the same build and the same process sequence shown above. The independent dlopen test by itself does not prove what the Khronos Loader selected.
 
-## Direct Monado instance isolation test
+## Clean-process direct Monado instance isolation test
 
-The diagnostic now has a second xrCreateInstance path. It runs only if the preceding Khronos Loader test successfully enumerated extensions and then failed to create the instance in the same :xr_diagnostics process.
+The first direct Monado test ran after the Khronos Loader's failed xrCreateInstance call in the same :xr_diagnostics process. Although it bypassed the Loader dispatch and API layers, it shared the process and the runtime library's static state with the earlier failed call. That result strongly implicated Monado's direct call path, but it was not a clean first-attempt reproduction.
 
-The test re-opens and negotiates the selected Monado library, obtains xrEnumerateInstanceExtensionProperties, xrCreateInstance and (for cleanup) xrDestroyInstance directly from the runtime's negotiated xrGetInstanceProcAddr, and calls those functions without going through the Khronos Loader dispatch or any API-layer chain. It requests only XR_KHR_android_create_instance, matching the lightweight Loader smoke test. It does not create a session or swapchain.
+The diagnostic now launches IsolatedMonadoRuntimeProbeActivity in a separate Android process, :xr_direct_runtime_probe. This process has its own runtime library mappings and native globals, and it makes no prior Khronos Loader calls or xrCreateInstance attempts.
 
-The direct test intentionally does not call xrInitializeLoaderKHR again. In the immediately preceding successful Loader extension-enumeration sequence, Khronos Loader 1.1.65 has already loaded the runtime and forwarded Android loader initialization to it. A second initialization attempt in the same process could itself introduce a new failure and contaminate the comparison.
+In that fresh process, the probe:
+1. Opens and negotiates the selected Monado library.
+2. Obtains Monado's xrInitializeLoaderKHR directly through the negotiated xrGetInstanceProcAddr.
+3. Calls xrInitializeLoaderKHR directly with XrLoaderInitInfoAndroidKHR, using the fresh process JavaVM and the Activity's application Context.
+4. Enumerates Monado's own extension list directly.
+5. Obtains and invokes Monado's xrCreateInstance directly, requesting XR_KHR_android_create_instance.
+6. Destroys the diagnostic XrInstance immediately if creation succeeds.
+
+No Khronos Loader entry point or API layer is called by this clean-process probe. The call runs on a worker thread, not the Android main/UI thread; Monado documents that its blocking Android IPC connection must not be called from the main thread. It creates no XR session or swapchain.
 
 Interpretation:
-- If direct Monado xrCreateInstance succeeds while the preceding Loader call returns -51, the selected runtime can create an instance in this process; investigate the Loader/API-layer chain above the direct runtime call.
-- If direct Monado xrCreateInstance also returns -51, the failure is inside the selected runtime's direct call path, including Monado's Android IPC/service startup. That still does not reveal the internal reason; the next step is to correlate the result with Monado service logs and the Android connect() / Surface lifecycle.
-- If direct runtime extension enumeration fails or does not advertise XR_KHR_android_create_instance, the prior aggregate Loader extension list was not sufficient evidence that Monado itself advertised the needed Android extension.
+- If clean-process direct Monado xrCreateInstance succeeds while the Khronos Loader test in :xr_diagnostics returns -51, investigate the Loader selection/dispatch/API-layer path and differences in initialization.
+- If clean-process direct Monado xrCreateInstance also returns -51, the failure is reproducible inside Monado's own runtime call path before any Khronos Loader or API layer participates. Android IPC startup (Client.blockingConnect, service-side Surface creation/hand-off, and connect()) becomes the primary investigation target, but the report still does not identify which individual IPC step failed.
+- If direct xrInitializeLoaderKHR or direct extension enumeration fails, the report isolates the failure earlier in Monado's Android initialization path.
 
-A successful direct diagnostic instance is destroyed immediately. If cleanup fails, the report labels that explicitly; closing the diagnostic process remains the final cleanup boundary. This test narrows the failing layer but does not establish session, graphics, compositor, tracking, or Quest APK compatibility.
+A successful direct diagnostic instance is destroyed immediately. If cleanup fails, the report labels that explicitly; closing the isolated diagnostic process remains the final cleanup boundary. This test does not establish session, graphics, compositor, tracking, or Quest APK compatibility.
 
 ## Process separation matters
 
