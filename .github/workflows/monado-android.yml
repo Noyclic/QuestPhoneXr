@@ -69,6 +69,17 @@ jobs:
           GRADLE_ARGS: "-Porg.gradle.daemon=false"
         run: ./gradlew --no-daemon --max-workers 4 clean assembleOutOfProcessDebug
 
+      - name: Validate APK signature and Android package metadata
+        run: |
+          set -euo pipefail
+          APK="$(find monado/src/xrt/targets/openxr_android/build/outputs/apk/outOfProcess -type f -name '*.apk' -print -quit)"
+          test -n "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK" | tee monado-apk-badging.txt
+          grep -q "package: name='org.freedesktop.monado.openxr_runtime.out_of_process'" monado-apk-badging.txt
+          grep -q "sdkVersion:'26'" monado-apk-badging.txt
+          grep -q "arm64-v8a" monado-apk-badging.txt
+
       - name: Collect runtime APK and source revision
         run: |
           set -euo pipefail
