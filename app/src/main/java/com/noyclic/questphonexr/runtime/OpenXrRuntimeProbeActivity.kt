@@ -54,7 +54,6 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
                         }
                         val report = OpenXrPersistentGlesSession.create(this@OpenXrRuntimeProbeActivity)
                         nativeSessionCreated = report.status == "SESSION_CREATED_WAITING_FOR_READY" ||
-                report.status == "SESSION_ALREADY_CREATED" ||
                             report.status == "SESSION_ALREADY_CREATED"
                         publishReport(report, stopOnFailure = !nativeSessionCreated)
                     } else {
@@ -88,7 +87,7 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
                         sessionRequested = false
                         lastStatusUpdateMs = now
                         publishReport(
-                            report.copy(message = report.message + "\\nCleanup: " + cleanup.message),
+                            report.copy(message = report.message + "\nCleanup: " + cleanup.message),
                             stopOnFailure = true
                         )
                     } else if (now - lastStatusUpdateMs >= STATUS_UPDATE_INTERVAL_MS) {
@@ -177,7 +176,8 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
         glView.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         glView.queueEvent {
             val report = OpenXrPersistentGlesSession.create(this@OpenXrRuntimeProbeActivity)
-            nativeSessionCreated = report.status == "SESSION_CREATED_WAITING_FOR_READY"
+            nativeSessionCreated = report.status == "SESSION_CREATED_WAITING_FOR_READY" ||
+                report.status == "SESSION_ALREADY_CREATED"
             publishReport(report, stopOnFailure = !nativeSessionCreated)
         }
         glView.requestRender()
