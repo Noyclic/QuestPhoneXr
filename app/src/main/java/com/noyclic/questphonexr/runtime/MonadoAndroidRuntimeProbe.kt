@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import java.io.File
+import java.util.zip.ZipFile
 
 data class MonadoServiceStatus(
     val name: String,
@@ -79,7 +80,19 @@ object MonadoAndroidRuntimeProbe {
         val appInfo = info.applicationInfo
         val appEnabled = appInfo?.enabled == true
         val nativeDir = appInfo?.nativeLibraryDir
-        val libraryExists = nativeDir?.let { File(it, "libopenxr_monado.so").isFile } == true
+        val extractedLibraryExists = nativeDir?.let { File(it, "libopenxr_monado.so").isFile } == true
+        val packagedLibraryExists = appInfo?.sourceDir?.let { apkPath ->
+            runCatching {
+                ZipFile(apkPath).use { apk ->
+                    apk.entries().asSequence().any { entry ->
+                        !entry.isDirectory &&
+                            entry.name.startsWith("lib/") &&
+                            entry.name.endsWith("/libopenxr_monado.so")
+                    }
+                }
+            }.getOrDefault(false)
+        } == true
+        val libraryExists = extractedLibraryExists || packagedLibraryExists
         val services = info.services.orEmpty()
         val ipc = services.firstOrNull {
             it.name.endsWith(".ipc.MonadoService") ||

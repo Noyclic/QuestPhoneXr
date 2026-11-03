@@ -135,10 +135,10 @@ class GameLibraryActivity : ComponentActivity() {
                 { result ->
                     buildString {
                         append(result.message)
-                        result.processAbi?.let { append("\\nABI процесса: ").append(it) }
+                        result.processAbi?.let { append("\nABI процесса: ").append(it) }
                         result.activeCandidate?.let {
-                            append("\\nАктивный пакет: ").append(it.packageName)
-                            append("\\nБиблиотека: ").append(it.libraryPath)
+                            append("\nАктивный пакет: ").append(it.packageName)
+                            append("\nБиблиотека: ").append(it.libraryPath)
                         }
                     }
                 },
@@ -148,46 +148,46 @@ class GameLibraryActivity : ComponentActivity() {
             val details = buildString {
                 append(report.deviceName)
                 append(" · Android ").append(report.androidVersion)
-                append(" (SDK ").append(report.sdkVersion).append(")\\n")
+                append(" (SDK ").append(report.sdkVersion).append(")\n")
                 append("CPU: ").append(report.processorCount).append(" потоков · ")
-                    .append(if (report.is64BitProcess) "64-bit" else "32-bit").append("\\n")
-                append("ABI: ").append(report.supportedAbis.joinToString().ifBlank { "неизвестно" }).append("\\n")
+                    .append(if (report.is64BitProcess) "64-bit" else "32-bit").append("\n")
+                append("ABI: ").append(report.supportedAbis.joinToString().ifBlank { "неизвестно" }).append("\n")
                 append("RAM: ").append(report.totalRamMb).append(" МБ всего, ")
-                    .append(report.availableRamMb).append(" МБ свободно сейчас\\n")
-                append("OpenGL ES (Android): ").append(report.openGlEsVersion).append("\\n")
+                    .append(report.availableRamMb).append(" МБ свободно сейчас\n")
+                append("OpenGL ES (Android): ").append(report.openGlEsVersion).append("\n")
                 append("Vulkan (Android): ").append(report.vulkanApiVersion ?: "версия не сообщена")
                 report.vulkanHardwareLevel?.let { append(" · hardware level ").append(it) }
-                append("\\n")
+                append("\n")
                 report.rotationVectorSensorName?.let {
-                    append("Датчик ориентации: ").append(it).append("\\n")
+                    append("Датчик ориентации: ").append(it).append("\n")
                 }
 
-                append("\\nАППАРАТНЫЕ ПРОВЕРКИ\\n")
+                append("\nАППАРАТНЫЕ ПРОВЕРКИ\n")
                 report.checks.forEach { check ->
                     append("• ").append(check.title).append(" — ").append(check.status.label)
-                        .append("\\n").append(check.detail).append("\\n\\n")
+                        .append("\n").append(check.detail).append("\n\n")
                 }
 
-                append("NATIVE VULKAN PROBE\\n")
+                append("NATIVE VULKAN PROBE\n")
                 append(nativeVulkan.fold(
                     { it.toDisplayText() },
                     { error -> "Ошибка Vulkan probe: " + (error.message ?: error.javaClass.simpleName) }
                 ))
-                append("\\n\\nEGL / OPENGL ES PROBE\\n")
+                append("\n\nEGL / OPENGL ES PROBE\n")
                 append(gles.fold(
                     { it.toDisplayText() },
                     { error -> "Ошибка EGL/GLES probe: " + (error.message ?: error.javaClass.simpleName) }
                 ))
-                append("\\n\\nMONADO ANDROID APK\\n")
+                append("\n\nMONADO ANDROID APK\n")
                 append(monado.fold(
                     { it.toDisplayText() },
                     { error -> "Ошибка проверки Monado APK: " + (error.message ?: error.javaClass.simpleName) }
                 ))
-                append("\\n\\nOPENXR RUNTIME BROKER\\n").append(runtimeText)
+                append("\n\nOPENXR RUNTIME BROKER\n").append(runtimeText)
 
-                append("\\n\\nOPENXR LOADER SMOKE TEST\\n")
+                append("\n\nOPENXR LOADER SMOKE TEST\n")
                 append("Пока намеренно не запускается: прежний xrCreateInstance приводил к NullPointerException внутри Monado Client при вызове IMonado.passAppSurface(). Повторный вызов может снова закрыть приложение. Сначала проверяем APK, manifest, GPU и EGL без Binder hand-off.")
-                append("\\n\\nИТОГ\\n")
+                append("\n\nИТОГ\n")
                 append("Успешные Vulkan/GLES и найденный Monado APK ещё не означают, что Binder handshake, XR session, swapchain и compositor заработают. Этот отчёт помогает отделить ограничения драйвера от ошибки Android service.")
             }
 
