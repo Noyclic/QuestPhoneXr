@@ -2,6 +2,24 @@ package com.noyclic.questphonexr.vr
 
 /** Small row-major 3x3 matrix helpers used to keep the VR preview independent of Android APIs. */
 internal object PhoneVrMath {
+    fun lensDistortionStrength(percent: Int): Float =
+        percent.coerceIn(
+            ViewerProfile.MIN_LENS_DISTORTION_PERCENT,
+            ViewerProfile.MAX_LENS_DISTORTION_PERCENT
+        ) / 100f
+
+    /** Mirrors the radial texture-coordinate warp used by the GLES lens composite shader. */
+    fun distortedTextureCoordinate(u: Float, v: Float, strength: Float): FloatArray {
+        val centeredX = (u - 0.5f) * 2f
+        val centeredY = (v - 0.5f) * 2f
+        val radiusSquared = centeredX * centeredX + centeredY * centeredY
+        val radialScale = 1f + strength * radiusSquared
+        return floatArrayOf(
+            0.5f + centeredX * radialScale * 0.5f,
+            0.5f + centeredY * radialScale * 0.5f
+        )
+    }
+
     fun relativeRotation(current: FloatArray, reference: FloatArray?): FloatArray {
         require(current.size >= MATRIX_SIZE) { "Current rotation must contain 9 values." }
         if (reference == null) return current.copyOfRange(0, MATRIX_SIZE)
