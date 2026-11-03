@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <dlfcn.h>
 #include <cstdio>
 #include <cmath>
 #include <iomanip>
@@ -2064,3 +2065,56 @@ Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativeDestroyS
     destroyPersistentGlesSession(env);
     return env->NewStringUTF(finalReport.c_str());
 }
+
+// Diagnostic only: mirrors the Khronos Android loader's dlopen step.
+// It does not create an OpenXR instance or start Monado's Binder client.
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbeRuntimeLibrary(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jstring javaPath
+) {
+    if (javaPath == nullptr) {
+        return env->NewStringUTF("{\"status\":\"PATH_MISSING\",\"message\":\"Runtime library path is empty.\"}");
+    }
+
+    const char* rawPath = env->GetStringUTFChars(javaPath, nullptr);
+    if (rawPath == nullptr) {
+        return env->NewStringUTF("{\"status\":\"PATH_READ_FAILED\",\"message\":\"Could not read runtime library path from Java.\"}");
+    }
+    const std::string path(rawPath);
+    env->ReleaseStringUTFChars(javaPath, rawPath);
+
+    dlerror();
+    void* handle = dlopen(path.c_str(), RTLD_LAZY | RTLD_LOCAL);
+    if (handle == nullptr) {
+        const char* error = dlerror();
+        const std::string message = error != nullptr
+            ? error
+            : "dlopen returned NULL without linker error text";
+        std::ostringstream out;
+        out << "{\"status\":\"DLOPEN_FAILED\",\"path\":\""
+            << jsonEscape(path) << "\",\"message\":\""
+            << jsonEscape(message) << "\"}";
+        return env->NewStringUTF(out.str().c_str());
+    }
+
+    dlerror();
+    void* negotiation = dlsym(handle, "xrNegotiateLoaderRuntimeInterface");
+    const char* symbolError = dlerror();
+    const bool hasNegotiation = negotiation != nullptr && symbolError == nullptr;
+    const std::string symbolMessage = hasNegotiation
+        ? "xrNegotiateLoaderRuntimeInterface export found."
+        : (symbolError != nullptr ? symbolError : "Negotiation export is missing.");
+
+    dlclose(handle);
+
+    std::ostringstream out;
+    out << "{\"status\":\""
+        << (hasNegotiation ? "DLOPEN_AND_NEGOTIATION_EXPORT_OK" : "DLOPEN_OK_NEGOTIATION_EXPORT_MISSING")
+        << "\",\"path\":\"" << jsonEscape(path)
+        << "\",\"negotiationExportFound\":" << (hasNegotiation ? "true" : "false")
+        << ",\"message\":\"" << jsonEscape(symbolMessage) << "\"}";
+    return env->NewStringUTF(out.str().c_str());
+}
+
