@@ -27,6 +27,7 @@ class SandboxRenderer : GLSurfaceView.Renderer {
     private val headView = FloatArray(16)
     private val eyeTranslation = FloatArray(16)
     private val playerTranslation = FloatArray(16)
+    private val translatedView = FloatArray(16)
     private val view = FloatArray(16)
     private val projection = FloatArray(16)
     private val model = FloatArray(16)
@@ -143,7 +144,8 @@ class SandboxRenderer : GLSurfaceView.Renderer {
                 -snapshot.playerPosition.y,
                 -snapshot.playerPosition.z
             )
-            Matrix.multiplyMM(view, 0, view, 0, playerTranslation, 0)
+            Matrix.multiplyMM(translatedView, 0, view, 0, playerTranslation, 0)
+            System.arraycopy(translatedView, 0, view, 0, 16)
 
             drawMesh(cubeMesh, 0f, -1.27f, -3.6f, 3.2f, 0.08f, 2.5f)
             snapshot.objects.forEach { item ->
