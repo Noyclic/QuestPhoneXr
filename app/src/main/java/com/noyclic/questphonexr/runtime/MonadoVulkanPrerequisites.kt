@@ -34,14 +34,16 @@ data class MonadoVulkanPrerequisiteAssessment(
 }
 
 /**
- * Monado's documented Vulkan compositor path needs external-memory-FD and
- * external-semaphore-FD support for basic application texture submission.
- * A positive result means only that the driver advertises these extensions.
+ * Android uses Android Hardware Buffer for external memory, plus the Android
+ * platform FD variants for semaphore and fence synchronization. This is only
+ * an extension-presence preflight, not proof that Monado can create a device
+ * or compositor on this phone.
  */
 object MonadoVulkanPrerequisites {
     private val requiredExtensions = listOf(
-        "VK_KHR_external_memory_fd",
-        "VK_KHR_external_semaphore_fd"
+        "VK_ANDROID_external_memory_android_hardware_buffer",
+        "VK_KHR_external_semaphore_fd",
+        "VK_KHR_external_fence_fd"
     )
 
     fun assess(report: NativeVulkanProbeReport): MonadoVulkanPrerequisiteAssessment {
@@ -50,7 +52,7 @@ object MonadoVulkanPrerequisites {
                 MonadoVulkanPrerequisiteState.PROBE_UNAVAILABLE,
                 null,
                 emptyList(),
-                "Native Vulkan probe не завершился успешно (\${report.status})."
+                "Native Vulkan probe не завершился успешно (${report.status})."
             )
         }
         if (report.devices.isEmpty()) {
@@ -80,7 +82,7 @@ object MonadoVulkanPrerequisites {
                 MonadoVulkanPrerequisiteState.DRIVER_EXTENSION_CANDIDATE,
                 candidate.name,
                 emptyList(),
-                "Драйвер объявляет оба расширения, необходимые Monado для базовой Vulkan-передачи текстур."
+                "Драйвер объявляет ключевые Android Vulkan extensions, перечисленные в документации Monado."
             )
         }
 
@@ -92,7 +94,7 @@ object MonadoVulkanPrerequisites {
             MonadoVulkanPrerequisiteState.REQUIRED_EXTENSIONS_MISSING,
             best.name,
             missing,
-            "По объявленным расширениям этот GPU пока не подходит для базового Vulkan-пути Monado."
+            "Не все ключевые Android Vulkan extensions из документации Monado объявлены драйвером."
         )
     }
 }
