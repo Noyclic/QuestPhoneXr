@@ -152,7 +152,20 @@ class SandboxRenderer : GLSurfaceView.Renderer {
             Matrix.multiplyMM(translatedView, 0, view, 0, playerTranslation, 0)
             System.arraycopy(translatedView, 0, view, 0, 16)
 
-            drawMesh(cubeMesh, 0f, -1.27f, -3.6f, 3.2f, 0.08f, 2.5f)
+            // A broad walkable-looking platform replaces the tiny floating slab.
+            // Low perimeter rails and distant pylons give the scene a readable horizon
+            // without the cost of a skybox or heavy environment meshes.
+            drawMesh(cubeMesh, 0f, -1.27f, -4.2f, 12f, 0.12f, 12f)
+            drawMesh(cubeMesh, -5.94f, -1.02f, -4.2f, 0.12f, 0.42f, 12f)
+            drawMesh(cubeMesh, 5.94f, -1.02f, -4.2f, 0.12f, 0.42f, 12f)
+            drawMesh(cubeMesh, 0f, -1.02f, 1.74f, 12f, 0.42f, 0.12f)
+            drawMesh(cubeMesh, 0f, -1.02f, -10.14f, 12f, 0.42f, 0.12f)
+            // Distant low-poly landmarks make the space feel like an arena, not a void.
+            for (x in listOf(-4.8f, 0f, 4.8f)) {
+                drawMesh(cubeMesh, x, 0.05f, -9.45f, 0.34f, 2.6f, 0.34f)
+            }
+            drawMesh(cubeMesh, -5.35f, -0.12f, -4.2f, 0.28f, 1.15f, 0.28f)
+            drawMesh(cubeMesh, 5.35f, -0.12f, -4.2f, 0.28f, 1.15f, 0.28f)
             snapshot.objects.forEach { item ->
                 val bob = if (item.heldBy == null && item.type == SandboxObjectType.TARGET) {
                     ambientBob
