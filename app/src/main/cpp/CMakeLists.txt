@@ -4,6 +4,7 @@ project(questphonexr_native LANGUAGES CXX)
 add_library(questphonexr_native SHARED
     vulkan_probe.cpp
     endxr_runtime_core.cpp
+    endxr_runtime_jni.cpp
 )
 
 find_library(android-log-lib log)

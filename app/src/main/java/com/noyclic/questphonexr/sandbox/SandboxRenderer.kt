@@ -49,6 +49,8 @@ class SandboxRenderer : GLSurfaceView.Renderer {
     private var startedAtNanos = 0L
     private val frameRateCounter = FrameRateCounter()
     @Volatile private var measuredFramesPerSecond = 0f
+    @Volatile var lastFrameCompleted: Boolean = false
+        private set
 
     val measuredFps: Float
         get() = measuredFramesPerSecond
@@ -106,6 +108,7 @@ class SandboxRenderer : GLSurfaceView.Renderer {
     }
 
     override fun onDrawFrame(gl: GL10?) {
+        lastFrameCompleted = false
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         if (program == 0 || !::cubeMesh.isInitialized) return
 
@@ -223,6 +226,7 @@ class SandboxRenderer : GLSurfaceView.Renderer {
         frameRateCounter.onFrame(System.nanoTime())?.let { measured ->
             measuredFramesPerSecond = measured
         }
+        lastFrameCompleted = true
     }
 
     private fun buildHeadView(rotation: FloatArray) {

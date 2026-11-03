@@ -50,7 +50,9 @@ import com.noyclic.questphonexr.performance.AdaptivePerformanceController
 import com.noyclic.questphonexr.performance.AdaptivePerformanceState
 import com.noyclic.questphonexr.performance.DevicePerformancePolicy
 import com.noyclic.questphonexr.performance.DevicePerformancePreset
-import com.noyclic.questphonexr.runtime.OpenXrGlSurfaceLifecycle
+import com.noyclic.questphonexr.runtime.EndXrGlSurfaceLifecycle
+import com.noyclic.questphonexr.runtime.EndXrRuntimeBridge
+import com.noyclic.questphonexr.runtime.EndXrRuntimeState
 
 /** Phone-first 3D sandbox for testing stereo viewing, Joy-Con input and object grabbing. */
 class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.InputDeviceListener {
@@ -71,7 +73,11 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
     private lateinit var glView: GLSurfaceView
     private lateinit var renderer: SandboxRenderer
-    private val xrSurfaceLifecycle = OpenXrGlSurfaceLifecycle()
+    private val xrSurfaceLifecycle = EndXrGlSurfaceLifecycle()
+    private val endXrRuntime = EndXrRuntimeBridge()
+    @Volatile private var endXrRuntimeLabel = "ожидает GLES surface"
+    @Volatile private var endXrCompletedPhoneFrames = 0L
+    private var endXrAttemptedSurfaceGeneration = -1L
     private lateinit var sensorManager: SensorManager
     private lateinit var statusView: TextView
     private lateinit var viewerProfileStore: ViewerProfileStore
@@ -206,8 +212,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             updateScene(simulation.snapshot())
         }
         glView = GLSurfaceView(this).apply {
-            // OpenXR's GLES binding must use the same GLES 3 context that renders the scene.
-            // The existing GLES20 calls remain compatible with an ES 3 context.
+            // EndXR observes the same GLES 3 context that renders the existing phone scene.
+            // The current milestone does not yet expose an OpenXR swapchain compositor.
             setEGLContextClientVersion(3)
             preserveEGLContextOnPause = true
             setRenderer(object : GLSurfaceView.Renderer {
@@ -215,6 +221,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     gl: javax.microedition.khronos.opengles.GL10?,
                     config: javax.microedition.khronos.egl.EGLConfig?
                 ) {
+                    stopEndXrRuntime("EndXR Core: создаётся GLES surface")
                     xrSurfaceLifecycle.onGlSurfaceCreated()
                     renderer.onSurfaceCreated(gl, config)
                 }
@@ -226,11 +233,12 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 ) {
                     xrSurfaceLifecycle.onGlSurfaceChanged(width, height)
                     renderer.onSurfaceChanged(gl, width, height)
+                    ensureEndXrRuntimeStarted()
                 }
 
                 override fun onDrawFrame(gl: javax.microedition.khronos.opengles.GL10?) {
                     xrSurfaceLifecycle.onGlFrame()
-                    renderer.onDrawFrame(gl)
+                    renderFrameThroughEndXr(gl)
                 }
             })
             renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
@@ -246,6 +254,98 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         } else {
             cameraPermission.launch(Manifest.permission.CAMERA)
         }
+    }
+
+    /**
+     * Starts the internal EndXR frame clock only after the GLES surface is valid.
+     * The Sandbox renderer remains usable as a fallback if native startup fails.
+     */
+    private fun ensureEndXrRuntimeStarted() {
+        if (xrSurfaceLifecycle.state != EndXrGlSurfaceLifecycle.State.READY) return
+        val generation = xrSurfaceLifecycle.surfaceGeneration
+        if (endXrAttemptedSurfaceGeneration == generation) return
+
+        endXrAttemptedSurfaceGeneration = generation
+        if (!endXrRuntime.isAvailable) {
+            endXrRuntimeLabel = "native library unavailable"
+            return
+        }
+
+        val width = xrSurfaceLifecycle.surfaceWidth.coerceIn(64, 8192)
+        val height = xrSurfaceLifecycle.surfaceHeight.coerceIn(64, 8192)
+        val targetFps = adaptivePerformanceState.renderFpsCap.coerceIn(10, 120)
+
+        fun fail(stage: String, error: String) {
+            endXrRuntime.shutdown()
+            endXrRuntimeLabel = "$stage: $error"
+        }
+
+        endXrRuntime.initialize(width, height, targetFps)?.let {
+            fail("initialize", it)
+            return
+        }
+        endXrRuntime.createSession()?.let {
+            fail("create session", it)
+            return
+        }
+        endXrRuntime.beginSession()?.let {
+            fail("begin session", it)
+            return
+        }
+
+        endXrCompletedPhoneFrames = 0L
+        endXrRuntimeLabel = "active · $width×$height · $targetFps FPS target"
+    }
+
+    /** Called exclusively from GLSurfaceView's render thread. */
+    private fun renderFrameThroughEndXr(gl: javax.microedition.khronos.opengles.GL10?) {
+        ensureEndXrRuntimeStarted()
+        val isRunning = endXrRuntime.snapshot()?.state == EndXrRuntimeState.RUNNING
+        val waitResult = if (isRunning) {
+            endXrRuntime.waitFrame(System.nanoTime())
+        } else {
+            null
+        }
+
+        // Keep the phone Sandbox rendering even if the internal runtime clock fails.
+        renderer.onDrawFrame(gl)
+
+        if (waitResult == null) return
+        val timing = waitResult.timing
+        if (timing == null) {
+            val error = waitResult.error ?: "waitFrame failed without an error message"
+            endXrRuntime.markLost(error)
+            endXrRuntimeLabel = "lost · $error"
+            return
+        }
+
+        val endError = endXrRuntime.endFrame(timing, renderer.lastFrameCompleted)
+        if (endError != null) {
+            endXrRuntime.markLost(endError)
+            endXrRuntimeLabel = "lost · $endError"
+            return
+        }
+
+        if (renderer.lastFrameCompleted) {
+            endXrCompletedPhoneFrames =
+                endXrRuntime.snapshot()?.completedPhoneFrames ?: endXrCompletedPhoneFrames
+        }
+    }
+
+    /** Tears down only the app-owned lifecycle core; no XR driver or Binder is involved. */
+    private fun stopEndXrRuntime(status: String = "остановлен") {
+        when (endXrRuntime.snapshot()?.state) {
+            EndXrRuntimeState.RUNNING,
+            EndXrRuntimeState.SESSION_READY -> {
+                endXrRuntime.requestStop()
+                endXrRuntime.destroySession()
+            }
+            EndXrRuntimeState.STOPPING -> endXrRuntime.destroySession()
+            else -> Unit
+        }
+        endXrRuntime.shutdown()
+        endXrAttemptedSurfaceGeneration = -1L
+        endXrRuntimeLabel = status
     }
 
     private fun buildScreen() {
@@ -831,7 +931,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 } else {
                     Toast.makeText(
                         this,
-                        "Этот режим появится после стабилизации OpenXR runtime",
+                        "Этот режим появится после стабилизации EndXR runtime",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -903,11 +1003,13 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             append(" → модель ").append(mediaPipeInputSizeLabel)
             append('\n')
             append(pcBridgeStatus).append('\n')
-            append("OpenXR GL: ").append(xrSurfaceLifecycle.state.name)
+            append("EndXR GL: ").append(xrSurfaceLifecycle.state.name)
             append(" · surface #").append(xrSurfaceLifecycle.surfaceGeneration)
             append(" · ").append(xrSurfaceLifecycle.surfaceWidth).append('×')
                 .append(xrSurfaceLifecycle.surfaceHeight)
-            append(" · постоянный runtime ещё не подключён").append('\n')
+            append(" · core ").append(endXrRuntimeLabel)
+            append(" · phone frames ").append(endXrCompletedPhoneFrames)
+            append(" · без XR compositor").append('\n')
             append("Joy-Con L: ").append(if (leftConnected) "подключён" else "нет")
             append(" · R: ").append(if (rightConnected) "подключён" else "нет")
             append('\n')
@@ -954,7 +1056,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         if (::sensorManager.isInitialized) sensorManager.unregisterListener(this)
         inputManager.unregisterInputDeviceListener(this)
         if (::glView.isInitialized) {
-            glView.queueEvent { xrSurfaceLifecycle.onActivityPaused() }
+            glView.queueEvent {
+                xrSurfaceLifecycle.onActivityPaused()
+                stopEndXrRuntime("приостановлен")
+            }
             glView.requestRender()
             glView.onPause()
         }

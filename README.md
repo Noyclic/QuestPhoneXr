@@ -38,7 +38,7 @@ A separate action can open an installed Android package through Android's launch
 - Android Studio with Android SDK 36.
 - JDK 17.
 - A physical Android phone for CameraX and MediaPipe tests.
-- Android NDK/CMake will be required for the future native runtime layer.
+- Android NDK/CMake are used by the current native EndXR core and JNI bridge.
 
 Open the repository root in Android Studio and sync Gradle. GitHub Actions builds the debug APK using a provisioned Gradle installation; the repository does not yet include the binary Gradle wrapper JAR.
 

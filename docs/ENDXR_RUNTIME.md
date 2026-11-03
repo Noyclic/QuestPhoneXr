@@ -14,14 +14,16 @@ being developed as its own runtime rather than as a wrapper around Monado.
 - Runtime states for initialization, session readiness, running, stopping and
   loss/recovery.
 - A monotonic predicted-frame clock with one-active-frame-at-a-time checks.
-- A GLES surface lifecycle tracker for the `GLSurfaceView` render thread.
-- Host-side C++ tests for lifecycle transitions, frame timing, invalid input,
-  context loss and recovery. CI runs these tests on every push and pull request.
+- A Kotlin/JNI bridge that calls the native EndXR core from the Sandbox GL thread.
+- Frame-clock begin/end calls around successfully completed phone-side GLES
+  scene draws, with safe fallback to the existing renderer if native startup fails.
+- Surface pause/resume and recreation handling for the internal runtime core.
+- Host-side C++ tests and Kotlin snapshot-mapping tests, all run in CI.
 
-The EndXR core is compiled into `libquestphonexr_native.so`. It is not yet
-connected to a Kotlin/JNI runtime API or to the Sandbox render loop. The Vulkan
-probe in the same native library is only a driver-capability diagnostic; it is
-not a compositor test.
+The EndXR core is compiled into `libquestphonexr_native.so`. Its frame counter
+currently records successful phone-side GLES draws. It does **not** submit to
+an XR swapchain, drive a compositor, or prove OpenXR frame submission. The
+Vulkan probe in the same library is only a driver-capability diagnostic.
 
 ## Important distinction
 
@@ -37,12 +39,12 @@ Quest applications compatible. An APK build does not prove runtime support.
 ## Milestones
 
 1. **Native lifecycle and frame clock** — implemented and covered by host tests.
-2. **JNI bridge and GLES ownership** — expose EndXR lifecycle safely to Kotlin
-   and bind it to the existing Sandbox GL thread without breaking the current
-   renderer.
-3. **Phone display backend** — render to stable stereo targets, handle surface
-   recreation and pause/resume, then measure frame pacing on the Redmi Note 13
-   4G.
+2. **JNI bridge and GLES lifecycle** — initial bridge is connected to the
+   Sandbox GL thread and wraps each completed phone-side scene draw in the
+   native frame clock. This is an integration checkpoint, not an XR compositor.
+3. **Phone display backend** — move beyond the current phone-side side-by-side
+   view to explicit stereo render targets, then measure frame pacing on the
+   Redmi Note 13 4G.
 4. **Tracking and input** — connect MediaPipe hand poses, phone orientation and
    Joy-Con/controller input to EndXR tracking spaces and actions.
 5. **OpenXR runtime ABI** — implement and test runtime negotiation plus the
