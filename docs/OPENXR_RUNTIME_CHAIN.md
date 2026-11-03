@@ -59,7 +59,7 @@ The persistent GLES path proceeds to xrGetSystem, GLES graphics requirements, EG
 ## Monado Android IPC and Surface path
 
 Monado's Android IPC design uses the IMonado Binder service, an IPC connection setup that passes a socket descriptor, and a Surface hand-off. The runtime's native mainloop is tied to receiving a valid Surface; merely binding the service is not equivalent to completing that lifecycle. See the upstream Monado IPC design and Android API documentation:
-- https://monado.freedesktop.org/monado-ipc-design-and-implementation.html
+- https://monado.pages.freedesktop.org/monado/ipc-design.html
 - https://monado.freedesktop.org/class_monado_1_1_monado_impl.html
 - https://monado.freedesktop.org/class_monado_1_1_monado_view.html
 
