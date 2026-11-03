@@ -29,6 +29,7 @@ import com.noyclic.questphonexr.diagnostics.CrashReportFormatter
 import com.noyclic.questphonexr.runtime.OpenXrRuntimeDiscovery
 import com.noyclic.questphonexr.performance.AndroidDeviceCompatibilityProbe
 import com.noyclic.questphonexr.performance.DeviceCompatibilityReport
+import com.noyclic.questphonexr.performance.NativeVulkanProbe
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -118,7 +119,10 @@ class GameLibraryActivity : ComponentActivity() {
             }
             append("Важно: это аппаратная предварительная проверка, не тест производительности. ")
             append("Android Vulkan 1.1+ также объявляет AHB external-memory и SYNC_FD semaphore/fence handles. Но точные FD extensions, compositor и запуск OpenXR пока не подтверждены.")
-            append("\nРезультат ничего не блокирует: он только показывает ограничения устройства.")
+            append("\n\nNATIVE VULKAN PROBE\n")
+            val nativeProbe = NativeVulkanProbe.inspect()
+            append(nativeProbe.toDisplayText())
+            append("\n\nРезультат ничего не блокирует: он только показывает ограничения устройства.")
         }
 
         AlertDialog.Builder(this)

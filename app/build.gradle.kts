@@ -8,6 +8,7 @@ plugins {
 android {
     namespace = "com.noyclic.questphonexr"
     compileSdk = 36
+    ndkVersion = "27.2.12479018"
 
     defaultConfig {
         applicationId = "com.noyclic.questphonexr"
@@ -16,6 +17,11 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        externalNativeBuild {
+            cmake {
+                cppFlags += listOf("-std=c++17")
+            }
+        }
     }
 
     buildTypes {
@@ -34,6 +40,13 @@ android {
     }
 
     kotlinOptions { jvmTarget = "17" }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
 
     packaging {
         resources {
