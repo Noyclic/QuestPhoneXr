@@ -1,71 +1,80 @@
 # OpenXR runtime chain
 
-## What exists now
+## Current state
 
-QuestPhoneXR has the Khronos Android OpenXR loader dependency and a conservative discovery/preflight layer.
+QuestPhoneXR uses the Khronos Android OpenXR Loader 1.1.65 and an installable Monado out-of-process runtime. The app is still an experimental phone-XR host, not a complete Quest/Meta runtime.
 
-The discovery layer:
-- chooses the loader ABI corresponding to the current app process;
-- queries the Khronos system and installable Runtime Broker authorities;
-- reads the active runtime package, native library directory and shared-library filename;
-- checks whether the reported runtime library file exists;
-- never calls `dlopen` and never claims the runtime is initialized.
+The active-runtime discovery layer:
+- selects the loader ABI matching the current app process;
+- queries the system and installable Khronos Runtime Broker authorities;
+- reads the selected runtime package, native library directory and shared-library filename;
+- checks whether the reported library file exists;
+- does not itself load the runtime or create an OpenXR instance.
 
-The APK preflight distinguishes plain OpenXR markers from Quest/Meta-specific markers. It requires an installed package and a discovered active runtime before handing an OpenXR candidate to Android's package launcher.
+The Android manifest already declares the Khronos OpenXR permissions and package/provider/service queries needed by this discovery path. Do not add duplicate declarations without a new concrete requirement.
 
-## Device and Monado diagnostics
+## What the Monado diagnostics actually test
 
-The explicit compatibility action now runs on a worker thread and combines:
-- Android-reported device, ABI, memory, sensor and API information.
-- Native Vulkan instance/device enumeration, selected extensions and external-handle queries.
-- A temporary 1x1 EGL pbuffer context, trying GLES 3 first and GLES 2 only as fallback. The context is destroyed before the probe returns.
-- Monado out-of-process package visibility, installed version, `libopenxr_monado.so`, IPC service declaration, OpenXR Runtime service action and Runtime service metadata.
-- Khronos Runtime Broker discovery of the currently selected runtime.
+The user-triggered diagnostic runs in the dedicated Android process :xr_diagnostics. Its report performs these checks in order:
 
-The Monado package inspection is metadata-only. It does not bind `MonadoService`, start the runtime, or attempt an OpenXR instance.
+1. Runtime Broker discovery and ABI/library-path inspection.
+2. An independent dlopen + xrNegotiateLoaderRuntimeInterface probe against the candidate shared library. It checks that the library can be opened, negotiation succeeds, versions are compatible, and xrGetInstanceProcAddr can return the xrCreateInstance function pointer. It does not call xrInitializeLoaderKHR, reproduce the Khronos manifest-selection path, invoke runtime xrCreateInstance, or create a session.
+3. Monado APK/service metadata inspection and a Binder handshake. BOUND means Android bound the declared service and the returned Binder descriptor matched org.freedesktop.monado.ipc.IMonado. It does not prove that the client-side connect() transaction succeeded, that passAppSurface(Surface) supplied a valid Surface, or that Monado's native runtime mainloop started.
+4. A real Khronos Loader smoke sequence in the same :xr_diagnostics process: xrInitializeLoaderKHR, xrEnumerateInstanceExtensionProperties, then xrCreateInstance and (only if instance creation succeeds) xrGetSystem.
 
-The Vulkan preflight reports either an Android Hardware Buffer candidate or an FD-sharing candidate. It no longer treats the desktop FD extension pair as universally mandatory on Android. These are only candidate paths: the probe does not yet create an AHardwareBuffer image, test exact image-format/usage combinations, import the image into Monado, or submit a compositor frame.
+The historical IMonado == null / passAppSurface(Surface) crash is still a relevant risk to investigate, but the current Binder handshake does not reproduce that RPC path, and the old crash is not proof that it is the present cause of the instance-creation failure.
 
-The OpenXR Loader smoke test remains deliberately disabled. The previously observed crash occurred while the loader was creating an OpenXR instance and the Monado Java client attempted to call `IMonado.passAppSurface(Surface)` while `IMonado` was null. Repeating that call would risk reproducing the crash. The next step is to diagnose and correct the Monado Android Binder lifecycle before re-enabling it.
+## Interpreting the current xrCreateInstance: -51 result
 
-The Sandbox remains independent: no OpenXR loader initialization, Monado IPC connection, or session creation occurs during Sandbox startup or inside the GLSurfaceView render callback.
+The 2026-11-03 device report showed:
+- the Broker selected org.freedesktop.monado.openxr_runtime.out_of_process for arm64-v8a;
+- the candidate shared library existed;
+- the independent direct library probe completed negotiation successfully;
+- the Binder descriptor handshake returned BOUND;
+- the Khronos Loader smoke sequence returned success from xrInitializeLoaderKHR and xrEnumerateInstanceExtensionProperties, listed 64 extensions, and then returned -51 from xrCreateInstance.
 
-## Android loader contract
+The key distinction is that the last two calls are made sequentially by the same native probe in the same process. In the pinned Khronos Loader 1.1.65 implementation, a non-layer-specific extension enumeration calls RuntimeInterface::LoadRuntime; a successfully loaded RuntimeInterface is retained. A later xrCreateInstance reuses that interface and the Loader's runtime create path obtains xrCreateInstance through the runtime's xrGetInstanceProcAddr and forwards the call. This is documented by the tagged Loader design and implementation:
+https://registry.khronos.org/OpenXR/specs/1.1/loader.html
 
-Android OpenXR applications use the Khronos loader to find the active runtime through a ContentProvider. The installable Runtime Broker is a separate Khronos-maintained application; QuestPhoneXR must not impersonate it or publish its reserved authority.
+Consequently, in this exact same-process sequence, a successful 64-extension enumeration is strong evidence that Khronos Loader already found, loaded, negotiated and queried the selected runtime. The subsequent -51 should not automatically be diagnosed as a new failure to discover the runtime manifest or library. Because this probe enables zero API layers, the leading explanation is that Monado's xrCreateInstance path returned XR_ERROR_RUNTIME_UNAVAILABLE. The precise internal reason still needs Monado/Loader logs or instrumentation at the Loader-to-runtime call boundary; the current report does not reveal which Monado initialization step returned it.
 
-An installable runtime package is identified through an exported service with the action `org.khronos.openxr.OpenXRRuntimeService` and metadata:
-- `org.khronos.openxr.OpenXRRuntime.SoFilename`
-- `org.khronos.openxr.OpenXRRuntime.MajorVersion`
+The xrGetSystem: -6 entry following a failed xrCreateInstance is not a second independent failure: there is no valid XrInstance to pass to xrGetSystem.
 
-The runtime package must also support loading its native library from another app process as required by the broker contract. The official broker performs user selection of the active runtime.
+This diagnosis applies only when extension enumeration and instance creation came from the same build and the same process sequence shown above. The independent dlopen test by itself does not prove what the Khronos Loader selected.
 
-## Runtime implementation still required
+## Process separation matters
 
-The next native milestone is a real Android OpenXR runtime, not another loader wrapper. It must provide:
-1. Loader/runtime interface negotiation (`xrNegotiateLoaderRuntimeInterface`).
-2. OpenXR instance, system, session and extension implementations.
-3. A compositor and swapchain import/submission path.
-4. Frame timing and prediction.
-5. Head pose tracking and reference spaces.
-6. Action/input profiles and controller/hand input.
-7. Android runtime service metadata and broker selection integration.
-8. Device-specific graphics capability checks and recovery diagnostics.
+The APK declares:
+- MonadoDiagnosticsActivity in :xr_diagnostics;
+- OpenXrRuntimeProbeActivity in :xr_runtime_probe.
 
-Monado is the current open-source implementation to evaluate. Its Android documentation describes phone IMU-based 3DoF / Cardboard support, which is a plausible first target for phone viewers. The installed Monado APK and Android graphics-sharing path are now checked separately from Loader initialization.
+These are separate Android processes. Each has its own native globals and Khronos Loader state. The successful extension enumeration from the diagnostics process is not a proof that the persistent GLES activity has already created its own instance. The persistent session has its own Loader initialization and its own extension-enumeration / instance-creation sequence.
 
-Monado Android is not automatically a universal Quest runtime. Meta/Oculus APIs and proprietary extensions remain a separate compatibility project. The runtime must advertise only extensions it actually implements.
+The persistent GLES path proceeds to xrGetSystem, GLES graphics requirements, EGL binding, xrCreateSession, swapchain creation and frame submission only after xrCreateInstance succeeds. The current failure report does not show that those later stages have been reached on the Redmi.
 
-## Planned development sequence
+## Monado Android IPC and Surface path
 
-1. Runtime discovery and APK preflight — implemented as the current foundation.
-2. Device Vulkan / EGL-GLES / Monado package preflight — implemented; results must be collected on target hardware.
-3. Diagnose and correct Monado Android Binder service lifecycle and Surface hand-off.
-4. Run a controlled OpenXR loader/instance probe after the Binder path is safe.
-5. Begin a graphics-bound session and implement a minimal wait/begin/acquire/wait/release/end frame loop with projection-layer submission.
-6. Integrate a phone-viewer compositor and IMU-based 3DoF head tracking.
-7. Add controller/action input and connect the existing QuestPhoneXR virtual-controller model.
-8. Run a known OpenXR test APK and capture loader/runtime logs.
-9. Only after a stable generic OpenXR path, investigate Meta/Quest API adaptation.
+Monado's Android IPC design uses the IMonado Binder service, an IPC connection setup that passes a socket descriptor, and a Surface hand-off. The runtime's native mainloop is tied to receiving a valid Surface; merely binding the service is not equivalent to completing that lifecycle. See the upstream Monado IPC design and Android API documentation:
+- https://monado.freedesktop.org/monado-ipc-design-and-implementation.html
+- https://monado.freedesktop.org/class_monado_1_1_monado_impl.html
+- https://monado.freedesktop.org/class_monado_1_1_monado_view.html
 
-No arbitrary APK should be marked compatible based only on its engine or the presence of `libopenxr_loader.so`.
+This makes the service connection, connect(), Surface acquisition/attachment, passAppSurface(), Activity lifetime and native mainloop state important next diagnostic targets. However, the current evidence does not yet prove which of these is failing, or that the historical null-Binder crash is recurring.
+
+## CI and reproducibility
+
+The Android CI workflow builds the app, runs JVM unit tests and validates the APK payload. Its optional emulator smoke test uses an API 30 x86_64 emulator without the Monado runtime installed, so it cannot validate this Redmi's Monado integration or Quest APK compatibility.
+
+The Monado workflow builds the out-of-process APK from upstream main and records the exact upstream source revision in the MONADO_COMMIT.txt artifact. The source reference in runtime/monado-source.txt is main, not a pinned commit. To map the device's reported version string 7670e0b to exact source, compare it with the build artifact's recorded commit; the version string alone has not yet been independently verified as that exact commit.
+
+No current CI result is used as evidence that runtime creation works on the physical device.
+
+## Next technical steps
+
+1. Capture Loader and Monado logs for the same :xr_diagnostics process while reproducing the failing xrCreateInstance call.
+2. Instrument the Loader-to-runtime call boundary, or build a carefully isolated direct-runtime experiment, to confirm the exact source and internal reason for -51.
+3. Trace Monado's Android connect() and Surface hand-off lifecycle, including whether the Activity/Surface is ready when the runtime needs it.
+4. Once xrCreateInstance succeeds, validate xrGetSystem, GLES graphics binding, xrCreateSession, swapchain import and sustained frame submission.
+5. Only after generic OpenXR works reliably, evaluate the separate compatibility work required for Meta/Quest-specific APIs and APKs.
+
+A successful OpenXR instance or Monado APK installation alone does not mean arbitrary Quest APKs are compatible. Quest/Meta proprietary APIs and extensions remain a separate engineering task.
