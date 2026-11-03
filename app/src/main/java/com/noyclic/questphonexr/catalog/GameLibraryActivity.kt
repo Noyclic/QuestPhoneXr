@@ -124,7 +124,7 @@ class GameLibraryActivity : ComponentActivity() {
             val nativeProbe = NativeVulkanProbe.inspect()
             append(nativeProbe.toDisplayText())
             append("\n\nOPENXR LOADER SMOKE TEST\n")
-            append(OpenXrLoaderProbe.inspect(this).toDisplayText())
+            append(OpenXrLoaderProbe.inspect(this@GameLibraryActivity).toDisplayText())
             append("\n\nРезультат ничего не блокирует: он только показывает ограничения устройства.")
         }
 
