@@ -604,7 +604,7 @@ Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbe(
                 << " (" << xrResultName(createResult) << ")"
                 << "; instanceHandle=" << (instance == XR_NULL_HANDLE ? "NULL" : "valid")
                 << "; requestedApiVersion=1.0.0"
-                << "; enabledExtensions=[" << XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME << "]"
+                << "; enabledExtensions=[" << XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME << "]";
         details << "; note=This same Khronos Loader call successfully enumerated " << extensionCount
                 << " runtime extension(s) immediately before xrCreateInstance. With the pinned OpenXR Loader 1.1.65, that enumeration loads and caches RuntimeInterface; the subsequent xrCreateInstance reuses it and forwards the call through the runtime's xrGetInstanceProcAddr. Therefore -51 here is not evidence of a fresh runtime-manifest lookup failure. With zero API layers enabled, the leading explanation is that the selected runtime's xrCreateInstance returned -51. Capture Monado/Loader logs to determine the internal cause.";
         if (createResult == XR_SUCCESS) {
