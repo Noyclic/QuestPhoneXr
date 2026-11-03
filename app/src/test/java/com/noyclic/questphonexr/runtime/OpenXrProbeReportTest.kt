@@ -38,6 +38,41 @@ class OpenXrProbeReportTest {
     }
 
     @Test
+    fun sandboxGlSurfaceLifecycleWaitsForValidSize() {
+        val lifecycle = OpenXrGlSurfaceLifecycle()
+        lifecycle.onGlSurfaceCreated()
+        assertEquals(OpenXrGlSurfaceLifecycle.State.WAITING_FOR_SIZE, lifecycle.state)
+        lifecycle.onGlSurfaceChanged(0, 720)
+        assertEquals(OpenXrGlSurfaceLifecycle.State.WAITING_FOR_SIZE, lifecycle.state)
+        lifecycle.onGlSurfaceChanged(1280, 720)
+        assertEquals(OpenXrGlSurfaceLifecycle.State.READY, lifecycle.state)
+    }
+
+    @Test
+    fun sandboxGlSurfaceLifecycleRestoresReadyStateAfterPause() {
+        val lifecycle = OpenXrGlSurfaceLifecycle()
+        lifecycle.onGlSurfaceCreated()
+        lifecycle.onGlSurfaceChanged(1280, 720)
+        val generation = lifecycle.surfaceGeneration
+        lifecycle.onActivityPaused()
+        assertEquals(OpenXrGlSurfaceLifecycle.State.PAUSED, lifecycle.state)
+        lifecycle.onActivityResumed()
+        assertEquals(OpenXrGlSurfaceLifecycle.State.READY, lifecycle.state)
+        assertEquals(generation, lifecycle.surfaceGeneration)
+    }
+
+    @Test
+    fun sandboxGlSurfaceLifecycleCountsSurfaceRecreation() {
+        val lifecycle = OpenXrGlSurfaceLifecycle()
+        lifecycle.onGlSurfaceCreated()
+        lifecycle.onGlSurfaceChanged(1280, 720)
+        lifecycle.onGlSurfaceDestroyed()
+        assertEquals(OpenXrGlSurfaceLifecycle.State.WAITING_FOR_SURFACE, lifecycle.state)
+        lifecycle.onGlSurfaceCreated()
+        assertEquals(2L, lifecycle.surfaceGeneration)
+    }
+
+    @Test
     fun malformedNativeReportBecomesAnExplicitFailure() {
         val report = OpenXrProbeReport.parse("not-json")
 
