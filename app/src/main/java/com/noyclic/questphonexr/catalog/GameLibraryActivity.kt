@@ -129,7 +129,6 @@ class GameLibraryActivity : ComponentActivity() {
             val nativeVulkan = runCatching { NativeVulkanProbe.inspect() }
             val gles = runCatching { OpenGlesEglProbe.inspect() }
             val monado = runCatching { MonadoAndroidRuntimeProbe.inspect(this) }
-            val binder = runCatching { MonadoAndroidRuntimeProbe.checkBinderHandshake(this) }
             val activeRuntime = runCatching { OpenXrRuntimeDiscovery.inspect(this) }
 
             val runtimeText = activeRuntime.fold(
@@ -184,35 +183,12 @@ class GameLibraryActivity : ComponentActivity() {
                     { it.toDisplayText() },
                     { error -> "Ошибка проверки Monado APK: " + (error.message ?: error.javaClass.simpleName) }
                 ))
-                append("\n\nMONADO BINDER HANDSHAKE\n")
-                append(binder.fold(
-                    { result ->
-                        buildString {
-                            append("Статус: ").append(result.status.name)
-                            append("\nУспешно: ").append(if (result.isSuccessful) "да" else "нет")
-                            append("\n").append(result.detail)
-                            result.interfaceDescriptor?.let {
-                                append("\nInterface descriptor: ").append(it)
-                            }
-                            if (result.isSuccessful) {
-                                append("\nBinder-сервис доступен. connect()/passAppSurface() пока намеренно не вызываются.")
-                            } else {
-                                append("\nXR initialization не запускается, чтобы не повторять прежний NPE.")
-                            }
-                        }
-                    },
-                    { error ->
-                        "Безопасная Binder-проверка завершилась ошибкой: " +
-                            (error.message ?: error.javaClass.simpleName) +
-                            "\nXR initialization не запускается."
-                    }
-                ))
                 append("\n\nOPENXR RUNTIME BROKER\n").append(runtimeText)
 
                 append("\n\nOPENXR LOADER SMOKE TEST\n")
-                append("Пока намеренно не запускается: прежний xrCreateInstance приводил к NullPointerException внутри Monado Client при вызове IMonado.passAppSurface(). Сначала проверяем, проходит ли безопасный Binder bind без передачи Surface.")
+                append("Пока намеренно не запускается: прежний xrCreateInstance приводил к NullPointerException внутри Monado Client при вызове IMonado.passAppSurface(). Повторный вызов может снова закрыть приложение. Сначала проверяем APK, manifest, GPU и EGL без Binder hand-off.")
                 append("\n\nИТОГ\n")
-                append("Следующий шаг зависит от Binder результата. Если IMonado успешно обнаружен, можно переходить к отдельной безопасной проверке connect() и Surface handoff; если bind не проходит, исправляем Android service lifecycle/доступ без запуска XR.")
+                append("Успешные Vulkan/GLES и найденный Monado APK ещё не означают, что Binder handshake, XR session, swapchain и compositor заработают. Этот отчёт помогает отделить ограничения драйвера от ошибки Android service.")
             }
 
             runOnUiThread {
@@ -252,171 +228,511 @@ class GameLibraryActivity : ComponentActivity() {
         }
 
         root.addView(button("← Выбор режима").apply {
-            setOnClickListener { startActivity(Intent(this@GameLibraryActivity, MainActivity::class.java)) }
-        })
+            setOnClickListener { finish() }
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(6) })
 
-        root.addView(title("Библиотека XR игр"))
+        root.addView(text(
+            "QuestPhoneXR  /  БИБЛИОТЕКА",
+            12f,
+            0xFF9CA9BC.toInt(),
+            Typeface.BOLD
+        ))
+        root.addView(text(
+            "VR-игры",
+            30f,
+            Color.WHITE,
+            Typeface.BOLD
+        ).apply { setPadding(0, dp(3), 0, dp(4)) })
+        root.addView(text(
+            "Сборки, способы адаптации и реальные результаты тестов.",
+            14f,
+            0xFFD0D7E2.toInt()
+        ))
+        root.addView(text(
+            "Устройство: " + currentDevice.displayName + " · Android " + currentDevice.androidVersion,
+            13f,
+            0xFF8FD3B5.toInt()
+        ).apply { setPadding(0, dp(10), 0, dp(10)) })
+
+        val disclaimer = text(
+            "Важно: наличие Quest APK не означает совместимость с телефоном. " +
+                "Статус «проверено» появляется только после сохранения реального теста.",
+            12f,
+            0xFFFFD28A.toInt()
+        )
+        disclaimer.background = rounded(0xFF29251D.toInt(), dp(12).toFloat())
+        disclaimer.setPadding(dp(12), dp(10), dp(12), dp(10))
+        root.addView(disclaimer)
 
         val compatibilityPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            background = rounded(0xFF202631.toInt(), dp(12).toFloat())
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF202630.toInt(), dp(12).toFloat())
         }
-        compatibilityPanel.addView(label("Совместимость устройства"))
-        deviceCompatibilityStatusView = TextView(this).apply {
-            textSize = 14f
-            setPadding(0, dp(6), 0, dp(8))
-        }
+        compatibilityPanel.addView(text(
+            "ДИАГНОСТИКА УСТРОЙСТВА / GPU",
+            12f,
+            0xFF8FD3B5.toInt(),
+            Typeface.BOLD
+        ))
+        deviceCompatibilityStatusView = text(
+            "Проверяем датчики, память и графику…",
+            12f,
+            0xFFD0D7E2.toInt()
+        ).apply { setPadding(0, dp(5), 0, dp(7)) }
         compatibilityPanel.addView(deviceCompatibilityStatusView)
         compatibilityPanel.addView(button("Проверить устройство и Monado").apply {
             setOnClickListener { refreshDeviceCompatibility(showDetails = true) }
         })
-        compatibilityPanel.addView(button("Открыть OpenXR Runtime Broker").apply {
+        root.addView(compatibilityPanel, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(8) })
+
+        val runtimePanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF202630.toInt(), dp(12).toFloat())
+        }
+        runtimePanel.addView(text("OPENXR RUNTIME", 12f, 0xFF9BC7F5.toInt(), Typeface.BOLD))
+        openXrRuntimeStatusView = text("Проверяем активный Runtime…", 12f, 0xFFD0D7E2.toInt())
+            .apply { setPadding(0, dp(5), 0, dp(7)) }
+        runtimePanel.addView(openXrRuntimeStatusView)
+        runtimePanel.addView(button("Проверить OpenXR Runtime").apply {
+            setOnClickListener { refreshOpenXrRuntimeStatus() }
+        })
+        runtimePanel.addView(button("Установить / выбрать OpenXR Runtime").apply {
             setOnClickListener { openRuntimeBrokerSetup() }
         })
-        root.addView(compatibilityPanel, LinearLayout.LayoutParams(-1, -2).apply {
-            bottomMargin = dp(10)
-        })
+        root.addView(runtimePanel, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(8) })
 
-        openXrRuntimeStatusView = TextView(this).apply {
-            textSize = 13f
-            setTextColor(0xFFB9C2D0.toInt())
-            setPadding(dp(4), dp(4), dp(4), dp(10))
+        val importApkButton = button("Мои APK · импорт и анализ").apply {
+            setOnClickListener {
+                startActivity(Intent(this@GameLibraryActivity, ApkImportActivity::class.java))
+            }
         }
-        root.addView(openXrRuntimeStatusView)
+        root.addView(importApkButton, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(8) })
+
+        root.addView(button("Сообщить об ошибке · Crash-лог").apply {
+            setOnClickListener { showCrashReportDialog() }
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(6) })
 
         searchInput = EditText(this).apply {
             hint = "Поиск игры…"
             setSingleLine(true)
             inputType = InputType.TYPE_CLASS_TEXT
             setTextColor(Color.WHITE)
-            setHintTextColor(0xFF8993A3.toInt())
-            background = rounded(0xFF202631.toInt(), dp(10).toFloat())
-            setPadding(dp(12), 0, dp(12), 0)
+            setHintTextColor(0xFF8A95A5.toInt())
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = rounded(0xFF202630.toInt(), dp(10).toFloat())
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    renderGames()
+                }
+                override fun afterTextChanged(s: Editable?) = Unit
+            })
         }
-        root.addView(searchInput, LinearLayout.LayoutParams(-1, dp(48)).apply {
-            bottomMargin = dp(12)
-        })
+        val searchParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(12); bottomMargin = dp(10) }
+        root.addView(searchInput, searchParams)
 
-        val scroll = ScrollView(this)
         cardsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
-        scroll.addView(cardsContainer)
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        root.addView(cardsContainer, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(4) })
 
-        searchInput.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                renderGames(s?.toString().orEmpty())
-            }
-            override fun afterTextChanged(s: Editable?) = Unit
-        })
-
-        setContentView(root)
-    }
-
-    private fun renderGames(query: String = searchInputText()) {
-        cardsContainer.removeAllViews()
-        val normalized = query.trim().lowercase(Locale.getDefault())
-        val games = GameCatalog.load(this).filter {
-            normalized.isBlank() || it.title.lowercase(Locale.getDefault()).contains(normalized)
+        val vrPreviewButton = button("VR Shinecon · запустить стерео-тест")
+        vrPreviewButton.setOnClickListener {
+            startActivity(Intent(this, PhoneVrPreviewActivity::class.java))
         }
-        if (games.isEmpty()) {
-            cardsContainer.addView(label("Ничего не найдено.").apply {
-                setPadding(dp(8), dp(16), dp(8), dp(16))
-            })
-            return
+        val vrParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(10) }
+        root.addView(vrPreviewButton, vrParams)
+
+        val sandboxButton = button("Запустить VR-песочницу")
+        sandboxButton.setOnClickListener {
+            startActivity(Intent(this, SandboxActivity::class.java))
         }
-        games.forEach { game ->
-            cardsContainer.addView(gameCard(game))
+        val sandboxParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(6) }
+        root.addView(sandboxButton, sandboxParams)
+
+        val trackingButton = button("Открыть тест отслеживания рук")
+        trackingButton.setOnClickListener {
+            startActivity(Intent(this, MainActivity::class.java))
         }
-    }
+        val trackingParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(6) }
+        root.addView(trackingButton, trackingParams)
 
-    private fun searchInputText(): String = if (::searchInput.isInitialized) searchInput.text.toString() else ""
+        root.addView(text(
+            "Ручные отчёты хранятся только на этом телефоне. Публикация и общая база появятся отдельно.",
+            11f,
+            0xFF8994A5.toInt()
+        ).apply { setPadding(0, dp(8), 0, 0) })
 
-    private fun gameCard(game: GameCatalogEntry): View {
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            background = rounded(0xFF1B2029.toInt(), dp(12).toFloat())
+        val pageScroll = ScrollView(this).apply {
+            isFillViewport = true
+            clipToPadding = false
+            isVerticalScrollBarEnabled = true
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            addView(root)
         }
-        card.addView(title(game.title, 18f))
-        card.addView(label(game.description))
-        card.addView(label("Источник: ${game.source.label}"))
-        card.addView(label(game.compatibilitySummary))
-        card.addView(button(if (game.installedApkUri != null) "Запустить" else "Добавить APK").apply {
-            setOnClickListener { onGameAction(game) }
-        })
-        return card
+        setContentView(pageScroll)
     }
 
-    private fun onGameAction(game: GameCatalogEntry) {
-        if (game.installedApkUri != null) {
-            Toast.makeText(this, "Запуск XR-приложения пока подключается через runtime bridge.", Toast.LENGTH_LONG).show()
-            return
-        }
-        startActivity(Intent(this, ApkImportActivity::class.java))
-    }
-
-    private fun title(text: String, size: Float = 22f): TextView = TextView(this).apply {
-        this.text = text
-        textSize = size
-        setTextColor(Color.WHITE)
-        setTypeface(typeface, Typeface.BOLD)
-        setPadding(0, dp(4), 0, dp(6))
-    }
-
-    private fun label(text: String): TextView = TextView(this).apply {
-        this.text = text
-        textSize = 13f
-        setTextColor(0xFFB9C2D0.toInt())
-        setPadding(0, dp(3), 0, dp(3))
-    }
-
-    private fun button(text: String): Button = Button(this).apply {
-        this.text = text
-        isAllCaps = false
-        setTextColor(Color.WHITE)
-        setBackgroundColor(0xFF2A3342.toInt())
-        minimumHeight = dp(44)
-    }
-
-    private fun rounded(color: Int, radius: Float): GradientDrawable = GradientDrawable().apply {
-        setColor(color)
-        cornerRadius = radius
-    }
-
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun showCrashReportDialog() {
         val store = CrashReportStore(this)
-        val report = store.readPendingReport() ?: return
-        val details = CrashReportFormatter.format(report)
-        AlertDialog.Builder(this)
-            .setTitle("Предыдущий сбой QuestPhoneXR")
-            .setMessage(details)
-            .setPositiveButton("Закрыть", null)
-            .setNeutralButton("Копировать", null)
-            .setNegativeButton("Поделиться", null)
-            .create().also { dialog ->
-                dialog.setOnShowListener {
-                    dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-                        val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                        clipboard.setPrimaryClip(
-                            android.content.ClipData.newPlainText("QuestPhoneXR crash report", details)
-                        )
-                        Toast.makeText(this, "Crash report скопирован.", Toast.LENGTH_SHORT).show()
-                    }
-                    dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
-                        val share = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, details)
-                        }
-                        startActivity(Intent.createChooser(share, "Поделиться crash report"))
-                    }
+        val report = store.readPendingReport()
+        val hasCrash = report != null
+        val preview = TextView(this).apply {
+            text = report ?: CrashReportFormatter.issueBody(null)
+            textSize = 11f
+            setTextColor(0xFFE1E7EF.toInt())
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            typeface = Typeface.MONOSPACE
+        }
+        val scroll = ScrollView(this).apply {
+            addView(preview)
+            setBackgroundColor(0xFF111720.toInt())
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), 0, dp(18), 0)
+            addView(text(
+                if (hasCrash) {
+                    "После сбоя QuestPhoneXR сохранил отчёт только на этом телефоне. Проверь его содержимое. Ничего не отправится без твоего нажатия."
+                } else {
+                    "Автоматического crash-лога пока нет. Можно открыть GitHub и описать проблему вручную."
+                },
+                13f,
+                0xFF424A56.toInt()
+            ))
+            if (hasCrash) {
+                addView(text(
+                    "В отчёт входят версия приложения, модель устройства, версия Android, имя потока и stack trace. IMEI, Android ID и местоположение не собираются.",
+                    12f,
+                    0xFF596474.toInt()
+                ).apply { setPadding(0, dp(7), 0, dp(7)) })
+            }
+            addView(scroll, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(260)
+            ))
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(if (hasCrash) "Отчёт о сбое" else "Сообщить об ошибке")
+            .setView(content)
+            .setPositiveButton("Открыть GitHub") { _, _ ->
+                runCatching {
+                    startActivity(Intent(Intent.ACTION_VIEW, store.githubIssueUri()))
+                }.onFailure {
+                    Toast.makeText(this, "Не удалось открыть GitHub.", Toast.LENGTH_LONG).show()
                 }
             }
-            .show()
+            .setNeutralButton(if (hasCrash) "Поделиться файлом" else "Копировать шаблон", null)
+            .setNegativeButton(if (hasCrash) "Удалить отчёт" else "Закрыть", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                if (hasCrash) {
+                    if (!store.sharePendingReport(this)) {
+                        Toast.makeText(this, "Не удалось подготовить файл отчёта.", Toast.LENGTH_LONG).show()
+                    }
+                } else {
+                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText(
+                        "QuestPhoneXR issue template",
+                        CrashReportFormatter.issueBody(null)
+                    ))
+                    Toast.makeText(this, "Шаблон скопирован.", Toast.LENGTH_SHORT).show()
+                }
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
+                if (hasCrash) {
+                    store.deletePendingReport()
+                    Toast.makeText(this, "Локальный crash-отчёт удалён.", Toast.LENGTH_SHORT).show()
+                }
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
     }
+
+    private fun renderGames() {
+        if (!::cardsContainer.isInitialized || !::searchInput.isInitialized) return
+        cardsContainer.removeAllViews()
+        val query = searchInput.text.toString().trim().lowercase(Locale.ROOT)
+        val visibleGames = GameCatalog.entries.filter {
+            it.title.lowercase(Locale.ROOT).contains(query) ||
+                it.summary.lowercase(Locale.ROOT).contains(query) ||
+                it.compatibilityNotes.lowercase(Locale.ROOT).contains(query)
+        }
+
+        if (visibleGames.isEmpty()) {
+            cardsContainer.addView(text("Ничего не найдено.", 15f, 0xFFD0D7E2.toInt()))
+            return
+        }
+
+        visibleGames.forEach { game ->
+            cardsContainer.addView(createGameCard(game))
+        }
+    }
+
+    private fun createGameCard(game: GameCatalogEntry): View {
+        val reports = reportStore.getReports(game.id)
+        val assessment = GameCompatibilityEvaluator.evaluate(currentDevice, reports)
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(15), dp(14), dp(15), dp(14))
+            background = rounded(0xFF1B222D.toInt(), dp(14).toFloat())
+        }
+
+        card.addView(text(game.title, 19f, Color.WHITE, Typeface.BOLD))
+        val stateColor = when (assessment.state) {
+            CompatibilityState.NOT_TESTED -> 0xFFB8C2D0.toInt()
+            CompatibilityState.LAUNCHES -> 0xFF8FE0B5.toInt()
+            CompatibilityState.LIMITED -> 0xFFFFD28A.toInt()
+            CompatibilityState.FAILED -> 0xFFFF9696.toInt()
+        }
+        val stateLabel = if (assessment.state == CompatibilityState.NOT_TESTED) {
+            "НЕ ПРОВЕРЕНО НА ЭТОМ ТЕЛЕФОНЕ"
+        } else {
+            assessment.state.label.uppercase(Locale.ROOT)
+        }
+        val badge = text(stateLabel, 11f, stateColor, Typeface.BOLD)
+        badge.setPadding(0, dp(5), 0, dp(7))
+        card.addView(badge)
+
+        card.addView(text(game.summary, 13f, 0xFFD0D7E2.toInt()))
+        card.addView(text("Путь: " + game.portingPath.label, 12f, 0xFFB8C7DB.toInt())
+            .apply { setPadding(0, dp(7), 0, dp(2)) })
+        card.addView(text("Нагрузка: " + game.expectedLoad.label, 12f, 0xFFB8C7DB.toInt()))
+        BuiltInGameInputProfiles.forGame(game.id)?.let { profile ->
+            card.addView(text("Профиль управления для порта: " + profile.displayName, 12f, 0xFF9BC7F5.toInt())
+                .apply { setPadding(0, dp(7), 0, dp(2)) })
+            card.addView(text(profile.note, 11f, 0xFFAAB4C2.toInt()))
+        }
+        card.addView(text(game.compatibilityNotes, 12f, 0xFFAAB4C2.toInt())
+            .apply { setPadding(0, dp(7), 0, dp(6)) })
+
+        val latest = assessment.latestReport
+        if (latest == null) {
+            val reportText = if (reports.isEmpty()) {
+                "Отчётов пока нет. Совместимость не подтверждена."
+            } else {
+                "Есть отчёты с других устройств: " + assessment.reportsForOtherDevices +
+                    ". На этой модели теста пока нет."
+            }
+            card.addView(text(reportText, 12f, 0xFF9CA9BC.toInt()))
+        } else {
+            val date = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault())
+                .format(Date(latest.testedAtEpochMs))
+            var reportLine = "Тест: " + currentDevice.displayName + " · Android " +
+                latest.device.androidVersion + " · " + date
+            if (assessment.androidVersionMatches == false) {
+                reportLine += " (версия Android отличается)"
+            }
+            card.addView(text(reportLine, 12f, 0xFF8FD3B5.toInt()))
+            val fpsLine = if (latest.averageFps == null) {
+                "FPS: не измерялся"
+            } else {
+                "FPS: средний " + latest.averageFps +
+                    (latest.minimumFps?.let { ", минимум " + it } ?: "")
+            }
+            card.addView(text(fpsLine, 12f, 0xFFD0D7E2.toInt()))
+            if (latest.notes.isNotBlank()) {
+                card.addView(text("Заметки: " + latest.notes, 12f, 0xFFAAB4C2.toInt())
+                    .apply { setPadding(0, dp(4), 0, dp(4)) })
+            }
+            if (latest.isManualEntry) {
+                card.addView(text("Локальный ручной отчёт — не опубликован", 11f, 0xFF8994A5.toInt()))
+            }
+        }
+
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(10), 0, 0)
+        }
+        val testButton = button("Записать тест").apply {
+            setOnClickListener { showAddReportDialog(game) }
+        }
+        actions.addView(testButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val sourceButton = button("Проект").apply {
+            setOnClickListener { openProject(game.projectUrl) }
+        }
+        val sourceParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            .apply { marginStart = dp(8) }
+        actions.addView(sourceButton, sourceParams)
+        card.addView(actions)
+
+        if (game.secondaryUrl != null) {
+            val secondary = button(game.secondaryUrlLabel ?: "Дополнительная страница").apply {
+                setOnClickListener { openProject(game.secondaryUrl) }
+            }
+            card.addView(secondary)
+        }
+
+        val params = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(10) }
+        card.layoutParams = params
+        return card
+    }
+
+    private fun showAddReportDialog(game: GameCatalogEntry) {
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), 0)
+        }
+        form.addView(text(
+            "Записывай результат только после реального запуска игры. Отчёт будет сохранён локально.",
+            13f,
+            0xFF424A56.toInt()
+        ))
+
+        val outcomeSpinner = Spinner(this)
+        val outcomes = TestOutcome.values().toList()
+        outcomeSpinner.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            outcomes.map { it.label }
+        )
+        form.addView(outcomeSpinner)
+
+        val averageFpsInput = numericInput("Средний FPS (необязательно)")
+        val minimumFpsInput = numericInput("Минимальный FPS (необязательно)")
+        val notesInput = EditText(this).apply {
+            hint = "Версия игры, управление, вылеты, нагрев и другие заметки"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            minLines = 2
+            setTextColor(Color.BLACK)
+        }
+        form.addView(averageFpsInput)
+        form.addView(minimumFpsInput)
+        form.addView(notesInput)
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Тест: " + game.title)
+            .setView(form)
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Сохранить", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val averageFps = parseFps(averageFpsInput.text.toString())
+                val minimumFps = parseFps(minimumFpsInput.text.toString())
+                if (averageFpsInput.text.isNotBlank() && averageFps == null) {
+                    averageFpsInput.error = "Укажи число от 1 до 240"
+                    return@setOnClickListener
+                }
+                if (minimumFpsInput.text.isNotBlank() && minimumFps == null) {
+                    minimumFpsInput.error = "Укажи число от 1 до 240"
+                    return@setOnClickListener
+                }
+                if (averageFps != null && minimumFps != null && minimumFps > averageFps) {
+                    minimumFpsInput.error = "Минимальный FPS не может быть выше среднего"
+                    return@setOnClickListener
+                }
+
+                val version = runCatching {
+                    packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown"
+                }.getOrDefault("unknown")
+                reportStore.addReport(
+                    game.id,
+                    GameTestReport(
+                        device = currentDevice,
+                        outcome = outcomes[outcomeSpinner.selectedItemPosition],
+                        testedAtEpochMs = System.currentTimeMillis(),
+                        averageFps = averageFps,
+                        minimumFps = minimumFps,
+                        appVersion = version,
+                        notes = notesInput.text.toString().trim()
+                    )
+                )
+                dialog.dismiss()
+                renderGames()
+                Toast.makeText(this, "Локальный отчёт сохранён.", Toast.LENGTH_SHORT).show()
+            }
+        }
+        dialog.show()
+    }
+
+    private fun numericInput(hintText: String): EditText = EditText(this).apply {
+        hint = hintText
+        inputType = InputType.TYPE_CLASS_NUMBER
+        setTextColor(Color.BLACK)
+    }
+
+    private fun parseFps(value: String): Int? {
+        if (value.isBlank()) return null
+        return value.trim().toIntOrNull()?.takeIf { it in 1..240 }
+    }
+
+    private fun openProject(url: String?) {
+        if (url.isNullOrBlank()) {
+            Toast.makeText(this, "Ссылка пока не добавлена.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }.onFailure {
+            Toast.makeText(this, "Не удалось открыть страницу проекта.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun button(label: String): Button = Button(this).apply {
+        text = label
+        isAllCaps = false
+        setTextColor(Color.WHITE)
+        background = rounded(0xFF303B4B.toInt(), dp(9).toFloat())
+    }
+
+    private fun text(
+        value: String,
+        sizeSp: Float,
+        color: Int,
+        style: Int = Typeface.NORMAL
+    ): TextView = TextView(this).apply {
+        text = value
+        textSize = sizeSp
+        setTextColor(color)
+        typeface = Typeface.create("sans-serif", style)
+    }
+
+    private fun rounded(color: Int, radius: Float): GradientDrawable =
+        GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = radius
+        }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 }
