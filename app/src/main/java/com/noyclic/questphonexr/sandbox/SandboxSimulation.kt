@@ -89,7 +89,9 @@ class SandboxSimulation {
     private val leftCursorSmoother = SandboxCursorSmoother()
     private val rightCursorSmoother = SandboxCursorSmoother()
     private val leftHandPoseSmoother = SandboxHandPoseSmoother()
-    private val rightHandPoseSmoother = SandboxHandPoseSmoother()\n    private val leftDepthEstimator = MonocularHandDepthEstimator()\n    private val rightDepthEstimator = MonocularHandDepthEstimator()
+    private val rightHandPoseSmoother = SandboxHandPoseSmoother()
+    private val leftDepthEstimator = MonocularHandDepthEstimator()
+    private val rightDepthEstimator = MonocularHandDepthEstimator()
     private var leftCursor = DEFAULT_LEFT_CURSOR
     private var rightCursor = DEFAULT_RIGHT_CURSOR
     private var leftGrabbing = false
