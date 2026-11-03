@@ -1,3 +1,0 @@
-repository=https://gitlab.freedesktop.org/monado/monado.git
-ref=main
-variant=assembleOutOfProcessDebug
