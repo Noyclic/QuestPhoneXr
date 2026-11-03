@@ -173,6 +173,16 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
             max = ViewerProfile.MAX_FOV_DEGREES - ViewerProfile.MIN_FOV_DEGREES
             progress = viewerProfile.fieldOfViewDegrees - ViewerProfile.MIN_FOV_DEGREES
         }
+        val distortionLabel = TextView(this).apply {
+            setTextColor(Color.DKGRAY)
+            textSize = 15f
+        }
+        val distortionSlider = SeekBar(this).apply {
+            max = ViewerProfile.MAX_LENS_DISTORTION_PERCENT -
+                ViewerProfile.MIN_LENS_DISTORTION_PERCENT
+            progress = viewerProfile.lensDistortionPercent -
+                ViewerProfile.MIN_LENS_DISTORTION_PERCENT
+        }
         val fpsChoices = ViewerProfile.SUPPORTED_TARGET_FPS
         val fpsLabel = TextView(this).apply {
             setTextColor(Color.DKGRAY)
@@ -193,6 +203,8 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
                 (ipdSlider.progress + ViewerProfile.MIN_IPD_MM) + " мм"
             fovLabel.text = "Угол обзора: " +
                 (fovSlider.progress + ViewerProfile.MIN_FOV_DEGREES) + "°"
+            distortionLabel.text = "Коррекция линз: " +
+                (distortionSlider.progress + ViewerProfile.MIN_LENS_DISTORTION_PERCENT) + "%"
             fpsLabel.text = "Ограничение рендера: " + fpsChoices[fpsSlider.progress] + " FPS"
         }
         updateLabels()
@@ -204,6 +216,13 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
             override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
         })
         fovSlider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                updateLabels()
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+        distortionSlider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 updateLabels()
             }
@@ -222,6 +241,8 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
         content.addView(ipdSlider)
         content.addView(fovLabel)
         content.addView(fovSlider)
+        content.addView(distortionLabel)
+        content.addView(distortionSlider)
         content.addView(fpsLabel)
         content.addView(fpsSlider)
         content.addView(swapEyesCheckBox)
@@ -241,6 +262,8 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
                 viewerProfile = ViewerProfile(
                     ipdMillimeters = ipdSlider.progress + ViewerProfile.MIN_IPD_MM,
                     fieldOfViewDegrees = fovSlider.progress + ViewerProfile.MIN_FOV_DEGREES,
+                    lensDistortionPercent = distortionSlider.progress +
+                        ViewerProfile.MIN_LENS_DISTORTION_PERCENT,
                     swapEyes = swapEyesCheckBox.isChecked,
                     targetFps = fpsChoices[fpsSlider.progress]
                 ).normalized()
@@ -259,8 +282,8 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
             "VR SHINECON · СТЕРЕО · ГИРОСКОП НЕ НАЙДЕН"
         }
         return sensorText + " · IPD " + viewerProfile.ipdMillimeters +
-            " мм · FOV " + viewerProfile.fieldOfViewDegrees + "° · " +
-            viewerProfile.targetFps + " FPS"
+            " мм · FOV " + viewerProfile.fieldOfViewDegrees + "° · линзы " +
+            viewerProfile.lensDistortionPercent + "% · " + viewerProfile.targetFps + " FPS"
     }
 
     private fun controlButton(label: String, action: () -> Unit): Button =
