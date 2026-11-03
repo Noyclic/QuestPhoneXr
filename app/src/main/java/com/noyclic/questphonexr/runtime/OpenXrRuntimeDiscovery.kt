@@ -21,21 +21,29 @@ object OpenXrRuntimeDiscovery {
   val candidates=mutableListOf<OpenXrRuntimeCandidate>()
   listOf(INSTALLABLE,SYSTEM).forEach{authority->
    if(runCatching{context.packageManager.resolveContentProvider(authority,0)!=null}.getOrDefault(false)) brokers++
-   val uri=Uri.parse("content://$authority/openxr/1/abi/$abi/runtimes/active")
-   val rows=runCatching{
-    resolver.query(uri,arrayOf("package_name","native_lib_dir","so_filename","has_functions"),null,null,null)?.use{cursor->
-     val p=cursor.getColumnIndex("package_name"); val d=cursor.getColumnIndex("native_lib_dir")
-     val f=cursor.getColumnIndex("so_filename"); val h=cursor.getColumnIndex("has_functions")
-     if(p<0||d<0||f<0) emptyList() else buildList{
-      while(cursor.moveToNext()){
-       val pkg=cursor.getString(p).orEmpty(); val dir=cursor.getString(d).orEmpty(); val file=cursor.getString(f).orEmpty()
-       if(pkg.isBlank()||dir.isBlank()||file.isBlank()||file.contains('/')) continue
-       val lib=File(dir,file)
-       add(OpenXrRuntimeCandidate(pkg,lib.absolutePath,abi,authority,h>=0&&!cursor.isNull(h)&&cursor.getInt(h)!=0,lib.isFile))
+   // Khronos Android loader addresses the active-runtime row with /active/0.
+   // Keep /active as a compatibility fallback for providers implementing the
+   // shorter URI form from older broker revisions.
+   val projections=arrayOf("package_name","native_lib_dir","so_filename","has_functions")
+   val rows=sequenceOf(
+    Uri.parse("content://$authority/openxr/1/abi/$abi/runtimes/active/0"),
+    Uri.parse("content://$authority/openxr/1/abi/$abi/runtimes/active")
+   ).mapNotNull { uri ->
+    runCatching {
+     resolver.query(uri,projections,null,null,null)?.use{cursor->
+      val p=cursor.getColumnIndex("package_name"); val d=cursor.getColumnIndex("native_lib_dir")
+      val f=cursor.getColumnIndex("so_filename"); val h=cursor.getColumnIndex("has_functions")
+      if(p<0||d<0||f<0) emptyList() else buildList{
+       while(cursor.moveToNext()){
+        val pkg=cursor.getString(p).orEmpty(); val dir=cursor.getString(d).orEmpty(); val file=cursor.getString(f).orEmpty()
+        if(pkg.isBlank()||dir.isBlank()||file.isBlank()||file.contains('/')) continue
+        val lib=File(dir,file)
+        add(OpenXrRuntimeCandidate(pkg,lib.absolutePath,abi,authority,h>=0&&!cursor.isNull(h)&&cursor.getInt(h)!=0,lib.isFile))
+       }
       }
      }
-    }.orEmpty()
-   }.getOrDefault(emptyList())
+    }.getOrNull()
+   }.firstOrNull { !it.isNullOrEmpty() }.orEmpty()
    candidates+=rows
   }
   val usable=candidates.firstOrNull{it.libraryFileExists}
