@@ -55,3 +55,29 @@ Telemetry records received/submitted/completed frames, drops caused by the busy 
 interval, preprocessing time, and total pipeline latency. These are diagnostics, not proof of
 higher FPS until measured on-device. Compare presets in the same lighting, camera distance,
 orientation and hand-motion sequence before choosing a default.
+
+## Camera-relative hand positions in the sandbox
+
+The sandbox now maps normalized MediaPipe image landmarks into a perspective reach volume
+using an independent monocular palm-width distance estimate for each hand. The estimated
+camera-space point is then rotated by the inverse of the renderer's current head-view rotation
+(represented as the corresponding row-major camera-to-world matrix) before it enters world-space
+interaction and rendering. This keeps tracked hands aligned with the camera as the phone rotates,
+while scene objects remain in the recentered world frame.
+
+The same rotation snapshot is passed to both hand mappings on each simulation update. The
+renderer and simulation use the same recentered sensor orientation, avoiding a separate
+orientation estimate drifting away from the displayed head view.
+
+Important limitations remain:
+- Phone-camera tracking only exists while a hand is visible to the camera.
+- Palm-width depth is monocular and relative; it is not calibrated metric depth or true 6DoF.
+- The phone's rotation sensors provide orientation, not positional head translation.
+- Hands outside the camera field of view or fully occluded cannot be tracked.
+- The transform is covered by unit tests and CI builds, but must still be validated on the
+  Redmi Note 13 4G for camera alignment, front-camera mirroring, and natural movement.
+
+The next runtime milestone remains separate: a real Android OpenXR runtime with compositor,
+session lifecycle, tracking/input spaces and a supported Android runtime discovery path. A
+working sandbox or successful OpenXR Loader initialization does not itself provide that runtime.
+
