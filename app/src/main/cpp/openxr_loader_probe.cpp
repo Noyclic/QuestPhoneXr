@@ -443,25 +443,127 @@ Java_com_noyclic_questphonexr_runtime_OpenXrGlesSessionProbe_nativeProbeSession(
     sessionInfo.systemId = systemId;
     XrSession session = XR_NULL_HANDLE;
     const XrResult sessionResult = xrCreateSession(instance, &sessionInfo, &session);
+    XrResult swapchainResult = XR_SUCCESS;
+    std::string swapchainMessage = "Stereo swapchain was not attempted.";
+    XrSwapchain swapchain = XR_NULL_HANDLE;
+    uint32_t imageCount = 0;
+    int64_t selectedFormat = 0;
+    uint32_t swapchainWidth = 0;
+    uint32_t swapchainHeight = 0;
+
     if (sessionResult == XR_SUCCESS) {
-        xrDestroySession(session);
+        uint32_t viewCount = 0;
+        swapchainResult = xrEnumerateViewConfigurationViews(
+            instance, systemId, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+            0, &viewCount, nullptr
+        );
+        if (swapchainResult == XR_SUCCESS && viewCount > 0) {
+            std::vector<XrViewConfigurationView> views(viewCount);
+            for (auto& view : views) {
+                view.type = XR_TYPE_VIEW_CONFIGURATION_VIEW;
+                view.next = nullptr;
+            }
+            swapchainResult = xrEnumerateViewConfigurationViews(
+                instance, systemId, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+                viewCount, &viewCount, views.data()
+            );
+            if (swapchainResult == XR_SUCCESS) {
+                swapchainWidth = 1;
+                swapchainHeight = 1;
+                uint32_t sampleCount = 1;
+                for (const auto& view : views) {
+                    swapchainWidth = std::max(swapchainWidth, view.recommendedImageRectWidth);
+                    swapchainHeight = std::max(swapchainHeight, view.recommendedImageRectHeight);
+                    sampleCount = std::max(sampleCount, view.recommendedSwapchainSampleCount);
+                }
+
+                uint32_t formatCount = 0;
+                swapchainResult = xrEnumerateSwapchainFormats(session, 0, &formatCount, nullptr);
+                if (swapchainResult == XR_SUCCESS && formatCount > 0) {
+                    std::vector<int64_t> formats(formatCount);
+                    swapchainResult = xrEnumerateSwapchainFormats(
+                        session, formatCount, &formatCount, formats.data()
+                    );
+                    if (swapchainResult == XR_SUCCESS && formatCount > 0) {
+                        const auto rgba = std::find(formats.begin(), formats.end(), static_cast<int64_t>(GL_RGBA8));
+                        const auto srgb = std::find(formats.begin(), formats.end(), static_cast<int64_t>(GL_SRGB8_ALPHA8));
+                        selectedFormat = rgba != formats.end() ? *rgba :
+                            (srgb != formats.end() ? *srgb : formats.front());
+
+                        XrSwapchainCreateInfo swapchainInfo{};
+                        swapchainInfo.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
+                        swapchainInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+                        swapchainInfo.format = selectedFormat;
+                        swapchainInfo.sampleCount = sampleCount;
+                        swapchainInfo.width = swapchainWidth;
+                        swapchainInfo.height = swapchainHeight;
+                        swapchainInfo.faceCount = 1;
+                        swapchainInfo.arraySize = 1;
+                        swapchainInfo.mipCount = 1;
+                        swapchainResult = xrCreateSwapchain(session, &swapchainInfo, &swapchain);
+                        if (swapchainResult == XR_SUCCESS) {
+                            swapchainResult = xrEnumerateSwapchainImages(swapchain, 0, &imageCount, nullptr);
+                            if (swapchainResult == XR_SUCCESS && imageCount > 0) {
+                                std::vector<XrSwapchainImageOpenGLESKHR> images(imageCount);
+                                for (auto& image : images) {
+                                    image.type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+                                    image.next = nullptr;
+                                }
+                                swapchainResult = xrEnumerateSwapchainImages(
+                                    swapchain, imageCount, &imageCount,
+                                    reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data())
+                                );
+                            } else if (swapchainResult == XR_SUCCESS) {
+                                swapchainResult = XR_ERROR_RUNTIME_FAILURE;
+                            }
+                        }
+                    } else if (swapchainResult == XR_SUCCESS) {
+                        swapchainResult = XR_ERROR_SWAPCHAIN_FORMAT_UNSUPPORTED;
+                    }
+                } else if (swapchainResult == XR_SUCCESS) {
+                    swapchainResult = XR_ERROR_SWAPCHAIN_FORMAT_UNSUPPORTED;
+                }
+            }
+        } else if (swapchainResult == XR_SUCCESS) {
+            swapchainResult = XR_ERROR_VIEW_CONFIGURATION_TYPE_UNSUPPORTED;
+        }
+        if (swapchainResult == XR_SUCCESS) {
+            std::ostringstream details;
+            details << "Created primary-stereo GLES swapchain " << swapchainWidth << "x"
+                    << swapchainHeight << ", format 0x" << std::hex << selectedFormat
+                    << ", images " << std::dec << imageCount << ". No frames were submitted.";
+            swapchainMessage = details.str();
+        } else {
+            swapchainMessage = "Session exists, but stereo swapchain setup failed.";
+        }
     }
 
+    if (swapchain != XR_NULL_HANDLE) xrDestroySwapchain(swapchain);
+    if (session != XR_NULL_HANDLE) xrDestroySession(session);
     eglMakeCurrent(display, previousDraw, previousRead, previousContext);
     eglDestroyContext(display, probeContext);
     eglDestroySurface(display, pbuffer);
     xrDestroyInstance(instance);
 
-    if (sessionResult == XR_SUCCESS) {
+    if (sessionResult != XR_SUCCESS) {
         return env->NewStringUTF(report(
-            "SESSION_CREATED_GLES",
+            "SESSION_CREATION_FAILED",
+            "Runtime accepted the GLES extension and graphics requirements, but xrCreateSession failed.",
+            sessionResult
+        ).c_str());
+    }
+    if (swapchainResult == XR_SUCCESS) {
+        return env->NewStringUTF(report(
+            "SWAPCHAIN_CREATED_GLES",
             "xrCreateSession succeeded with a temporary GLES context (" + glVersion +
-            "). The session was destroyed after the smoke test; swapchain, frame loop and compositor submission remain untested."
+            "). " + swapchainMessage +
+            " The session and swapchain were destroyed after this smoke test; frame loop and compositor submission remain untested."
         ).c_str());
     }
     return env->NewStringUTF(report(
-        "SESSION_CREATION_FAILED",
-        "Runtime accepted the GLES extension and graphics requirements, but xrCreateSession failed.",
-        sessionResult
+        "SWAPCHAIN_CREATION_FAILED_GLES",
+        "xrCreateSession succeeded with GLES context (" + glVersion + "), but swapchain setup failed: " +
+            swapchainMessage,
+        swapchainResult
     ).c_str());
 }
