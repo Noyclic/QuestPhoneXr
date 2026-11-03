@@ -1,10 +1,15 @@
 package com.noyclic.questphonexr.runtime
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.os.IBinder
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.zip.ZipFile
 
 data class MonadoServiceStatus(
@@ -13,6 +18,25 @@ data class MonadoServiceStatus(
     val enabled: Boolean,
     val permission: String?
 )
+
+enum class MonadoBinderHandshakeStatus {
+    BOUND,
+    SERVICE_NOT_FOUND,
+    BIND_FAILED,
+    TIMEOUT,
+    DESCRIPTOR_MISMATCH,
+    EXCEPTION
+}
+
+data class MonadoBinderHandshakeResult(
+    val status: MonadoBinderHandshakeStatus,
+    val detail: String,
+    val interfaceDescriptor: String?
+) {
+    val isSuccessful: Boolean
+        get() = status == MonadoBinderHandshakeStatus.BOUND &&
+            interfaceDescriptor == MonadoAndroidRuntimeProbe.IMONADO_DESCRIPTOR
+}
 
 data class MonadoAndroidRuntimeReport(
     val installed: Boolean,
@@ -44,7 +68,7 @@ data class MonadoAndroidRuntimeReport(
         runtimeSoFilename?.let { append("\nRuntime SoFilename: ").append(it) }
         runtimeMajorVersion?.let { append("\nRuntime MajorVersion: ").append(it) }
         append("\n").append(message)
-        append("\nПроверены только package и manifest. Binder bind и xrCreateInstance не вызывались.")
+        append("\nПроверены package и manifest; Binder handshake выполняется отдельной безопасной проверкой.")
     }
 
     private fun serviceDescription(service: MonadoServiceStatus?, missing: String): String =
@@ -57,13 +81,17 @@ data class MonadoAndroidRuntimeReport(
 
 /**
  * Reads the installed out-of-process APK and its manifest. It deliberately
- * does not bind MonadoService because the observed failure is in Binder setup.
+ * keeps Binder probing separate from OpenXR initialization so a bad service
+ * connection cannot close the app through the old passAppSurface path.
  */
 object MonadoAndroidRuntimeProbe {
     const val PACKAGE_NAME = "org.freedesktop.monado.openxr_runtime.out_of_process"
+    const val MONADO_SERVICE_CLASS = "org.freedesktop.monado.ipc.MonadoService"
+    const val IMONADO_DESCRIPTOR = "org.freedesktop.monado.ipc.IMonado"
     private const val RUNTIME_SERVICE_ACTION = "org.khronos.openxr.OpenXRRuntimeService"
     private const val SO_FILENAME_KEY = "org.khronos.openxr.OpenXRRuntime.SoFilename"
     private const val MAJOR_VERSION_KEY = "org.khronos.openxr.OpenXRRuntime.MajorVersion"
+    private const val BINDER_TIMEOUT_MS = 4000L
 
     fun inspect(context: Context): MonadoAndroidRuntimeReport {
         val pm = context.packageManager
@@ -95,8 +123,7 @@ object MonadoAndroidRuntimeProbe {
         val libraryExists = extractedLibraryExists || packagedLibraryExists
         val services = info.services.orEmpty()
         val ipc = services.firstOrNull {
-            it.name.endsWith(".ipc.MonadoService") ||
-                it.name == "org.freedesktop.monado.ipc.MonadoService"
+            it.name.endsWith(".ipc.MonadoService") || it.name == MONADO_SERVICE_CLASS
         }
         val runtimeService = runCatching {
             pm.queryIntentServices(Intent(RUNTIME_SERVICE_ACTION), PackageManager.MATCH_ALL)
@@ -122,7 +149,7 @@ object MonadoAndroidRuntimeProbe {
             runtimeStatus == null -> "MonadoService найден, но OpenXR Runtime service action не обнаружен."
             !runtimeStatus.enabled -> "OpenXR Runtime service найден, но отключён."
             !runtimeStatus.exported -> "OpenXR Runtime service не экспортирован."
-            else -> "APK, native library и Android service declarations обнаружены. Binder handshake ещё не проверен."
+            else -> "APK, native library и Android service declarations обнаружены."
         }
 
         return MonadoAndroidRuntimeReport(
@@ -137,6 +164,127 @@ object MonadoAndroidRuntimeProbe {
             runtimeSoFilename = metadata?.getString(SO_FILENAME_KEY),
             runtimeMajorVersion = metadata?.get(MAJOR_VERSION_KEY)?.toString(),
             message = message
+        )
+    }
+
+    /**
+     * Safely verifies that Android can bind the exact Monado Binder service.
+     * It does not call connect(), passAppSurface(), or xrCreateInstance().
+     */
+    fun checkBinderHandshake(context: Context): MonadoBinderHandshakeResult {
+        val pm = context.packageManager
+        val service = runCatching {
+            pm.getPackageInfo(PACKAGE_NAME, PackageManager.GET_SERVICES)
+                .services.orEmpty()
+                .firstOrNull { it.name == MONADO_SERVICE_CLASS }
+        }.getOrNull()
+
+        if (service == null) {
+            return MonadoBinderHandshakeResult(
+                MonadoBinderHandshakeStatus.SERVICE_NOT_FOUND,
+                "MonadoService не найден в установленном APK.",
+                null
+            )
+        }
+        if (!service.enabled) {
+            return MonadoBinderHandshakeResult(
+                MonadoBinderHandshakeStatus.BIND_FAILED,
+                "MonadoService объявлен, но отключён.",
+                null
+            )
+        }
+        if (!service.exported) {
+            return MonadoBinderHandshakeResult(
+                MonadoBinderHandshakeStatus.BIND_FAILED,
+                "MonadoService не экспортирован.",
+                null
+            )
+        }
+
+        val latch = CountDownLatch(1)
+        var result: MonadoBinderHandshakeResult? = null
+        var bound = false
+        val connection = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+                result = runCatching {
+                    val descriptor = binder.interfaceDescriptor
+                    if (descriptor == IMONADO_DESCRIPTOR) {
+                        MonadoBinderHandshakeResult(
+                            MonadoBinderHandshakeStatus.BOUND,
+                            "Binder подключён; интерфейс IMonado обнаружен.",
+                            descriptor
+                        )
+                    } else {
+                        MonadoBinderHandshakeResult(
+                            MonadoBinderHandshakeStatus.DESCRIPTOR_MISMATCH,
+                            "Binder подключён, но вернул неожиданный interface descriptor.",
+                            descriptor
+                        )
+                    }
+                }.getOrElse { error ->
+                    MonadoBinderHandshakeResult(
+                        MonadoBinderHandshakeStatus.EXCEPTION,
+                        "Не удалось прочитать Binder interface descriptor: " +
+                            (error.message ?: error.javaClass.simpleName),
+                        null
+                    )
+                }
+                latch.countDown()
+            }
+
+            override fun onServiceDisconnected(name: ComponentName) {
+                if (result == null) {
+                    result = MonadoBinderHandshakeResult(
+                        MonadoBinderHandshakeStatus.EXCEPTION,
+                        "MonadoService отключился до завершения Binder handshake.",
+                        null
+                    )
+                }
+                latch.countDown()
+            }
+        }
+
+        val intent = Intent().setComponent(ComponentName(PACKAGE_NAME, MONADO_SERVICE_CLASS))
+        bound = runCatching {
+            context.applicationContext.bindService(intent, connection, Context.BIND_AUTO_CREATE)
+        }.getOrElse { error ->
+            result = MonadoBinderHandshakeResult(
+                MonadoBinderHandshakeStatus.EXCEPTION,
+                "Android bindService() выбросил исключение: " +
+                    (error.message ?: error.javaClass.simpleName),
+                null
+            )
+            false
+        }
+
+        if (!bound && result == null) {
+            result = MonadoBinderHandshakeResult(
+                MonadoBinderHandshakeStatus.BIND_FAILED,
+                "Android bindService() вернул false.",
+                null
+            )
+        }
+
+        if (bound && result == null) {
+            val completed = runCatching { latch.await(BINDER_TIMEOUT_MS, TimeUnit.MILLISECONDS) }
+                .getOrDefault(false)
+            if (!completed) {
+                result = MonadoBinderHandshakeResult(
+                    MonadoBinderHandshakeStatus.TIMEOUT,
+                    "MonadoService не вызвал onServiceConnected за ${BINDER_TIMEOUT_MS} мс.",
+                    null
+                )
+            }
+        }
+
+        if (bound) {
+            runCatching { context.applicationContext.unbindService(connection) }
+        }
+
+        return result ?: MonadoBinderHandshakeResult(
+            MonadoBinderHandshakeStatus.EXCEPTION,
+            "Binder handshake завершился без результата.",
+            null
         )
     }
 }
