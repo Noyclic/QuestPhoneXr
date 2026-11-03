@@ -14,7 +14,7 @@ internal object SandboxHandPoseMapper {
         calibration: SandboxHandCalibration = SandboxHandCalibration.DEFAULT
     ): List<SandboxVector3> {
         val safeCalibration = calibration.normalized()
-        return points.take(HAND_LANDMARK_COUNT).map { point ->
+        return points.take(HAND_LANDMARK_COUNT).mapIndexed { index, point ->
             SandboxVector3(
                 x = (
                     (point.x - 0.5f) * CURSOR_WIDTH * safeCalibration.horizontalScale +
@@ -32,6 +32,49 @@ internal object SandboxHandPoseMapper {
     }
 
     private const val HAND_LANDMARK_COUNT = 21
+}
+
+
+/**
+ * Estimates hand distance from apparent palm width. This is monocular, relative depth:
+ * it is useful for interaction but is not a metric 6DoF room pose.
+ */
+internal class MonocularHandDepthEstimator(
+    private val referencePalmWidth: Float = 0.18f,
+    private val referenceDistanceMeters: Float = 2.55f,
+    private val minimumDistanceMeters: Float = 1.0f,
+    private val maximumDistanceMeters: Float = 4.5f,
+    private val smoothing: Float = 0.28f,
+    private val maximumStepMeters: Float = 0.22f
+) {
+    private var filteredDistance: Float? = null
+
+    fun update(points: List<HandPoint>): Float? {
+        val indexMcp = points.getOrNull(5) ?: return filteredDistance
+        val pinkyMcp = points.getOrNull(17) ?: return filteredDistance
+        val dx = indexMcp.x - pinkyMcp.x
+        val dy = indexMcp.y - pinkyMcp.y
+        val palmWidth = kotlin.math.sqrt(dx * dx + dy * dy)
+        if (!palmWidth.isFinite() || palmWidth < MIN_VALID_PALM_WIDTH) return filteredDistance
+
+        val measured = (referenceDistanceMeters * referencePalmWidth / palmWidth)
+            .coerceIn(minimumDistanceMeters, maximumDistanceMeters)
+        val previous = filteredDistance
+        val next = if (previous == null) measured else {
+            val desiredStep = (measured - previous) * smoothing
+            previous + desiredStep.coerceIn(-maximumStepMeters, maximumStepMeters)
+        }
+        filteredDistance = next
+        return next
+    }
+
+    fun reset() {
+        filteredDistance = null
+    }
+
+    private companion object {
+        const val MIN_VALID_PALM_WIDTH = 0.035f
+    }
 }
 
 /** Per-joint low-pass filter. It resets cleanly when tracking disappears or point count changes. */
