@@ -21,6 +21,32 @@ std::mutex loaderMutex;
 bool loaderInitialized = false;
 XrResult cachedLoaderInitResult = XR_ERROR_INITIALIZATION_FAILED;
 
+const char* xrResultName(XrResult result) {
+    switch (result) {
+        case XR_SUCCESS: return "XR_SUCCESS";
+        case XR_TIMEOUT_EXPIRED: return "XR_TIMEOUT_EXPIRED";
+        case XR_SESSION_LOSS_PENDING: return "XR_SESSION_LOSS_PENDING";
+        case XR_ERROR_VALIDATION_FAILURE: return "XR_ERROR_VALIDATION_FAILURE";
+        case XR_ERROR_RUNTIME_FAILURE: return "XR_ERROR_RUNTIME_FAILURE";
+        case XR_ERROR_OUT_OF_MEMORY: return "XR_ERROR_OUT_OF_MEMORY";
+        case XR_ERROR_API_VERSION_UNSUPPORTED: return "XR_ERROR_API_VERSION_UNSUPPORTED";
+        case XR_ERROR_INITIALIZATION_FAILED: return "XR_ERROR_INITIALIZATION_FAILED";
+        case XR_ERROR_FUNCTION_UNSUPPORTED: return "XR_ERROR_FUNCTION_UNSUPPORTED";
+        case XR_ERROR_FEATURE_UNSUPPORTED: return "XR_ERROR_FEATURE_UNSUPPORTED";
+        case XR_ERROR_EXTENSION_NOT_PRESENT: return "XR_ERROR_EXTENSION_NOT_PRESENT";
+        case XR_ERROR_LIMIT_REACHED: return "XR_ERROR_LIMIT_REACHED";
+        case XR_ERROR_SIZE_INSUFFICIENT: return "XR_ERROR_SIZE_INSUFFICIENT";
+        case XR_ERROR_HANDLE_INVALID: return "XR_ERROR_HANDLE_INVALID";
+        case XR_ERROR_INSTANCE_LOST: return "XR_ERROR_INSTANCE_LOST";
+        case XR_ERROR_SESSION_LOST: return "XR_ERROR_SESSION_LOST";
+        case XR_ERROR_SYSTEM_INVALID: return "XR_ERROR_SYSTEM_INVALID";
+        case XR_ERROR_PATH_INVALID: return "XR_ERROR_PATH_INVALID";
+        case XR_ERROR_CALL_ORDER_INVALID: return "XR_ERROR_CALL_ORDER_INVALID";
+        case XR_ERROR_GRAPHICS_DEVICE_INVALID: return "XR_ERROR_GRAPHICS_DEVICE_INVALID";
+        default: return "XR_RESULT_UNKNOWN";
+    }
+}
+
 std::string jsonEscape(const std::string& value) {
     std::ostringstream out;
     for (unsigned char ch : value) {
@@ -561,18 +587,27 @@ Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbe(
               createInfo.applicationInfo.engineName);
     createInfo.applicationInfo.applicationVersion = 1;
     createInfo.applicationInfo.engineVersion = 1;
-    createInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
+    createInfo.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
     createInfo.enabledExtensionCount = 1;
     createInfo.enabledExtensionNames = enabledExtensions;
 
     XrInstance instance = XR_NULL_HANDLE;
     const XrResult createResult = xrCreateInstance(&createInfo, &instance);
-    if (createResult != XR_SUCCESS) {
+    if (createResult != XR_SUCCESS || instance == XR_NULL_HANDLE) {
         if (applicationContext != activityContext) env->DeleteLocalRef(applicationContext);
+        std::ostringstream details;
+        details << "Runtime был найден, но xrCreateInstance не создал Instance"
+                << "; result=" << static_cast<int>(createResult)
+                << " (" << xrResultName(createResult) << ")"
+                << "; instanceHandle=" << (instance == XR_NULL_HANDLE ? "NULL" : "valid")
+                << "; requestedApiVersion=1.0.0"
+                << "; enabledExtensions=[" << XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME << "]";
+        if (createResult == XR_SUCCESS) {
+            details << "; runtime returned XR_SUCCESS but left XrInstance null";
+        }
         return env->NewStringUTF(makeReport(
             "INSTANCE_CREATION_FAILED", initResult, enumResult, createResult,
-            XR_ERROR_INITIALIZATION_FAILED, "", extensions,
-            "Runtime был найден и перечислил расширения, но xrCreateInstance завершился ошибкой."
+            XR_ERROR_INITIALIZATION_FAILED, "", extensions, details.str()
         ).c_str());
     }
 
@@ -710,7 +745,7 @@ Java_com_noyclic_questphonexr_runtime_OpenXrGlesSessionProbe_nativeProbeSession(
     std::copy(engineName, engineName + std::char_traits<char>::length(engineName), createInfo.applicationInfo.engineName);
     createInfo.applicationInfo.applicationVersion = 1;
     createInfo.applicationInfo.engineVersion = 1;
-    createInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
+    createInfo.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
     createInfo.enabledExtensionCount = 2;
     createInfo.enabledExtensionNames = enabledExtensions;
 
@@ -1343,13 +1378,28 @@ Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativeCreateSe
               instanceInfo.applicationInfo.engineName);
     instanceInfo.applicationInfo.applicationVersion = 1;
     instanceInfo.applicationInfo.engineVersion = 1;
-    instanceInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
+    instanceInfo.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
     instanceInfo.enabledExtensionCount = 2;
     instanceInfo.enabledExtensionNames = enabledExtensions;
     result = xrCreateInstance(&instanceInfo, &state.instance);
-    if (result != XR_SUCCESS) {
+    if (result != XR_SUCCESS || state.instance == XR_NULL_HANDLE) {
+        std::ostringstream details;
+        details << "xrCreateInstance failed for the persistent session"
+                << "; result=" << static_cast<int>(result)
+                << " (" << xrResultName(result) << ")"
+                << "; instanceHandle=" << (state.instance == XR_NULL_HANDLE ? "NULL" : "valid")
+                << "; requestedApiVersion=1.0.0"
+                << "; enabledExtensions=["
+                << XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME << ", "
+                << XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME << "]"
+                << "; advertisedExtensionCount=" << extensions.size()
+                << "; loaderInitialized=" << (loaderInitialized ? "true" : "false");
+        if (result == XR_SUCCESS) {
+            details << "; runtime returned XR_SUCCESS but left XrInstance null";
+            result = XR_ERROR_RUNTIME_FAILURE;
+        }
         return persistentFailure(
-            env, "INSTANCE_CREATION_FAILED", "xrCreateInstance failed for the persistent session.", result
+            env, "INSTANCE_CREATION_FAILED", details.str(), result
         );
     }
 
