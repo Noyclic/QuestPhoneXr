@@ -76,7 +76,8 @@ data class MonadoAndroidRuntimeReport(
             append("\n").append(result.detail)
             result.interfaceDescriptor?.let { append("\nInterface descriptor: ").append(it) }
             if (result.isSuccessful) {
-                append("\nconnect()/passAppSurface()/xrCreateInstance() здесь намеренно не вызываются.")
+                append("\nВажно: BOUND подтверждает только bindService() и descriptor IMonado.")
+                append("\nconnect()/passAppSurface()/xrCreateInstance() и запуск native mainloop здесь не проверяются.")
             } else {
                 append("\nXR initialization здесь намеренно не запускается.")
             }
