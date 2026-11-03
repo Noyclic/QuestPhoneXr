@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cmath>
+#include <iomanip>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -194,6 +196,11 @@ OneFrameSubmission submitOneGlesFrame(
     }
 
     uint32_t attempts = 0;
+    uint32_t validTrackingSamples = 0;
+    bool haveTrackingBaseline = false;
+    XrPosef firstTrackedPose{};
+    double maxHeadPositionDeltaMeters = 0.0;
+    double maxHeadRotationDeltaDegrees = 0.0;
     while (submittedFrames < kTargetFrames && attempts < kMaxFrameAttempts) {
         ++attempts;
         if (std::chrono::steady_clock::now() - frameLoopStarted > kOverallFrameTimeout) {
@@ -277,6 +284,38 @@ OneFrameSubmission submitOneGlesFrame(
                 "LOCATE_VIEWS_FAILED", result,
                 "xrLocateViews did not return the expected stereo eye poses."
             );
+        }
+
+        const bool orientationValid =
+            (viewState.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT) != 0;
+        const bool positionValid =
+            (viewState.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT) != 0;
+        if (orientationValid && positionValid) {
+            const XrPosef& pose = locatedViews[0].pose;
+            ++validTrackingSamples;
+            if (!haveTrackingBaseline) {
+                firstTrackedPose = pose;
+                haveTrackingBaseline = true;
+            } else {
+                const double dx = static_cast<double>(pose.position.x - firstTrackedPose.position.x);
+                const double dy = static_cast<double>(pose.position.y - firstTrackedPose.position.y);
+                const double dz = static_cast<double>(pose.position.z - firstTrackedPose.position.z);
+                maxHeadPositionDeltaMeters = std::max(
+                    maxHeadPositionDeltaMeters, std::sqrt(dx * dx + dy * dy + dz * dz)
+                );
+
+                const auto& a = firstTrackedPose.orientation;
+                const auto& b = pose.orientation;
+                const double dot = std::abs(
+                    static_cast<double>(a.x) * b.x +
+                    static_cast<double>(a.y) * b.y +
+                    static_cast<double>(a.z) * b.z +
+                    static_cast<double>(a.w) * b.w
+                );
+                const double clampedDot = std::clamp(dot, 0.0, 1.0);
+                const double angleDegrees = 2.0 * std::acos(clampedDot) * 180.0 / 3.14159265358979323846;
+                maxHeadRotationDeltaDegrees = std::max(maxHeadRotationDeltaDegrees, angleDegrees);
+            }
         }
 
         XrSwapchainImageAcquireInfo acquireInfo{};
@@ -390,7 +429,11 @@ OneFrameSubmission submitOneGlesFrame(
     std::ostringstream details;
     details << "A continuous OpenXR session submitted " << submittedFrames
             << " complete stereo GLES frames through xrEndFrame in "
-            << elapsedMs << " ms. This validates a short sustained frame loop, not yet the app's permanent renderer.";
+            << elapsedMs << " ms. Valid head-pose samples: " << validTrackingSamples
+            << "/" << submittedFrames << "; max delta from initial pose: "
+            << std::fixed << std::setprecision(3) << maxHeadPositionDeltaMeters
+            << " m / " << std::setprecision(1) << maxHeadRotationDeltaDegrees
+            << " deg. This validates runtime pose delivery during a short frame loop, not yet the app's permanent renderer.";
     return OneFrameSubmission{
         "SUSTAINED_FRAMES_SUBMITTED_GLES", XR_SUCCESS, details.str(), true
     };
