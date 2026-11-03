@@ -56,6 +56,12 @@
             android:exported="false"
             android:screenOrientation="landscape" />
         <activity
+            android:name=".runtime.OpenXrRuntimeProbeActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize|screenLayout|uiMode|density"
+            android:exported="false"
+            android:process=":xr_runtime_probe"
+            android:screenOrientation="landscape" />
+        <activity
             android:name=".catalog.GameLibraryActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|screenLayout|uiMode|density"
             android:exported="false"
