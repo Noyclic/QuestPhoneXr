@@ -1,5 +1,7 @@
 package com.noyclic.questphonexr.runtime
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.graphics.Color
 import android.opengl.GLSurfaceView
 import android.os.Bundle
@@ -12,6 +14,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 
 /**
@@ -24,6 +27,8 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
     private lateinit var glView: GLSurfaceView
     private lateinit var statusView: TextView
     private lateinit var runButton: Button
+    private lateinit var copyReportButton: Button
+    @Volatile private var lastReportText: String = ""
 
     @Volatile private var glReady = false
     @Volatile private var sessionRequested = false
@@ -62,6 +67,9 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
                                 statusView.text = "GLES 3 готов. Нажми «Запустить постоянную XR-сессию»."
                             }
                             if (::runButton.isInitialized) runButton.isEnabled = true
+                            if (::copyReportButton.isInitialized) {
+                                copyReportButton.isEnabled = lastReportText.isNotBlank()
+                            }
                         }
                     }
                 }
@@ -114,6 +122,25 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
                 if (sessionRequested) stopPersistentSession() else startPersistentSession()
             }
         }
+        copyReportButton = Button(this).apply {
+            text = "Скопировать XR-отчёт"
+            isAllCaps = false
+            isEnabled = false
+            setOnClickListener {
+                val reportText = lastReportText
+                if (reportText.isNotBlank()) {
+                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(
+                        ClipData.newPlainText("QuestPhoneXR OpenXR report", reportText)
+                    )
+                    Toast.makeText(
+                        this@OpenXrRuntimeProbeActivity,
+                        "XR-отчёт скопирован",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
         val closeButton = Button(this).apply {
             text = "Назад в библиотеку"
             isAllCaps = false
@@ -143,6 +170,7 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
                 1f
             ))
             addView(runButton)
+            addView(copyReportButton)
             addView(closeButton)
         }
 
@@ -206,7 +234,11 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
     private fun publishReport(report: OpenXrProbeReport, stopOnFailure: Boolean) {
         runOnUiThread {
             if (isFinishing || isDestroyed || !::statusView.isInitialized) return@runOnUiThread
-            statusView.text = report.toDisplayText()
+            lastReportText = report.toDisplayText()
+            statusView.text = lastReportText
+            if (::copyReportButton.isInitialized) {
+                copyReportButton.isEnabled = lastReportText.isNotBlank()
+            }
             if (::runButton.isInitialized) {
                 runButton.text = if (sessionRequested && nativeSessionCreated) {
                     "Остановить XR-сессию"
