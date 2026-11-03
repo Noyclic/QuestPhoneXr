@@ -4,6 +4,7 @@
 #include <GLES3/gl3.h>
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
+#include <openxr/openxr_loader_negotiation.h>
 
 #include <algorithm>
 #include <chrono>
@@ -2066,7 +2067,7 @@ Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativeDestroyS
     return env->NewStringUTF(finalReport.c_str());
 }
 
-// Diagnostic only: mirrors the Khronos Android loader's dlopen step.
+// Diagnostic only: mirrors the Khronos Android loader's runtime load/negotiation step.
 // It does not create an OpenXR instance or start Monado's Binder client.
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbeRuntimeLibrary(
@@ -2100,21 +2101,69 @@ Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbeRuntimeLibrar
     }
 
     dlerror();
-    void* negotiation = dlsym(handle, "xrNegotiateLoaderRuntimeInterface");
+    auto negotiate = reinterpret_cast<PFN_xrNegotiateLoaderRuntimeInterface>(
+        dlsym(handle, "xrNegotiateLoaderRuntimeInterface")
+    );
     const char* symbolError = dlerror();
-    const bool hasNegotiation = negotiation != nullptr && symbolError == nullptr;
-    const std::string symbolMessage = hasNegotiation
-        ? "xrNegotiateLoaderRuntimeInterface export found."
-        : (symbolError != nullptr ? symbolError : "Negotiation export is missing.");
+    if (negotiate == nullptr || symbolError != nullptr) {
+        const std::string message = symbolError != nullptr
+            ? symbolError
+            : "xrNegotiateLoaderRuntimeInterface export is missing.";
+        dlclose(handle);
+        std::ostringstream out;
+        out << "{\"status\":\"NEGOTIATION_EXPORT_MISSING\",\"path\":\""
+            << jsonEscape(path) << "\",\"negotiationExportFound\":false,\"message\":\""
+            << jsonEscape(message) << "\"}";
+        return env->NewStringUTF(out.str().c_str());
+    }
 
-    dlclose(handle);
+    XrNegotiateLoaderInfo loaderInfo{};
+    loaderInfo.structType = XR_LOADER_INTERFACE_STRUCT_LOADER_INFO;
+    loaderInfo.structVersion = XR_LOADER_INFO_STRUCT_VERSION;
+    loaderInfo.structSize = sizeof(XrNegotiateLoaderInfo);
+    loaderInfo.minInterfaceVersion = 1;
+    loaderInfo.maxInterfaceVersion = XR_CURRENT_LOADER_RUNTIME_VERSION;
+    loaderInfo.minApiVersion = XR_MAKE_VERSION(1, 0, 0);
+    loaderInfo.maxApiVersion = XR_MAKE_VERSION(1, 0x3ff, 0xfff);
+
+    XrNegotiateRuntimeRequest runtimeRequest{};
+    runtimeRequest.structType = XR_LOADER_INTERFACE_STRUCT_RUNTIME_REQUEST;
+    runtimeRequest.structVersion = XR_RUNTIME_INFO_STRUCT_VERSION;
+    runtimeRequest.structSize = sizeof(XrNegotiateRuntimeRequest);
+
+    const XrResult negotiationResult = negotiate(&loaderInfo, &runtimeRequest);
+    const bool hasGetInstanceProcAddr = runtimeRequest.getInstanceProcAddr != nullptr;
+    const bool interfaceVersionValid =
+        runtimeRequest.runtimeInterfaceVersion >= loaderInfo.minInterfaceVersion &&
+        runtimeRequest.runtimeInterfaceVersion <= loaderInfo.maxInterfaceVersion;
+    const bool negotiationSucceeded =
+        negotiationResult == XR_SUCCESS && hasGetInstanceProcAddr && interfaceVersionValid;
 
     std::ostringstream out;
-    out << "{\"status\":\""
-        << (hasNegotiation ? "DLOPEN_AND_NEGOTIATION_EXPORT_OK" : "DLOPEN_OK_NEGOTIATION_EXPORT_MISSING")
+    const char* status = negotiationSucceeded
+        ? "RUNTIME_NEGOTIATION_OK"
+        : (negotiationResult == XR_SUCCESS
+            ? "RUNTIME_NEGOTIATION_INVALID_RESPONSE"
+            : "RUNTIME_NEGOTIATION_FAILED");
+    out << "{\"status\":\"" << status
         << "\",\"path\":\"" << jsonEscape(path)
-        << "\",\"negotiationExportFound\":" << (hasNegotiation ? "true" : "false")
-        << ",\"message\":\"" << jsonEscape(symbolMessage) << "\"}";
+        << "\",\"negotiationExportFound\":true"
+        << ",\"negotiationResult\":" << static_cast<int>(negotiationResult)
+        << ",\"negotiationResultName\":\"" << xrResultName(negotiationResult) << "\""
+        << ",\"runtimeInterfaceVersion\":" << runtimeRequest.runtimeInterfaceVersion
+        << ",\"runtimeApiVersion\":" << static_cast<unsigned long long>(runtimeRequest.runtimeApiVersion)
+        << ",\"runtimeApiVersionName\":\""
+        << XR_VERSION_MAJOR(runtimeRequest.runtimeApiVersion) << "."
+        << XR_VERSION_MINOR(runtimeRequest.runtimeApiVersion) << "."
+        << XR_VERSION_PATCH(runtimeRequest.runtimeApiVersion) << "\""
+        << ",\"getInstanceProcAddrAvailable\":" << (hasGetInstanceProcAddr ? "true" : "false")
+        << ",\"interfaceVersionValid\":" << (interfaceVersionValid ? "true" : "false")
+        << ",\"message\":\""
+        << (negotiationSucceeded
+            ? "Runtime negotiation completed and returned a valid xrGetInstanceProcAddr."
+            : "Runtime negotiation failed or returned an invalid interface response.")
+        << "\"}";
+    dlclose(handle);
     return env->NewStringUTF(out.str().c_str());
 }
 
