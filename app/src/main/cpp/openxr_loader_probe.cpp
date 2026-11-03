@@ -18,10 +18,10 @@ std::string jsonEscape(const std::string& value) {
     for (unsigned char ch : value) {
         switch (ch) {
             case '"': out << "\\\""; break;
-            case '\\\\': out << "\\\\\\"; break;
-            case '\\n': out << "\\n"; break;
-            case '\\r': out << "\\r"; break;
-            case '\\t': out << "\\t"; break;
+            case '\\': out << "\\\\"; break;
+            case '\n': out << "\\n"; break;
+            case '\r': out << "\\r"; break;
+            case '\t': out << "\\t"; break;
             default:
                 if (ch < 0x20) {
                     static const char* hex = "0123456789abcdef";
@@ -45,17 +45,17 @@ std::string makeReport(
     const std::string& message
 ) {
     std::ostringstream out;
-    out << "{\\"status\\":\\"" << status << "\\","
-        << "\\"loaderInitResult\\":" << static_cast<int>(loaderInit) << ","
-        << "\\"extensionEnumerationResult\\":" << static_cast<int>(enumeration) << ","
-        << "\\"instanceCreateResult\\":" << static_cast<int>(instanceCreate) << ","
-        << "\\"getSystemResult\\":" << static_cast<int>(getSystem) << ","
-        << "\\"systemName\\":\\"" << jsonEscape(systemName) << "\\","
-        << "\\"message\\":\\"" << jsonEscape(message) << "\\","
-        << "\\"extensions\\":[";
+    out << R"({"status":")" << status
+        << R"(","loaderInitResult":)" << static_cast<int>(loaderInit)
+        << R"(,"extensionEnumerationResult":)" << static_cast<int>(enumeration)
+        << R"(,"instanceCreateResult":)" << static_cast<int>(instanceCreate)
+        << R"(,"getSystemResult":)" << static_cast<int>(getSystem)
+        << R"(,"systemName":")" << jsonEscape(systemName)
+        << R"(","message":")" << jsonEscape(message)
+        << R"(","extensions":[)";
     for (size_t i = 0; i < extensions.size(); ++i) {
         if (i != 0) out << ",";
-        out << "\\"" << jsonEscape(extensions[i].extensionName) << "\\"";
+        out << "\"" << jsonEscape(extensions[i].extensionName) << "\"";
     }
     out << "]}";
     return out.str();
@@ -70,7 +70,7 @@ Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbe(
 ) {
     JavaVM* vm = nullptr;
     if (env->GetJavaVM(&vm) != JNI_OK || vm == nullptr || activityContext == nullptr) {
-        return env->NewStringUTF("{\\"status\\":\\"ANDROID_CONTEXT_UNAVAILABLE\\",\\"message\\":\\"JNI JavaVM or Android Activity is unavailable\\",\\"extensions\\":[]}");
+        return env->NewStringUTF(R"({"status":"ANDROID_CONTEXT_UNAVAILABLE","message":"JNI JavaVM or Android Activity is unavailable","extensions":[]})");
     }
 
     jobject applicationContext = activityContext;
@@ -173,22 +173,13 @@ Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbe(
     XrInstanceCreateInfo createInfo{};
     createInfo.type = XR_TYPE_INSTANCE_CREATE_INFO;
     createInfo.next = &androidInfo;
-    createInfo.applicationInfo.applicationName[0] = 'Q';
-    createInfo.applicationInfo.applicationName[1] = 'u';
-    createInfo.applicationInfo.applicationName[2] = 'e';
-    createInfo.applicationInfo.applicationName[3] = 's';
-    createInfo.applicationInfo.applicationName[4] = 't';
-    createInfo.applicationInfo.applicationName[5] = 'P';
-    createInfo.applicationInfo.applicationName[6] = 'h';
-    createInfo.applicationInfo.applicationName[7] = 'o';
-    createInfo.applicationInfo.applicationName[8] = 'n';
-    createInfo.applicationInfo.applicationName[9] = 'e';
-    createInfo.applicationInfo.applicationName[10] = 'X';
-    createInfo.applicationInfo.applicationName[11] = 'R';
+    const char* appName = "QuestPhoneXR";
+    const char* engineName = "QuestPhoneXR";
+    std::copy(appName, appName + std::char_traits<char>::length(appName),
+              createInfo.applicationInfo.applicationName);
+    std::copy(engineName, engineName + std::char_traits<char>::length(engineName),
+              createInfo.applicationInfo.engineName);
     createInfo.applicationInfo.applicationVersion = 1;
-    createInfo.applicationInfo.engineName[0] = 'Q';
-    createInfo.applicationInfo.engineName[1] = 'P';
-    createInfo.applicationInfo.engineName[2] = 'X';
     createInfo.applicationInfo.engineVersion = 1;
     createInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
     createInfo.enabledExtensionCount = 1;
