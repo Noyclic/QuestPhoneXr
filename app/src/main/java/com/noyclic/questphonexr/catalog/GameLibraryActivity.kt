@@ -185,10 +185,7 @@ class GameLibraryActivity : ComponentActivity() {
             clipToPadding = false
             isVerticalScrollBarEnabled = true
             overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
-            addView(root, ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ))
+            addView(root)
         }
         setContentView(pageScroll)
     }
