@@ -990,7 +990,10 @@ struct PersistentGlesSessionState {
     uint64_t orientationValidSamples = 0;
     uint64_t positionValidSamples = 0;
     uint64_t fullTrackingSamples = 0;
-    uint32_t lastViewStateFlags = 0;
+    uint64_t orientationTrackedSamples = 0;
+    uint64_t positionTrackedSamples = 0;
+    uint64_t fullTrackedSamples = 0;
+    XrViewStateFlags lastViewStateFlags = 0;
     bool hasInitialHeadPosition = false;
     bool hasInitialHeadOrientation = false;
     XrVector3f initialHeadPosition{};
@@ -1569,6 +1572,9 @@ Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativeCreateSe
     state.orientationValidSamples = 0;
     state.positionValidSamples = 0;
     state.fullTrackingSamples = 0;
+    state.orientationTrackedSamples = 0;
+    state.positionTrackedSamples = 0;
+    state.fullTrackedSamples = 0;
     state.lastViewStateFlags = 0;
     state.hasInitialHeadPosition = false;
     state.hasInitialHeadOrientation = false;
@@ -1699,9 +1705,16 @@ Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativeRenderFr
         (viewState.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT) != 0;
     const bool positionValid =
         (viewState.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT) != 0;
+    const bool orientationTracked =
+        (viewState.viewStateFlags & XR_VIEW_STATE_ORIENTATION_TRACKED_BIT) != 0;
+    const bool positionTracked =
+        (viewState.viewStateFlags & XR_VIEW_STATE_POSITION_TRACKED_BIT) != 0;
     if (orientationValid) ++state.orientationValidSamples;
     if (positionValid) ++state.positionValidSamples;
     if (orientationValid && positionValid) ++state.fullTrackingSamples;
+    if (orientationTracked) ++state.orientationTrackedSamples;
+    if (positionTracked) ++state.positionTrackedSamples;
+    if (orientationTracked && positionTracked) ++state.fullTrackedSamples;
 
     const XrPosef& headPose = locatedViews[0].pose;
     if (positionValid) {
