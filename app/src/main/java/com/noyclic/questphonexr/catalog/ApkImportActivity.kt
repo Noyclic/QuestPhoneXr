@@ -91,18 +91,25 @@ class ApkImportActivity : ComponentActivity() {
             .apply { setPadding(0, dp(8), 0, dp(8)) }
         root.addView(statusView)
 
-        val scroll = ScrollView(this).apply {
-            isFillViewport = false
-            clipToPadding = false
-        }
         entriesContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
-        scroll.addView(entriesContainer)
-        root.addView(scroll, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
-        ))
-        setContentView(root)
+        root.addView(entriesContainer, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(4) })
+
+        val pageScroll = ScrollView(this).apply {
+            isFillViewport = true
+            clipToPadding = false
+            isVerticalScrollBarEnabled = true
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            addView(root, ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+        }
+        setContentView(pageScroll)
     }
 
     private fun importApk(uri: Uri) {
