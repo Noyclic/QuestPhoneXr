@@ -17,7 +17,8 @@ internal object SandboxHandPoseMapper {
         points: List<HandPoint>,
         calibration: SandboxHandCalibration = SandboxHandCalibration.DEFAULT,
         estimatedDistanceMeters: Float? = null,
-        worldPoints: List<HandPoint> = emptyList()
+        worldPoints: List<HandPoint> = emptyList(),
+        cameraToWorldRotation: FloatArray? = null
     ): List<SandboxVector3> {
         val safeCalibration = calibration.normalized()
         val distance = (estimatedDistanceMeters ?: -CURSOR_DEPTH).coerceIn(0.5f, 6.0f)
@@ -28,7 +29,7 @@ internal object SandboxHandPoseMapper {
                 worldPoints.getOrNull(index)?.z
                     ?: point.z.coerceIn(-MAX_RELATIVE_DEPTH, MAX_RELATIVE_DEPTH)
                 ).coerceIn(-MAX_RELATIVE_DEPTH, MAX_RELATIVE_DEPTH)
-            SandboxVector3(
+            val cameraPoint = SandboxVector3(
                 x = (
                     (point.x - 0.5f) * horizontalReach * safeCalibration.horizontalScale +
                         safeCalibration.horizontalOffset
@@ -39,7 +40,23 @@ internal object SandboxHandPoseMapper {
                     ).coerceIn(-MAX_VERTICAL_REACH, MAX_VERTICAL_REACH),
                 z = -distance + relativeDepth * safeCalibration.relativeDepthScale
             )
+            cameraPoint.toWorldSpace(cameraToWorldRotation)
         }
+    }
+
+    /**
+     * Sensor rotation is also used as the renderer's world-to-camera view rotation.
+     * Transposing it maps camera-relative hand positions back into the stable world frame.
+     */
+    private fun SandboxVector3.toWorldSpace(rotation: FloatArray?): SandboxVector3 {
+        if (rotation == null || rotation.size < 9 || !rotation.take(9).all { it.isFinite() }) {
+            return this
+        }
+        return SandboxVector3(
+            x = rotation[0] * x + rotation[1] * y + rotation[2] * z,
+            y = rotation[3] * x + rotation[4] * y + rotation[5] * z,
+            z = rotation[6] * x + rotation[7] * y + rotation[8] * z
+        )
     }
 
     private const val HAND_LANDMARK_COUNT = 21
