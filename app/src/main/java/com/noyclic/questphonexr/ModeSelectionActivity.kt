@@ -138,10 +138,7 @@ class ModeSelectionActivity : ComponentActivity() {
             clipToPadding = false
             isVerticalScrollBarEnabled = true
             overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
-            addView(content, ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ))
+            addView(content)
         }
         setContentView(scroll)
     }
