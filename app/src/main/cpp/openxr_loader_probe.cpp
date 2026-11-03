@@ -28,6 +28,7 @@ const char* xrResultName(XrResult result) {
         case XR_SESSION_LOSS_PENDING: return "XR_SESSION_LOSS_PENDING";
         case XR_ERROR_VALIDATION_FAILURE: return "XR_ERROR_VALIDATION_FAILURE";
         case XR_ERROR_RUNTIME_FAILURE: return "XR_ERROR_RUNTIME_FAILURE";
+        case XR_ERROR_RUNTIME_UNAVAILABLE: return "XR_ERROR_RUNTIME_UNAVAILABLE";
         case XR_ERROR_OUT_OF_MEMORY: return "XR_ERROR_OUT_OF_MEMORY";
         case XR_ERROR_API_VERSION_UNSUPPORTED: return "XR_ERROR_API_VERSION_UNSUPPORTED";
         case XR_ERROR_INITIALIZATION_FAILED: return "XR_ERROR_INITIALIZATION_FAILED";
@@ -596,12 +597,13 @@ Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbe(
     if (createResult != XR_SUCCESS || instance == XR_NULL_HANDLE) {
         if (applicationContext != activityContext) env->DeleteLocalRef(applicationContext);
         std::ostringstream details;
-        details << "Runtime был найден, но xrCreateInstance не создал Instance"
+        details << "xrCreateInstance did not create an Instance"
                 << "; result=" << static_cast<int>(createResult)
                 << " (" << xrResultName(createResult) << ")"
                 << "; instanceHandle=" << (instance == XR_NULL_HANDLE ? "NULL" : "valid")
                 << "; requestedApiVersion=1.0.0"
-                << "; enabledExtensions=[" << XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME << "]";
+                << "; enabledExtensions=[" << XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME << "]"
+                << "; note=XR_ERROR_RUNTIME_UNAVAILABLE means the Khronos loader could not find or load an active OpenXR runtime; successful extension enumeration alone does not prove that Monado was loaded";
         if (createResult == XR_SUCCESS) {
             details << "; runtime returned XR_SUCCESS but left XrInstance null";
         }
@@ -1394,6 +1396,9 @@ Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativeCreateSe
                 << XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME << "]"
                 << "; advertisedExtensionCount=" << extensions.size()
                 << "; loaderInitialized=" << (loaderInitialized ? "true" : "false");
+        if (result == XR_ERROR_RUNTIME_UNAVAILABLE) {
+            details << "; diagnosis=Khronos loader could not find or load the selected runtime manifest/runtime library. Check Android runtime selection/manifest registration and Monado service startup; this failure occurs before graphics binding or session creation.";
+        }
         if (result == XR_SUCCESS) {
             details << "; runtime returned XR_SUCCESS but left XrInstance null";
             result = XR_ERROR_RUNTIME_FAILURE;
