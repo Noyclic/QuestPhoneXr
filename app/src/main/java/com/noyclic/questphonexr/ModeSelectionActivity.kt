@@ -17,6 +17,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import com.noyclic.questphonexr.catalog.GameLibraryActivity
 import com.noyclic.questphonexr.diagnostics.CrashReportStore
+import com.noyclic.questphonexr.diagnostics.MonadoDiagnosticsActivity
 import com.noyclic.questphonexr.sandbox.SandboxActivity
 import com.noyclic.questphonexr.vr.PhoneVrPreviewActivity
 
@@ -137,23 +138,29 @@ class ModeSelectionActivity : ComponentActivity() {
         ).apply { setPadding(0, dp(16), 0, dp(6)) })
 
         val tools = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = LinearLayout.VERTICAL
         }
         tools.addView(
             actionButton("VR Shinecon · стерео-тест") {
                 startActivity(Intent(this@ModeSelectionActivity, PhoneVrPreviewActivity::class.java))
             },
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginEnd = dp(5)
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(5)
+            }
+        )
+        tools.addView(
+            actionButton("Собрать отчёт Monado / OpenXR") {
+                startActivity(Intent(this@ModeSelectionActivity, MonadoDiagnosticsActivity::class.java))
+            },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(5)
             }
         )
         tools.addView(
             actionButton("Диагностика рук и контроллеров") {
                 startActivity(Intent(this@ModeSelectionActivity, MainActivity::class.java))
             },
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = dp(5)
-            }
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         )
         content.addView(tools)
 
