@@ -19,23 +19,23 @@ object OpenXrPersistentGlesSession {
     private external fun nativeResumeSession(): String
     private external fun nativeDestroySession(): String
 
-    fun create(activity: Activity): OpenXrProbeReport = invoke {
+    fun create(activity: Activity): OpenXrProbeReport = invokeNative {
         nativeCreateSession(activity)
     }
 
-    fun renderFrame(): OpenXrProbeReport = invoke {
+    fun renderFrame(): OpenXrProbeReport = invokeNative {
         nativeRenderFrame()
     }
 
-    fun pause(): OpenXrProbeReport = invoke {
+    fun pause(): OpenXrProbeReport = invokeNative {
         nativePauseSession()
     }
 
-    fun resume(): OpenXrProbeReport = invoke {
+    fun resume(): OpenXrProbeReport = invokeNative {
         nativeResumeSession()
     }
 
-    fun destroy(): OpenXrProbeReport = invoke {
+    fun destroy(): OpenXrProbeReport = invokeNative {
         nativeDestroySession()
     }
 
