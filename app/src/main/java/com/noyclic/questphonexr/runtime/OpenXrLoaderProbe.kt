@@ -32,7 +32,7 @@ data class OpenXrLoaderProbeReport(
         if (systemName.isNotBlank()) append("\nHMD system: ").append(systemName)
         append("\n").append(message)
         if (extensions.isNotEmpty()) {
-            append("\nРасширения Runtime (").append(extensions.size).append("):\\n")
+            append("\nРасширения, перечисленные Khronos Loader (").append(extensions.size).append("):\\n")
             extensions.forEach { append("• ").append(it).append("\n") }
         }
         append("\nНе проверены: xrCreateSession, graphics binding, swapchain, compositor, frame loop и ввод.")
