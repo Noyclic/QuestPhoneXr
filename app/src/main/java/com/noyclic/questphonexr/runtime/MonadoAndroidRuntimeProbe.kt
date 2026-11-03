@@ -49,6 +49,7 @@ data class MonadoAndroidRuntimeReport(
     val openXrRuntimeService: MonadoServiceStatus?,
     val runtimeSoFilename: String?,
     val runtimeMajorVersion: String?,
+    val binderHandshake: MonadoBinderHandshakeResult?,
     val message: String
 ) {
     fun toDisplayText(): String = buildString {
@@ -68,7 +69,18 @@ data class MonadoAndroidRuntimeReport(
         runtimeSoFilename?.let { append("\nRuntime SoFilename: ").append(it) }
         runtimeMajorVersion?.let { append("\nRuntime MajorVersion: ").append(it) }
         append("\n").append(message)
-        append("\nПроверены package и manifest; Binder handshake выполняется отдельной безопасной проверкой.")
+        binderHandshake?.let { result ->
+            append("\n\nMONADO BINDER HANDSHAKE")
+            append("\nСтатус: ").append(result.status.name)
+            append("\nУспешно: ").append(if (result.isSuccessful) "да" else "нет")
+            append("\n").append(result.detail)
+            result.interfaceDescriptor?.let { append("\nInterface descriptor: ").append(it) }
+            if (result.isSuccessful) {
+                append("\nconnect()/passAppSurface()/xrCreateInstance() здесь намеренно не вызываются.")
+            } else {
+                append("\nXR initialization здесь намеренно не запускается.")
+            }
+        }
     }
 
     private fun serviceDescription(service: MonadoServiceStatus?, missing: String): String =
@@ -80,8 +92,8 @@ data class MonadoAndroidRuntimeReport(
 }
 
 /**
- * Reads the installed out-of-process APK and its manifest. It deliberately
- * keeps Binder probing separate from OpenXR initialization so a bad service
+ * Reads the installed out-of-process APK and its manifest. Binder probing is
+ * deliberately isolated from OpenXR initialization so a bad service
  * connection cannot close the app through the old passAppSurface path.
  */
 object MonadoAndroidRuntimeProbe {
@@ -101,7 +113,7 @@ object MonadoAndroidRuntimeProbe {
                 PackageManager.GET_SERVICES or PackageManager.GET_META_DATA
             )
         }.getOrNull() ?: return MonadoAndroidRuntimeReport(
-            false, null, null, false, null, false, null, null, null, null,
+            false, null, null, false, null, false, null, null, null, null, null,
             "Monado out-of-process APK не найден среди видимых Android-пакетов."
         )
 
@@ -152,6 +164,12 @@ object MonadoAndroidRuntimeProbe {
             else -> "APK, native library и Android service declarations обнаружены."
         }
 
+        val binderHandshake = if (appEnabled && ipcStatus?.enabled == true && ipcStatus.exported) {
+            checkBinderHandshake(context)
+        } else {
+            null
+        }
+
         return MonadoAndroidRuntimeReport(
             installed = true,
             versionName = info.versionName,
@@ -163,6 +181,7 @@ object MonadoAndroidRuntimeProbe {
             openXrRuntimeService = runtimeStatus,
             runtimeSoFilename = metadata?.getString(SO_FILENAME_KEY),
             runtimeMajorVersion = metadata?.get(MAJOR_VERSION_KEY)?.toString(),
+            binderHandshake = binderHandshake,
             message = message
         )
     }
