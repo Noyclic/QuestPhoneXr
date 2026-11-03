@@ -42,6 +42,14 @@ A separate action can open an installed Android package through Android's launch
 
 Open the repository root in Android Studio and sync Gradle. GitHub Actions builds the debug APK using a provisioned Gradle installation; the repository does not yet include the binary Gradle wrapper JAR.
 
+## Automated CI checks
+
+Every push or pull request to `main` runs the JVM unit-test suite, builds the debug APK, and validates that the application package, MediaPipe hand model, and arm64 native library are present. It then installs the app on an Android 15 x86_64 emulator and checks the real navigation flow: mode selection → game library → mode selection.
+
+The emulator test saves screenshots of the mode-selection and library screens. GitHub Actions stores these screenshots, emulator `logcat`, and test reports in the `QuestPhoneXR-CI-diagnostics` artifact for 14 days. The debug APK is uploaded only if the entire workflow succeeds.
+
+An emulator pass is a launch/navigation smoke test, not proof of Redmi hardware compatibility. It cannot validate the physical camera feed, MediaPipe performance on Adreno 610, Monado Binder/runtime startup, Joy-Con Bluetooth behavior, thermal throttling, or real 20–30 FPS. Those still need a device test.
+
 ## Roadmap
 
 1. Phone-first library, device-specific compatibility records, and game-adapter contracts.

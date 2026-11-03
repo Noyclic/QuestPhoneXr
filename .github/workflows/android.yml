@@ -1,4 +1,4 @@
-name: Android APK
+name: Android CI — build, unit tests and emulator smoke test
 
 on:
   push:
@@ -10,10 +10,16 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: questphonexr-android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-debug-apk:
-    name: Build debug APK
+  android-ci:
+    name: Build, test and launch on emulator
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,13 +46,68 @@ jobs:
         with:
           gradle-version: "8.13"
 
-      - name: Run unit tests
+      - name: Run JVM unit tests
         run: gradle --no-daemon :app:testDebugUnitTest
 
-      - name: Build APK
+      - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
 
-      - name: Upload APK
+      - name: Validate APK package and required payload
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          mkdir -p ci-results
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | tee ci-results/apk-metadata.txt
+          grep -q "package: name='com.noyclic.questphonexr'" ci-results/apk-metadata.txt
+
+          APK_FILES="$(unzip -Z1 "$APK")"
+          grep -qx "assets/hand_landmarker.task" <<< "$APK_FILES"
+          grep -qx "lib/arm64-v8a/libquestphonexr_vulkan_probe.so" <<< "$APK_FILES"
+          echo "APK package, MediaPipe model and arm64 native library are present." | tee ci-results/apk-validation.txt
+
+      - name: Run navigation smoke test on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: |
+            set +e
+            gradle --no-daemon :app:connectedDebugAndroidTest
+            test_exit=$?
+
+            mkdir -p ci-results/screenshots
+            adb logcat -d -v threadtime > ci-results/emulator-logcat.txt
+
+            adb pull /sdcard/Android/data/com.noyclic.questphonexr/files/ci-screenshots/. ci-results/screenshots/ || true
+
+            if [ -d app/build/reports/androidTests/connected ]; then
+              cp -R app/build/reports/androidTests/connected ci-results/
+            fi
+            if [ -d app/build/outputs/androidTest-results/connected ]; then
+              cp -R app/build/outputs/androidTest-results/connected ci-results/
+            fi
+
+            exit "$test_exit"
+
+      - name: Upload emulator screenshots, logs and test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuestPhoneXR-CI-diagnostics
+          path: |
+            ci-results/**
+            app/build/reports/tests/testDebugUnitTest/**
+            app/build/test-results/testDebugUnitTest/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload debug APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: QuestPhoneXR-debug-apk
