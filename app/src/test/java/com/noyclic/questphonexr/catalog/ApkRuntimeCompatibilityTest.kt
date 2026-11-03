@@ -44,7 +44,7 @@ class ApkRuntimeCompatibilityTest {
     }
 
     @Test
-    fun identifiesOpenXrProjectAsNeedingPhoneRuntimeAdaptation() {
+    fun identifiesOpenXrProjectAsNeedingActiveRuntime() {
         val result = ApkRuntimeCompatibility.assess(
             info = sample(),
             archiveEntries = listOf("lib/arm64-v8a/libopenxr_loader.so", "lib/arm64-v8a/libunity.so"),
@@ -53,7 +53,7 @@ class ApkRuntimeCompatibilityTest {
             missingRequiredFeatures = emptySet()
         )
 
-        assertEquals(ApkLaunchRoute.XR_SOURCE_ADAPTATION_REQUIRED, result.route)
+        assertEquals(ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE, result.route)
         assertTrue(result.xrTechnologies.contains("OpenXR"))
     }
 

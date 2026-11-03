@@ -63,8 +63,8 @@ class GameLibraryActivity : ComponentActivity() {
         val report = OpenXrRuntimeDiscovery.inspect(this)
         openXrRuntimeStatusView.text = buildString {
             append(report.message)
-            report.processAbi?.let { append("\\nABI процесса: ").append(it) }
-            report.activeCandidate?.let { append("\\nБиблиотека: ").append(it.libraryPath) }
+            report.processAbi?.let { append("\nABI процесса: ").append(it) }
+            report.activeCandidate?.let { append("\nБиблиотека: ").append(it.libraryPath) }
         }
     }
 
