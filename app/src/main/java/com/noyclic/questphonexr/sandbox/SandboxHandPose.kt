@@ -4,10 +4,14 @@ import com.noyclic.questphonexr.tracking.HandPoint
 
 /** Maps MediaPipe image landmarks across the wider free-space sandbox reach volume, not just the platform footprint. */
 internal object SandboxHandPoseMapper {
-    private const val CURSOR_WIDTH = 6.0f
-    private const val CURSOR_HEIGHT = 4.3f
+    // Convert normalized camera coordinates into a perspective volume. Unlike the
+    // old fixed-size plane, the reachable width/height grow with estimated distance.
+    private const val HORIZONTAL_FOV_SCALE = 2.4f
+    private const val VERTICAL_FOV_SCALE = 1.8f
     private const val CURSOR_DEPTH = -2.55f
     private const val MAX_RELATIVE_DEPTH = 0.45f
+    private const val MAX_HORIZONTAL_REACH = 8.0f
+    private const val MAX_VERTICAL_REACH = 6.0f
 
     fun map(
         points: List<HandPoint>,
@@ -16,21 +20,24 @@ internal object SandboxHandPoseMapper {
         worldPoints: List<HandPoint> = emptyList()
     ): List<SandboxVector3> {
         val safeCalibration = calibration.normalized()
+        val distance = (estimatedDistanceMeters ?: -CURSOR_DEPTH).coerceIn(0.5f, 6.0f)
+        val horizontalReach = distance * HORIZONTAL_FOV_SCALE
+        val verticalReach = distance * VERTICAL_FOV_SCALE
         return points.take(HAND_LANDMARK_COUNT).mapIndexed { index, point ->
+            val relativeDepth = (
+                worldPoints.getOrNull(index)?.z
+                    ?: point.z.coerceIn(-MAX_RELATIVE_DEPTH, MAX_RELATIVE_DEPTH)
+                ).coerceIn(-MAX_RELATIVE_DEPTH, MAX_RELATIVE_DEPTH)
             SandboxVector3(
                 x = (
-                    (point.x - 0.5f) * CURSOR_WIDTH * safeCalibration.horizontalScale +
+                    (point.x - 0.5f) * horizontalReach * safeCalibration.horizontalScale +
                         safeCalibration.horizontalOffset
-                    ).coerceIn(-3.0f, 3.0f),
+                    ).coerceIn(-MAX_HORIZONTAL_REACH, MAX_HORIZONTAL_REACH),
                 y = (
-                    (0.5f - point.y) * CURSOR_HEIGHT * safeCalibration.verticalScale +
+                    (0.5f - point.y) * verticalReach * safeCalibration.verticalScale +
                         safeCalibration.verticalOffset
-                    ).coerceIn(-2.15f, 2.15f),
-                z = -(estimatedDistanceMeters ?: -CURSOR_DEPTH) +
-                    (worldPoints.getOrNull(index)?.z
-                        ?: point.z.coerceIn(-MAX_RELATIVE_DEPTH, MAX_RELATIVE_DEPTH))
-                        .coerceIn(-MAX_RELATIVE_DEPTH, MAX_RELATIVE_DEPTH) *
-                    safeCalibration.relativeDepthScale
+                    ).coerceIn(-MAX_VERTICAL_REACH, MAX_VERTICAL_REACH),
+                z = -distance + relativeDepth * safeCalibration.relativeDepthScale
             )
         }
     }
