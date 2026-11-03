@@ -10,6 +10,10 @@ android {
     compileSdk = 36
     ndkVersion = "27.2.12479018"
 
+    buildFeatures {
+        prefab = true
+    }
+
     defaultConfig {
         applicationId = "com.noyclic.questphonexr"
         minSdk = 29
