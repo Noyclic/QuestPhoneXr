@@ -24,10 +24,10 @@ QuestPhoneXR must not manually duplicate this private protocol in parallel with 
 - Keep Monado enabled and use the official Khronos Android OpenXR loader.
 - Run the risky native OpenXR probe in a dedicated Android process named :xr_runtime_probe so a native crash does not terminate the game library or normal Sandbox process.
 - Invoke the probe only on a dedicated GLES 3 GL thread while the Activity is alive; this provides a current EGL context and a valid Activity for Monado's Surface handoff.
-- The first frame uses a GLES 3 texture-array swapchain with one layer per stereo view, a LOCAL reference space, the runtime's located eye poses/FOVs, and a minimal clear-only render.
-- The probe must process session-state events, wait for READY, begin the session, wait/begin a frame, acquire/wait/release the swapchain image, and call xrEndFrame with a projection layer.
+- The sustained probe uses a GLES 3 texture-array swapchain with one layer per stereo view, a LOCAL reference space, the runtime's located eye poses/FOVs, and a minimal clear-only render.
+- The probe processes session-state events, waits for READY, begins one session, then submits 30 consecutive stereo frames. Every rendered frame performs xrWaitFrame, xrBeginFrame, xrLocateViews, acquire/wait/release of the swapchain image, and xrEndFrame with a projection layer. The loop is bounded by 8 seconds and 90 frame attempts; swapchain image waits are bounded to 250 ms.
 - Always tear down in reverse order and report the exact failing stage and XrResult.
 - This milestone is a hardware validation probe. It does not yet provide a persistent renderer, camera passthrough, hand tracking inside OpenXR, controller actions, or arbitrary Quest APK execution.
 
 ## Success criteria
-A device report says FIRST_FRAME_SUBMITTED_GLES only after a successful xrBeginSession, one complete frame cycle, and successful xrEndFrame with two projection views. A created swapchain alone is not success.
+A device report says SUSTAINED_FRAMES_SUBMITTED_GLES only after one xrBeginSession and 30 complete consecutive stereo frame cycles with successful xrEndFrame calls. The legacy FIRST_FRAME_SUBMITTED_GLES status remains recognized for older APKs. A created swapchain or a single successful frame alone is not sustained-loop success.
