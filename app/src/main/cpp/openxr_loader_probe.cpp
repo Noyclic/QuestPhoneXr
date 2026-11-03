@@ -2,6 +2,7 @@
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 
+#include <algorithm>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -17,10 +18,10 @@ std::string jsonEscape(const std::string& value) {
     for (unsigned char ch : value) {
         switch (ch) {
             case '"': out << "\\\""; break;
-            case '\\': out << "\\\\"; break;
-            case '\n': out << "\\n"; break;
-            case '\r': out << "\\r"; break;
-            case '\t': out << "\\t"; break;
+            case '\\\\': out << "\\\\\\"; break;
+            case '\\n': out << "\\n"; break;
+            case '\\r': out << "\\r"; break;
+            case '\\t': out << "\\t"; break;
             default:
                 if (ch < 0x20) {
                     static const char* hex = "0123456789abcdef";
@@ -37,18 +38,24 @@ std::string makeReport(
     const char* status,
     XrResult loaderInit,
     XrResult enumeration,
+    XrResult instanceCreate,
+    XrResult getSystem,
+    const std::string& systemName,
     const std::vector<XrExtensionProperties>& extensions,
     const std::string& message
 ) {
     std::ostringstream out;
-    out << "{\"status\":\"" << status << "\","
-        << "\"loaderInitResult\":" << static_cast<int>(loaderInit) << ","
-        << "\"extensionEnumerationResult\":" << static_cast<int>(enumeration) << ","
-        << "\"message\":\"" << jsonEscape(message) << "\","
-        << "\"extensions\":[";
+    out << "{\\"status\\":\\"" << status << "\\","
+        << "\\"loaderInitResult\\":" << static_cast<int>(loaderInit) << ","
+        << "\\"extensionEnumerationResult\\":" << static_cast<int>(enumeration) << ","
+        << "\\"instanceCreateResult\\":" << static_cast<int>(instanceCreate) << ","
+        << "\\"getSystemResult\\":" << static_cast<int>(getSystem) << ","
+        << "\\"systemName\\":\\"" << jsonEscape(systemName) << "\\","
+        << "\\"message\\":\\"" << jsonEscape(message) << "\\","
+        << "\\"extensions\\":[";
     for (size_t i = 0; i < extensions.size(); ++i) {
         if (i != 0) out << ",";
-        out << "\"" << jsonEscape(extensions[i].extensionName) << "\"";
+        out << "\\"" << jsonEscape(extensions[i].extensionName) << "\\"";
     }
     out << "]}";
     return out.str();
@@ -59,11 +66,22 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbe(
     JNIEnv* env,
     jobject /* thiz */,
-    jobject context
+    jobject activityContext
 ) {
     JavaVM* vm = nullptr;
-    if (env->GetJavaVM(&vm) != JNI_OK || vm == nullptr || context == nullptr) {
-        return env->NewStringUTF("{\"status\":\"ANDROID_CONTEXT_UNAVAILABLE\",\"message\":\"JNI JavaVM or Android Context is unavailable\",\"extensions\":[]}");
+    if (env->GetJavaVM(&vm) != JNI_OK || vm == nullptr || activityContext == nullptr) {
+        return env->NewStringUTF("{\\"status\\":\\"ANDROID_CONTEXT_UNAVAILABLE\\",\\"message\\":\\"JNI JavaVM or Android Activity is unavailable\\",\\"extensions\\":[]}");
+    }
+
+    jobject applicationContext = activityContext;
+    jclass contextClass = env->GetObjectClass(activityContext);
+    jmethodID getApplicationContext = env->GetMethodID(
+        contextClass, "getApplicationContext", "()Landroid/content/Context;"
+    );
+    if (getApplicationContext != nullptr) {
+        jobject app = env->CallObjectMethod(activityContext, getApplicationContext);
+        if (app != nullptr) applicationContext = app;
+        if (env->ExceptionCheck()) env->ExceptionClear();
     }
 
     XrResult initResult = XR_SUCCESS;
@@ -83,7 +101,7 @@ Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbe(
                 initInfo.type = XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR;
                 initInfo.next = nullptr;
                 initInfo.applicationVM = vm;
-                initInfo.applicationContext = context;
+                initInfo.applicationContext = applicationContext;
                 cachedLoaderInitResult = initializeLoader(
                     reinterpret_cast<const XrLoaderInitInfoBaseHeaderKHR*>(&initInfo)
                 );
@@ -94,19 +112,21 @@ Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbe(
     }
 
     if (initResult != XR_SUCCESS) {
+        if (applicationContext != activityContext) env->DeleteLocalRef(applicationContext);
         return env->NewStringUTF(makeReport(
             "LOADER_INITIALIZATION_FAILED", initResult, XR_ERROR_INITIALIZATION_FAILED,
-            {}, "xrInitializeLoaderKHR did not complete successfully."
+            XR_ERROR_INITIALIZATION_FAILED, XR_ERROR_INITIALIZATION_FAILED, "", {},
+            "xrInitializeLoaderKHR did not complete successfully."
         ).c_str());
     }
 
     uint32_t extensionCount = 0;
-    XrResult enumResult = xrEnumerateInstanceExtensionProperties(
-        nullptr, 0, &extensionCount, nullptr
-    );
+    XrResult enumResult = xrEnumerateInstanceExtensionProperties(nullptr, 0, &extensionCount, nullptr);
     if (enumResult != XR_SUCCESS) {
+        if (applicationContext != activityContext) env->DeleteLocalRef(applicationContext);
         return env->NewStringUTF(makeReport(
-            "RUNTIME_ENUMERATION_FAILED", initResult, enumResult, {},
+            "RUNTIME_ENUMERATION_FAILED", initResult, enumResult,
+            XR_ERROR_INITIALIZATION_FAILED, XR_ERROR_INITIALIZATION_FAILED, "", {},
             "OpenXR loader initialized, but the active runtime did not provide extension enumeration."
         ).c_str());
     }
@@ -116,22 +136,98 @@ Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbe(
         extension.type = XR_TYPE_EXTENSION_PROPERTIES;
         extension.next = nullptr;
     }
-
     if (extensionCount > 0) {
-        enumResult = xrEnumerateInstanceExtensionProperties(
-            nullptr, extensionCount, &extensionCount, extensions.data()
-        );
+        enumResult = xrEnumerateInstanceExtensionProperties(nullptr, extensionCount, &extensionCount, extensions.data());
         if (enumResult != XR_SUCCESS) {
+            if (applicationContext != activityContext) env->DeleteLocalRef(applicationContext);
             return env->NewStringUTF(makeReport(
-                "RUNTIME_ENUMERATION_FAILED", initResult, enumResult, {},
+                "RUNTIME_ENUMERATION_FAILED", initResult, enumResult,
+                XR_ERROR_INITIALIZATION_FAILED, XR_ERROR_INITIALIZATION_FAILED, "", {},
                 "The runtime extension list could not be read."
             ).c_str());
         }
         extensions.resize(extensionCount);
     }
 
+    const bool androidCreateAvailable = std::any_of(
+        extensions.begin(), extensions.end(), [](const XrExtensionProperties& extension) {
+            return std::string(extension.extensionName) == XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME;
+        }
+    );
+    if (!androidCreateAvailable) {
+        if (applicationContext != activityContext) env->DeleteLocalRef(applicationContext);
+        return env->NewStringUTF(makeReport(
+            "ANDROID_INSTANCE_EXTENSION_UNAVAILABLE", initResult, enumResult,
+            XR_ERROR_EXTENSION_NOT_PRESENT, XR_ERROR_INITIALIZATION_FAILED, "", extensions,
+            "Runtime отвечает на перечисление расширений, но не объявляет XR_KHR_android_create_instance; создать Android OpenXR instance нельзя."
+        ).c_str());
+    }
+
+    const char* enabledExtensions[] = { XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME };
+    XrInstanceCreateInfoAndroidKHR androidInfo{};
+    androidInfo.type = XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR;
+    androidInfo.next = nullptr;
+    androidInfo.applicationVM = vm;
+    androidInfo.applicationActivity = activityContext;
+
+    XrInstanceCreateInfo createInfo{};
+    createInfo.type = XR_TYPE_INSTANCE_CREATE_INFO;
+    createInfo.next = &androidInfo;
+    createInfo.applicationInfo.applicationName[0] = 'Q';
+    createInfo.applicationInfo.applicationName[1] = 'u';
+    createInfo.applicationInfo.applicationName[2] = 'e';
+    createInfo.applicationInfo.applicationName[3] = 's';
+    createInfo.applicationInfo.applicationName[4] = 't';
+    createInfo.applicationInfo.applicationName[5] = 'P';
+    createInfo.applicationInfo.applicationName[6] = 'h';
+    createInfo.applicationInfo.applicationName[7] = 'o';
+    createInfo.applicationInfo.applicationName[8] = 'n';
+    createInfo.applicationInfo.applicationName[9] = 'e';
+    createInfo.applicationInfo.applicationName[10] = 'X';
+    createInfo.applicationInfo.applicationName[11] = 'R';
+    createInfo.applicationInfo.applicationVersion = 1;
+    createInfo.applicationInfo.engineName[0] = 'Q';
+    createInfo.applicationInfo.engineName[1] = 'P';
+    createInfo.applicationInfo.engineName[2] = 'X';
+    createInfo.applicationInfo.engineVersion = 1;
+    createInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
+    createInfo.enabledExtensionCount = 1;
+    createInfo.enabledExtensionNames = enabledExtensions;
+
+    XrInstance instance = XR_NULL_HANDLE;
+    const XrResult createResult = xrCreateInstance(&createInfo, &instance);
+    if (createResult != XR_SUCCESS) {
+        if (applicationContext != activityContext) env->DeleteLocalRef(applicationContext);
+        return env->NewStringUTF(makeReport(
+            "INSTANCE_CREATION_FAILED", initResult, enumResult, createResult,
+            XR_ERROR_INITIALIZATION_FAILED, "", extensions,
+            "Runtime был найден и перечислил расширения, но xrCreateInstance завершился ошибкой."
+        ).c_str());
+    }
+
+    XrSystemGetInfo systemInfo{};
+    systemInfo.type = XR_TYPE_SYSTEM_GET_INFO;
+    systemInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
+    XrSystemId systemId = XR_NULL_SYSTEM_ID;
+    const XrResult systemResult = xrGetSystem(instance, &systemInfo, &systemId);
+    std::string systemName;
+    if (systemResult == XR_SUCCESS) {
+        XrSystemProperties properties{};
+        properties.type = XR_TYPE_SYSTEM_PROPERTIES;
+        if (xrGetSystemProperties(instance, systemId, &properties) == XR_SUCCESS) {
+            systemName = properties.systemName;
+        }
+    }
+    xrDestroyInstance(instance);
+    if (applicationContext != activityContext) env->DeleteLocalRef(applicationContext);
+
+    const char* status = systemResult == XR_SUCCESS
+        ? "INSTANCE_CREATED_SYSTEM_FOUND"
+        : "INSTANCE_CREATED_NO_HMD_SYSTEM";
+    const std::string message = systemResult == XR_SUCCESS
+        ? "xrCreateInstance и xrGetSystem прошли успешно. Сессия, графический binding, swapchain и compositor пока не проверены."
+        : "xrCreateInstance прошёл, но xrGetSystem не нашёл HMD system; полноценный XR запуск не подтверждён.";
     return env->NewStringUTF(makeReport(
-        "RUNTIME_FOUND", initResult, enumResult, extensions,
-        "OpenXR loader initialized and active runtime extension enumeration succeeded. No instance, session, swapchain or frame was created."
+        status, initResult, enumResult, createResult, systemResult, systemName, extensions, message
     ).c_str());
 }
