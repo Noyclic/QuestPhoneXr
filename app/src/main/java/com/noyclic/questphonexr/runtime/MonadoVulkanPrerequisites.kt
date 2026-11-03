@@ -47,6 +47,16 @@ object MonadoVulkanPrerequisites {
     )
 
     fun assess(report: NativeVulkanProbeReport): MonadoVulkanPrerequisiteAssessment {
+        if (report.status == "NO_PHYSICAL_DEVICE" ||
+            (report.available && report.devices.isEmpty())
+        ) {
+            return MonadoVulkanPrerequisiteAssessment(
+                MonadoVulkanPrerequisiteState.NO_VULKAN_DEVICE,
+                null,
+                requiredExtensions,
+                "Драйвер не перечислил физический Vulkan GPU."
+            )
+        }
         if (!report.available || report.status != "OK") {
             return MonadoVulkanPrerequisiteAssessment(
                 MonadoVulkanPrerequisiteState.PROBE_UNAVAILABLE,
