@@ -72,6 +72,7 @@ dependencies {
     implementation("org.khronos.openxr:openxr_loader_for_android:1.1.65")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }
 
 val handLandmarkerModel = layout.projectDirectory.file("src/main/assets/hand_landmarker.task")
