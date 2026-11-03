@@ -606,7 +606,7 @@ Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbe(
                 << "; requestedApiVersion=1.0.0"
                 << "; enabledExtensions=[" << XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME << "]";
         details << "; note=This same Khronos Loader call successfully enumerated " << extensionCount
-                << " runtime extension(s) immediately before xrCreateInstance. With the pinned OpenXR Loader 1.1.65, that enumeration loads and caches RuntimeInterface; the subsequent xrCreateInstance reuses it and forwards the call through the runtime's xrGetInstanceProcAddr. Therefore -51 here is not evidence of a fresh runtime-manifest lookup failure. With zero API layers enabled, the leading explanation is that the selected runtime's xrCreateInstance returned -51. Capture Monado/Loader logs to determine the internal cause.";
+                << " extension(s) through the Khronos Loader immediately before xrCreateInstance. With the pinned OpenXR Loader 1.1.65, this non-layer-specific enumeration loads and caches RuntimeInterface; the subsequent xrCreateInstance reuses it and does not need a fresh runtime-manifest lookup. The application requested zero explicit API layers, but Android/Khronos implicit layers may still be loaded and were not enumerated by this probe. Therefore -51 may originate in an enabled implicit layer or in the selected runtime's xrCreateInstance. Capture Loader/Monado logs and inspect API-layer discovery to identify the exact source.";
         if (createResult == XR_SUCCESS) {
             details << "; runtime returned XR_SUCCESS but left XrInstance null";
         }
@@ -1401,7 +1401,7 @@ Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativeCreateSe
                 << "; loaderInitialized=" << (loaderInitialized ? "true" : "false");
         if (result == XR_ERROR_RUNTIME_UNAVAILABLE) {
             details << "; note=This same Khronos Loader process successfully enumerated " << extensions.size()
-                    << " runtime extensions immediately before xrCreateInstance. With the pinned OpenXR Loader 1.1.65, RuntimeInterface is loaded during enumeration and reused for instance creation; the call is forwarded through the selected runtime's xrGetInstanceProcAddr. Therefore -51 here is not evidence of a fresh manifest/library lookup failure. With zero API layers enabled, the leading explanation is that the selected runtime's xrCreateInstance returned -51. Capture Monado/Loader logs to determine the internal cause.";
+                    << " extensions through the Khronos Loader immediately before xrCreateInstance. With the pinned OpenXR Loader 1.1.65, this non-layer-specific enumeration loads and caches RuntimeInterface; the subsequent xrCreateInstance reuses it and does not need a fresh manifest/library lookup. The application requested zero explicit API layers, but Android/Khronos implicit layers may still be loaded and were not enumerated by this probe. Therefore -51 may originate in an enabled implicit layer or in the selected runtime's xrCreateInstance. Capture Loader/Monado logs and inspect API-layer discovery to identify the exact source.";
         }
         if (result == XR_SUCCESS) {
             details << "; runtime returned XR_SUCCESS but left XrInstance null";
