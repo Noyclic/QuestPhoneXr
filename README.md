@@ -50,6 +50,10 @@ Open the repository root in Android Studio and sync Gradle. GitHub Actions build
 4. Phone-native runtime and first game port/adaptation, starting with a lightweight test project.
 5. Carefully scoped Quest/OpenXR compatibility adapters for games that can legally and technically be ported.
 
+## OpenXR runtime work
+
+See [docs/OPENXR_RUNTIME_CHAIN.md](docs/OPENXR_RUNTIME_CHAIN.md) for the runtime discovery contract, current limitations and native integration roadmap.
+
 ## Licensing
 
 Project source: MIT unless a third-party dependency or asset specifies otherwise. Third-party SDKs, game source code, assets and models retain their own licenses.
