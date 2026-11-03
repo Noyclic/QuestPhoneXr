@@ -148,8 +148,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 } else {
                     latestHands
                 }
+                val cameraToWorldRotation = renderer.cameraToWorldRotation()
                 glView.queueEvent {
-                    simulation.update(snapshot, hands, deltaSeconds)
+                    simulation.update(snapshot, hands, deltaSeconds, cameraToWorldRotation)
                     renderer.updateScene(simulation.snapshot())
                     glView.requestRender()
                 }
