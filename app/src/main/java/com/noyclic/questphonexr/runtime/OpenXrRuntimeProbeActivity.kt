@@ -37,7 +37,7 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
                 override fun onSurfaceCreated(gl: javax.microedition.khronos.opengles.GL10?, config: javax.microedition.khronos.egl.EGLConfig?) {
                     glReady = true
                     runOnUiThread {
-                        statusView.text = "GLES 3 готов. Нажми кнопку для запуска изолированного теста Monado/OpenXR."
+                        statusView.text = "GLES 3 готов. Тест проверит один OpenXR-сеанс и 30 последовательных стереокадров."
                         runButton.isEnabled = true
                     }
                 }
@@ -64,7 +64,7 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
             setBackgroundColor(0xE6101722.toInt())
         }
         runButton = Button(this).apply {
-            text = "Запустить тест XR-сеанса"
+            text = "Проверить 30 XR-кадров"
             isAllCaps = false
             isEnabled = false
             setOnClickListener { runProbe() }
@@ -105,7 +105,7 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
         if (!glReady || probeRunning || isFinishing) return
         probeRunning = true
         runButton.isEnabled = false
-        statusView.text = "Подключаемся к Monado, передаём Activity Surface и проверяем первый стереокадр…"
+        statusView.text = "Подключаемся к Monado и проверяем 30 последовательных стереокадров в одном XR-сеансе…"
         glView.queueEvent {
             val report = OpenXrGlesSessionProbe.inspectReport(this@OpenXrRuntimeProbeActivity)
             runOnUiThread {
