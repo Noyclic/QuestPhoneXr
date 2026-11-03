@@ -12,6 +12,8 @@ import kotlin.math.abs
 data class ViewerProfile(
     val ipdMillimeters: Int = DEFAULT_IPD_MM,
     val fieldOfViewDegrees: Int = DEFAULT_FOV_DEGREES,
+    /** User-adjustable radial lens warp; zero keeps the image geometrically neutral. */
+    val lensDistortionPercent: Int = DEFAULT_LENS_DISTORTION_PERCENT,
     val swapEyes: Boolean = false,
     val targetFps: Int = DEFAULT_TARGET_FPS,
     /** Zero means use the automatic device profile. */
@@ -22,6 +24,7 @@ data class ViewerProfile(
     fun normalized(): ViewerProfile = copy(
         ipdMillimeters = ipdMillimeters.coerceIn(MIN_IPD_MM, MAX_IPD_MM),
         fieldOfViewDegrees = fieldOfViewDegrees.coerceIn(MIN_FOV_DEGREES, MAX_FOV_DEGREES),
+        lensDistortionPercent = lensDistortionPercent.coerceIn(MIN_LENS_DISTORTION_PERCENT, MAX_LENS_DISTORTION_PERCENT),
         targetFps = SUPPORTED_TARGET_FPS.minBy { abs(it - targetFps) },
         cameraWidthPx = normalizeCameraDimension(cameraWidthPx, MIN_CAMERA_WIDTH_PX, MAX_CAMERA_WIDTH_PX),
         cameraHeightPx = normalizeCameraDimension(cameraHeightPx, MIN_CAMERA_HEIGHT_PX, MAX_CAMERA_HEIGHT_PX)
@@ -34,6 +37,9 @@ data class ViewerProfile(
         const val MIN_FOV_DEGREES = 70
         const val MAX_FOV_DEGREES = 100
         const val DEFAULT_FOV_DEGREES = 86
+        const val MIN_LENS_DISTORTION_PERCENT = -40
+        const val MAX_LENS_DISTORTION_PERCENT = 40
+        const val DEFAULT_LENS_DISTORTION_PERCENT = 0
         const val DEFAULT_TARGET_FPS = 30
         const val AUTO_CAMERA_SIZE = 0
         const val MIN_CAMERA_WIDTH_PX = 64
@@ -57,6 +63,10 @@ class ViewerProfileStore(context: Context) {
             KEY_FOV,
             ViewerProfile.DEFAULT_FOV_DEGREES
         ),
+        lensDistortionPercent = preferences.getInt(
+            KEY_LENS_DISTORTION,
+            ViewerProfile.DEFAULT_LENS_DISTORTION_PERCENT
+        ),
         swapEyes = preferences.getBoolean(KEY_SWAP_EYES, false),
         targetFps = preferences.getInt(KEY_TARGET_FPS, ViewerProfile.DEFAULT_TARGET_FPS),
         cameraWidthPx = preferences.getInt(KEY_CAMERA_WIDTH, ViewerProfile.AUTO_CAMERA_SIZE),
@@ -68,6 +78,7 @@ class ViewerProfileStore(context: Context) {
         preferences.edit()
             .putInt(KEY_IPD_MM, safeProfile.ipdMillimeters)
             .putInt(KEY_FOV, safeProfile.fieldOfViewDegrees)
+            .putInt(KEY_LENS_DISTORTION, safeProfile.lensDistortionPercent)
             .putBoolean(KEY_SWAP_EYES, safeProfile.swapEyes)
             .putInt(KEY_TARGET_FPS, safeProfile.targetFps)
             .putInt(KEY_CAMERA_WIDTH, safeProfile.cameraWidthPx)
@@ -79,6 +90,7 @@ class ViewerProfileStore(context: Context) {
         const val PREFERENCES_NAME = "shinecon_viewer_profile"
         const val KEY_IPD_MM = "ipd_mm"
         const val KEY_FOV = "fov_degrees"
+        const val KEY_LENS_DISTORTION = "lens_distortion_percent"
         const val KEY_SWAP_EYES = "swap_eyes"
         const val KEY_TARGET_FPS = "target_fps"
         const val KEY_CAMERA_WIDTH = "camera_width_px"
