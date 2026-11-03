@@ -15,10 +15,10 @@ class SandboxHandPoseTest {
         val mapped = SandboxHandPoseMapper.map(points)
 
         assertEquals(21, mapped.size)
-        assertEquals(-0.9f, mapped[0].x, 0.001f)
-        assertEquals(0.215f, mapped[0].y, 0.001f)
+        assertEquals(-1.8f, mapped[0].x, 0.001f)
+        assertEquals(0.43f, mapped[0].y, 0.001f)
         assertEquals(-2.55f, mapped[0].z, 0.001f)
-        assertEquals(0.9f, mapped[8].x, 0.001f)
+        assertEquals(1.8f, mapped[8].x, 0.001f)
         assertTrue(mapped[8].z < mapped[0].z)
     }
 
@@ -62,8 +62,8 @@ class SandboxHandPoseTest {
         assertEquals(0.1f, mapped[0].x, 0.001f)
         assertEquals(-0.1f, mapped[0].y, 0.001f)
         assertEquals(-2.55f, mapped[0].z, 0.001f)
-        assertEquals(1.0f, mapped[8].x, 0.001f)
-        assertEquals(0.0075f, mapped[8].y, 0.001f)
+        assertEquals(1.9f, mapped[8].x, 0.001f)
+        assertEquals(0.115f, mapped[8].y, 0.001f)
         assertEquals(-2.71f, mapped[8].z, 0.001f)
     }
 
