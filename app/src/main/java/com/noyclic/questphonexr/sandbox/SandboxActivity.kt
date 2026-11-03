@@ -848,7 +848,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             append(" → модель ").append(mediaPipeInputSizeLabel)
             append('\n')
             append(pcBridgeStatus).append('\n')
-            append("OpenXR GLES: ").append(openXrSessionProbeMessage).append("\\n")
+            append("OpenXR GLES: ").append(openXrSessionProbeMessage).append('\n')
             append("Joy-Con L: ").append(if (leftConnected) "подключён" else "нет")
             append(" · R: ").append(if (rightConnected) "подключён" else "нет")
             append('\n')
