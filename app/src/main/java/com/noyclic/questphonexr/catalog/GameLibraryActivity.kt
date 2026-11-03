@@ -28,6 +28,7 @@ import com.noyclic.questphonexr.diagnostics.CrashReportStore
 import com.noyclic.questphonexr.diagnostics.CrashReportFormatter
 import com.noyclic.questphonexr.runtime.OpenXrRuntimeDiscovery
 import com.noyclic.questphonexr.runtime.OpenXrRuntimeProbeActivity
+import com.noyclic.questphonexr.runtime.OpenXrLoaderProbe
 import com.noyclic.questphonexr.runtime.MonadoAndroidRuntimeProbe
 import com.noyclic.questphonexr.performance.OpenGlesEglProbe
 import com.noyclic.questphonexr.performance.AndroidDeviceCompatibilityProbe
@@ -94,6 +95,9 @@ class GameLibraryActivity : ComponentActivity() {
 
         Thread({
             val result = runCatching { OpenXrRuntimeDiscovery.inspect(this) }
+            val loadProbe = result.getOrNull()?.activeCandidate?.let { candidate ->
+                OpenXrLoaderProbe.inspectRuntimeLibrary(candidate.libraryPath)
+            }
             runOnUiThread {
                 runtimeCheckInProgress = false
                 if (isFinishing || isDestroyed || !::openXrRuntimeStatusView.isInitialized) return@runOnUiThread
@@ -115,6 +119,10 @@ class GameLibraryActivity : ComponentActivity() {
                             append("\nБиблиотека существует: ").append(candidate.libraryFileExists)
                             append("\nFunction remapping: ").append(candidate.hasFunctionRemapping)
                         }
+                    }
+                    report.activeCandidate?.let {
+                        append("\n\nПРЯМАЯ ПРОВЕРКА DLOPEN")
+                        append("\n").append(loadProbe ?: "Не удалось запустить проверку динамической библиотеки.")
                     }
                 } else {
                     "Ошибка проверки Runtime Broker: " +
