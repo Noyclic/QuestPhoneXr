@@ -101,6 +101,15 @@ object OpenXrLoaderProbe {
                     append("\nВерсия интерфейса совместима: ")
                         .append(if (root.optBoolean("interfaceVersionValid")) "да" else "нет")
                 }
+                if (root.has("apiVersionValid")) {
+                    append("\nВерсия OpenXR API совместима: ")
+                        .append(if (root.optBoolean("apiVersionValid")) "да" else "нет")
+                }
+                if (root.has("xrCreateInstanceProcResult")) {
+                    append("\nПолучение xrCreateInstance: ")
+                        .append(root.optInt("xrCreateInstanceProcResult"))
+                        .append(if (root.optBoolean("xrCreateInstanceProcAvailable")) " · функция получена" else " · функция недоступна")
+                }
                 root.optString("message").takeIf { it.isNotBlank() }?.let {
                     append("\n").append(it)
                 }
