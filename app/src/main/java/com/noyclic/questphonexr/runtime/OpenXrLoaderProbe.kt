@@ -25,7 +25,7 @@ data class OpenXrLoaderProbeReport(
             append("\nРасширения Runtime (").append(extensions.size).append("):\n")
             extensions.forEach { append("• ").append(it).append("\n") }
         }
-        append("\nПроверка не создаёт OpenXR instance/session/swapchain и не запускает compositor.")
+        append("\nПроверка создаёт и уничтожает OpenXR instance и запрашивает HMD system; session/swapchain/compositor пока не проверены.")
     }
 }
 
