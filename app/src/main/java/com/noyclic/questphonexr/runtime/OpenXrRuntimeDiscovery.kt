@@ -43,7 +43,7 @@ object OpenXrRuntimeDiscovery {
   val message=when(state){
    OpenXrRuntimeDiscoveryState.ACTIVE_RUNTIME_FOUND->"Найден Runtime ${usable!!.packageName}; библиотека найдена. XR-инициализация ещё не проверена."
    OpenXrRuntimeDiscoveryState.NO_ACTIVE_RUNTIME->"Khronos Runtime Broker найден, но активный Runtime не выбран."
-   OpenXrRuntimeDiscoveryState.BROKER_UNAVAILABLE->"Доступный Khronos Runtime Broker не найден. Активный OpenXR Runtime отсутствует."
+   OpenXrRuntimeDiscoveryState.BROKER_UNAVAILABLE->"Khronos Runtime Broker не найден. Установи официальный OpenXR Runtime Broker, открой его и выбери Monado XR (Out-of-Proc), затем проверь статус снова."
    OpenXrRuntimeDiscoveryState.RUNTIME_LIBRARY_MISSING->"Broker сообщил о Runtime, но его .so библиотека не найдена."
    OpenXrRuntimeDiscoveryState.UNSUPPORTED_PROCESS_ABI->"ABI процесса не поддерживается проверкой."
   }
