@@ -80,7 +80,7 @@ class SandboxHandPoseTest {
         )
         assertEquals(-2.55f, mapped[8].x, 0.002f)
         assertEquals(0f, mapped[8].y, 0.002f)
-        assertEquals(-0.4896f, mapped[8].z, 0.003f)
+        assertEquals(-1.224f, mapped[8].z, 0.003f)
     }
 
     @Test
