@@ -31,7 +31,7 @@ class OpenXrProbeReportTest {
     @Test
     fun persistentReportParsesHeadTrackingValidityAndMotion() {
         val report = OpenXrProbeReport.parse(
-            """{"status":"FRAME_SUBMITTED","xrResult":0,"framesSubmitted":120,"sessionState":5,"poseSamples":118,"orientationValidSamples":118,"positionValidSamples":0,"fullTrackingSamples":0,"lastViewStateFlags":1,"maxHeadPositionDeltaMeters":0.0,"maxHeadRotationDeltaDegrees":12.5,"message":"tracking report"}"""
+            """{"status":"FRAME_SUBMITTED","xrResult":0,"framesSubmitted":120,"sessionState":5,"poseSamples":118,"orientationValidSamples":118,"positionValidSamples":0,"fullTrackingSamples":0,"orientationTrackedSamples":118,"positionTrackedSamples":0,"fullTrackedSamples":0,"lastViewStateFlags":5,"maxHeadPositionDeltaMeters":0.0,"maxHeadRotationDeltaDegrees":12.5,"message":"tracking report"}"""
         )
 
         assertTrue(report.isSuccessful)
@@ -41,11 +41,15 @@ class OpenXrProbeReportTest {
         assertEquals(118L, report.orientationValidSamples)
         assertEquals(0L, report.positionValidSamples)
         assertEquals(0L, report.fullTrackingSamples)
-        assertEquals(1L, report.lastViewStateFlags)
+        assertEquals(118L, report.orientationTrackedSamples)
+        assertEquals(0L, report.positionTrackedSamples)
+        assertEquals(0L, report.fullTrackedSamples)
+        assertEquals(5L, report.lastViewStateFlags)
         assertEquals(0.0, report.maxHeadPositionDeltaMeters!!, 0.0001)
         assertEquals(12.5, report.maxHeadRotationDeltaDegrees!!, 0.0001)
         assertTrue(report.toDisplayText().contains("FOCUSED"))
         assertTrue(report.toDisplayText().contains("ориентация"))
+        assertTrue(report.toDisplayText().contains("Активное tracking"))
     }
 
     @Test
