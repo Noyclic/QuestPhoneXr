@@ -161,9 +161,9 @@ class SandboxRenderer : GLSurfaceView.Renderer {
             drawMesh(cubeMesh, 0f, -1.02f, 1.74f, 12f, 0.42f, 0.12f)
             drawMesh(cubeMesh, 0f, -1.02f, -10.14f, 12f, 0.42f, 0.12f)
             // Distant low-poly landmarks make the space feel like an arena, not a void.
-            for (x in listOf(-4.8f, 0f, 4.8f)) {
-                drawMesh(cubeMesh, x, 0.05f, -9.45f, 0.34f, 2.6f, 0.34f)
-            }
+            drawMesh(cubeMesh, -4.8f, 0.05f, -9.45f, 0.34f, 2.6f, 0.34f)
+            drawMesh(cubeMesh, 0f, 0.05f, -9.45f, 0.34f, 2.6f, 0.34f)
+            drawMesh(cubeMesh, 4.8f, 0.05f, -9.45f, 0.34f, 2.6f, 0.34f)
             drawMesh(cubeMesh, -5.35f, -0.12f, -4.2f, 0.28f, 1.15f, 0.28f)
             drawMesh(cubeMesh, 5.35f, -0.12f, -4.2f, 0.28f, 1.15f, 0.28f)
             snapshot.objects.forEach { item ->
