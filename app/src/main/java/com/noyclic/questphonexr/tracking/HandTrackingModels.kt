@@ -86,7 +86,9 @@ data class HandTrackingFrame(
     val sourceWidthPx: Int = 0,
     val sourceHeightPx: Int = 0,
     val inputWidthPx: Int = 0,
-    val inputHeightPx: Int = 0
+    val inputHeightPx: Int = 0,
+    /** Time spent copying, orienting and letterboxing the accepted camera frame. */
+    val preprocessingLatencyMs: Long = 0L
 ) {
     val handCount: Int get() = hands.size
 }

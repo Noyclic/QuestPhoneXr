@@ -39,6 +39,8 @@ import java.util.Locale
 import com.noyclic.questphonexr.input.AndroidGamepadInputAdapter
 import com.noyclic.questphonexr.tracking.HandLandmarkerController
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
+import com.noyclic.questphonexr.tracking.HandTrackingPreset
+import com.noyclic.questphonexr.tracking.HandTrackingPresetStore
 import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
 import com.noyclic.questphonexr.input.XrTrackingUdpSender
 import com.noyclic.questphonexr.vr.ViewerProfile
@@ -57,6 +59,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     @Volatile private var latestHandFrame = HandTrackingFrame(0L, emptyList())
     @Volatile private var measuredHandTrackingFps = 0f
     @Volatile private var latestHandPipelineLatencyMs = 0L
+    @Volatile private var latestPreprocessingLatencyMs = 0L
     @Volatile private var cameraSourceSizeLabel = "—"
     @Volatile private var mediaPipeInputSizeLabel = "—"
     private var previousHandFrameTimestampMs = 0L
@@ -72,6 +75,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private lateinit var viewerProfileStore: ViewerProfileStore
     private lateinit var handCalibrationStore: SandboxHandCalibrationStore
     private lateinit var adaptivePerformance: AdaptivePerformanceController
+    private lateinit var handTrackingPresetStore: HandTrackingPresetStore
+    private var handTrackingPreset = HandTrackingPreset.BALANCED
     private var adaptivePerformanceState = AdaptivePerformanceState(30, 66L, 0)
     private var handCalibration = SandboxHandCalibration.DEFAULT
     private var viewerProfile = ViewerProfile()
@@ -172,8 +177,15 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         performancePreset = DevicePerformancePolicy.recommend(
             AndroidDeviceProfiler.read(this)
         )
+        handTrackingPresetStore = HandTrackingPresetStore(this)
+        handTrackingPreset = handTrackingPresetStore.load(
+            HandTrackingPreset.recommend(performancePreset.tier)
+        )
+        val trackingPerformancePreset = performancePreset.copy(
+            minimumInferenceIntervalMs = handTrackingPreset.minimumInferenceIntervalMs
+        )
         adaptivePerformance = AdaptivePerformanceController(
-            preset = performancePreset,
+            preset = trackingPerformancePreset,
             userRequestedFps = viewerProfile.targetFps
         )
         adaptivePerformanceState = adaptivePerformance.currentState()
@@ -279,6 +291,13 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 )
             )
+            addView(
+                controlButton("Профиль MediaPipe") { showHandTrackingPresetDialog() },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
         }
         root.addView(
             topPanel,
@@ -351,7 +370,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                             updateStatus()
                         }
                     },
-                    maxHands = performancePreset.maxTrackedHands,
+                    maxHands = handTrackingPreset.maxTrackedHands,
                     minimumInferenceIntervalMs = adaptivePerformanceState.minimumInferenceIntervalMs,
                     outputWidthPx = effectiveCameraWidthPx(),
                     outputHeightPx = effectiveCameraHeightPx()
@@ -387,13 +406,43 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
     private fun effectiveCameraWidthPx(): Int =
         if (viewerProfile.cameraWidthPx == ViewerProfile.AUTO_CAMERA_SIZE) {
-            performancePreset.cameraWidthPx
+            handTrackingPreset.cameraWidthPx
         } else viewerProfile.cameraWidthPx
 
     private fun effectiveCameraHeightPx(): Int =
         if (viewerProfile.cameraHeightPx == ViewerProfile.AUTO_CAMERA_SIZE) {
-            performancePreset.cameraHeightPx
+            handTrackingPreset.cameraHeightPx
         } else viewerProfile.cameraHeightPx
+
+    private fun showHandTrackingPresetDialog() {
+        val presets = HandTrackingPreset.entries.toTypedArray()
+        var selectedIndex = presets.indexOf(handTrackingPreset).coerceAtLeast(0)
+        val labels = presets.map { "${it.label} — ${it.description}" }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("Профиль MediaPipe")
+            .setSingleChoiceItems(labels, selectedIndex) { _, which ->
+                selectedIndex = which
+            }
+            .setPositiveButton("Применить") { _, _ ->
+                val selected = presets[selectedIndex]
+                if (selected != handTrackingPreset) {
+                    handTrackingPreset = selected
+                    handTrackingPresetStore.save(selected)
+                    val trackingPerformancePreset = performancePreset.copy(
+                        minimumInferenceIntervalMs = selected.minimumInferenceIntervalMs
+                    )
+                    adaptivePerformance = AdaptivePerformanceController(
+                        preset = trackingPerformancePreset,
+                        userRequestedFps = viewerProfile.targetFps
+                    )
+                    adaptivePerformanceState = adaptivePerformance.currentState()
+                    restartHandTracking()
+                }
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
 
     private fun showHandCalibrationDialog() {
         val current = handCalibration.normalized()
@@ -581,7 +630,11 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         handTracker?.close()
         handTracker = null
         latestHandFrame = HandTrackingFrame(SystemClock.uptimeMillis(), emptyList())
-        cameraStatusMessage = "Камера: применяем новое разрешение…"
+        latestPreprocessingLatencyMs = 0L
+        latestHandPipelineLatencyMs = 0L
+        measuredHandTrackingFps = 0f
+        previousHandFrameTimestampMs = 0L
+        cameraStatusMessage = "Камера: применяем новые параметры…"
         updateStatus()
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
@@ -601,6 +654,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         }
         previousHandFrameTimestampMs = frame.timestampMs
         latestHandPipelineLatencyMs = frame.pipelineLatencyMs
+        latestPreprocessingLatencyMs = frame.preprocessingLatencyMs
         cameraSourceSizeLabel = if (frame.sourceWidthPx > 0 && frame.sourceHeightPx > 0) {
             "${frame.sourceWidthPx}×${frame.sourceHeightPx}"
         } else {
@@ -773,13 +827,17 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             append(" · ").append(adaptivePerformanceState.label)
             append(" · камера ").append(effectiveCameraWidthPx())
             append('×').append(effectiveCameraHeightPx())
-            append(" · две руки · MediaPipe до ").append(inferenceFps).append(" кадр/с")
+            append(" · ").append(handTrackingPreset.maxTrackedHands).append(" рук · MediaPipe до ")
+                .append(inferenceFps).append(" кадр/с")
             append('\n')
             append(cameraStatusMessage).append(" · рук: ").append(latestHandFrame.handCount)
             append('\n')
+            val trackerMetrics = handTracker?.metricsSnapshot()
             append("MediaPipe: ").append(handFpsText)
-            append(" FPS · pipeline ").append(latestHandPipelineLatencyMs)
-            append(" мс · камера ").append(cameraSourceSizeLabel)
+            append(" FPS · подготовка ").append(latestPreprocessingLatencyMs)
+            append(" мс · pipeline ").append(latestHandPipelineLatencyMs)
+            append(" мс · пропущено ").append(trackerMetrics?.droppedFrames ?: 0L)
+            append(" · камера ").append(cameraSourceSizeLabel)
             append(" → модель ").append(mediaPipeInputSizeLabel)
             append('\n')
             append(pcBridgeStatus).append('\n')

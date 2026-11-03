@@ -3,9 +3,8 @@ package com.noyclic.questphonexr.tracking
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Matrix
+import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.RectF
 import android.os.SystemClock
 import android.util.Log
 import androidx.camera.core.ImageProxy
@@ -21,7 +20,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
-/** Phone-camera MediaPipe implementation with bounded LIVE_STREAM inference. */
+/**
+ * Phone-camera MediaPipe implementation with bounded LIVE_STREAM inference.
+ *
+ * CameraX supplies RGBA frames. Conversion buffers and bitmaps are reused between frames:
+ * the one-frame-in-flight gate guarantees that the model bitmap is never modified while
+ * MediaPipe is reading it.
+ */
 class HandLandmarkerController(
     context: Context,
     private val mirrorFrontCamera: Boolean,
@@ -36,11 +41,33 @@ class HandLandmarkerController(
     private val closed = AtomicBoolean(false)
     private val processing = AtomicBoolean(false)
     private val lastAcceptedFrameMs = AtomicLong(0L)
+    private val lastSubmittedTimestampMs = AtomicLong(0L)
     private val minimumInferenceIntervalMs = AtomicLong(minimumInferenceIntervalMs)
     private val inFlightImage = AtomicReference<MPImage?>(null)
-    private val inFlightTransform = AtomicReference<LetterboxTransform?>(null)
+    private val inFlightTransform = AtomicReference<HandFrameTransform?>(null)
     private val inFlightStartedAtNanos = AtomicLong(0L)
-    private val inFlightSourceSize = AtomicReference(0 to 0)
+    private val inFlightSourceWidth = AtomicLong(0L)
+    private val inFlightSourceHeight = AtomicLong(0L)
+    private val inFlightPreprocessingMs = AtomicLong(0L)
+
+    private val receivedFrames = AtomicLong(0L)
+    private val submittedFrames = AtomicLong(0L)
+    private val completedFrames = AtomicLong(0L)
+    private val droppedBusyFrames = AtomicLong(0L)
+    private val droppedIntervalFrames = AtomicLong(0L)
+    private val preprocessingSamples = AtomicLong(0L)
+    private val totalPreprocessingNanos = AtomicLong(0L)
+    private val lastPreprocessingMs = AtomicLong(0L)
+
+    // Analyzer-thread confined. The processing gate permits only one frame to use these at once.
+    private var sourceBitmap: Bitmap? = null
+    private var sourceWidth = 0
+    private var sourceHeight = 0
+    private var packedPixels: ByteBuffer? = null
+    private var rowScratch: ByteArray? = null
+    private var modelBitmap: Bitmap? = null
+    private var modelCanvas: Canvas? = null
+    private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val pinchEstimators = mutableListOf<PinchEstimator>()
     private val landmarker: HandLandmarker
 
@@ -50,6 +77,7 @@ class HandLandmarkerController(
         require(outputWidthPx in 1..MAX_OUTPUT_WIDTH_PX && outputHeightPx in 1..MAX_OUTPUT_HEIGHT_PX) {
             "Output dimensions are outside the supported range."
         }
+
         val baseOptions = BaseOptions.builder()
             .setModelAssetPath(MODEL_ASSET)
             .setDelegate(Delegate.CPU)
@@ -73,48 +101,83 @@ class HandLandmarkerController(
         if (!closed.get()) minimumInferenceIntervalMs.set(intervalMs)
     }
 
+    fun metricsSnapshot(): HandTrackingMetricsSnapshot {
+        val samples = preprocessingSamples.get()
+        val averagePreprocessingMs = if (samples == 0L) {
+            0f
+        } else {
+            totalPreprocessingNanos.get().toFloat() / samples.toFloat() / NANOS_PER_MILLISECOND
+        }
+        return HandTrackingMetricsSnapshot(
+            receivedFrames = receivedFrames.get(),
+            submittedFrames = submittedFrames.get(),
+            completedFrames = completedFrames.get(),
+            droppedBusyFrames = droppedBusyFrames.get(),
+            droppedIntervalFrames = droppedIntervalFrames.get(),
+            lastPreprocessingMs = lastPreprocessingMs.get(),
+            averagePreprocessingMs = averagePreprocessingMs
+        )
+    }
+
     fun analyze(imageProxy: ImageProxy) {
+        receivedFrames.incrementAndGet()
         if (closed.get()) {
             imageProxy.close()
             return
         }
+
         val nowMs = SystemClock.uptimeMillis()
         val minimumIntervalMs = minimumInferenceIntervalMs.get()
         val lastAcceptedMs = lastAcceptedFrameMs.get()
         if (minimumIntervalMs > 0L && lastAcceptedMs > 0L &&
             nowMs - lastAcceptedMs < minimumIntervalMs
         ) {
+            droppedIntervalFrames.incrementAndGet()
             imageProxy.close()
             return
         }
         if (!processing.compareAndSet(false, true)) {
+            droppedBusyFrames.incrementAndGet()
             imageProxy.close()
             return
         }
+
         lastAcceptedFrameMs.set(nowMs)
-        inFlightStartedAtNanos.set(SystemClock.elapsedRealtimeNanos())
-        inFlightSourceSize.set(imageProxy.width to imageProxy.height)
+        val startedAtNanos = SystemClock.elapsedRealtimeNanos()
+        inFlightStartedAtNanos.set(startedAtNanos)
+        inFlightSourceWidth.set(imageProxy.width.toLong())
+        inFlightSourceHeight.set(imageProxy.height.toLong())
+
         var mpImage: MPImage? = null
         try {
-            val source = imageProxyToBitmap(imageProxy)
-            val transform = Matrix().apply {
-                postRotate(imageProxy.imageInfo.rotationDegrees.toFloat())
-                if (mirrorFrontCamera) postScale(-1f, 1f, source.width / 2f, source.height / 2f)
-            }
-            val rotated = Bitmap.createBitmap(source, 0, 0, source.width, source.height, transform, true)
-            if (rotated !== source) source.recycle()
-            val resized = letterboxBitmap(rotated, outputWidthPx, outputHeightPx)
-            if (resized.first !== rotated) rotated.recycle()
-            inFlightTransform.set(resized.second)
-            mpImage = BitmapImageBuilder(resized.first).build()
+            val source = copyRgbaFrame(imageProxy)
+            val transform = drawModelInput(
+                source = source,
+                rotationDegrees = imageProxy.imageInfo.rotationDegrees,
+                mirror = mirrorFrontCamera
+            )
+            inFlightTransform.set(transform)
+
+            mpImage = BitmapImageBuilder(checkNotNull(modelBitmap)).build()
             inFlightImage.set(mpImage)
-            landmarker.detectAsync(mpImage, SystemClock.uptimeMillis())
+
+            val preprocessingNanos =
+                (SystemClock.elapsedRealtimeNanos() - startedAtNanos).coerceAtLeast(0L)
+            val preprocessingMs = preprocessingNanos / NANOS_PER_MILLISECOND
+            inFlightPreprocessingMs.set(preprocessingMs)
+            lastPreprocessingMs.set(preprocessingMs)
+            totalPreprocessingNanos.addAndGet(preprocessingNanos)
+            preprocessingSamples.incrementAndGet()
+
+            val timestampMs = nextMonotonicTimestamp()
+            submittedFrames.incrementAndGet()
+            landmarker.detectAsync(mpImage, timestampMs)
         } catch (error: Exception) {
-            mpImage?.close()
-            if (mpImage != null) inFlightImage.compareAndSet(mpImage, null)
-            processing.set(false)
-            inFlightStartedAtNanos.set(0L)
-            inFlightSourceSize.set(0 to 0)
+            mpImage?.let {
+                inFlightImage.compareAndSet(it, null)
+                runCatching { it.close() }
+            }
+            resetInFlightState()
             Log.e(TAG, "Could not process camera frame", error)
             onError(error.message ?: "MediaPipe could not process the camera frame.")
         } finally {
@@ -122,43 +185,127 @@ class HandLandmarkerController(
         }
     }
 
-    private fun imageProxyToBitmap(image: ImageProxy): Bitmap {
+    /**
+     * Packs CameraX's possibly padded RGBA rows into a reusable direct buffer and copies them
+     * into a persistent bitmap. No full-frame ByteArray or Bitmap is allocated per accepted frame.
+     */
+    private fun copyRgbaFrame(image: ImageProxy): Bitmap {
         require(image.planes.isNotEmpty()) { "CameraX returned a frame without image planes." }
         val plane = image.planes[0]
         require(plane.pixelStride == BYTES_PER_PIXEL) {
             "Expected RGBA_8888 frames; received pixel stride " + plane.pixelStride + "."
         }
+
         val width = image.width
         val height = image.height
+        require(width > 0 && height > 0) { "CameraX returned an empty frame." }
         val rowBytes = width * BYTES_PER_PIXEL
-        val packedBytes = ByteArray(rowBytes * height)
-        val buffer = plane.buffer.duplicate()
+        val requiredBytes = rowBytes * height
+
+        if (sourceBitmap == null || sourceWidth != width || sourceHeight != height) {
+            sourceBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            sourceWidth = width
+            sourceHeight = height
+            packedPixels = ByteBuffer.allocateDirect(requiredBytes)
+            rowScratch = ByteArray(rowBytes)
+        } else if (packedPixels == null || packedPixels?.capacity() != requiredBytes) {
+            packedPixels = ByteBuffer.allocateDirect(requiredBytes)
+            rowScratch = ByteArray(rowBytes)
+        }
+
+        val packed = checkNotNull(packedPixels)
+        val scratch = checkNotNull(rowScratch)
+        val input = plane.buffer.duplicate()
+        val initialPosition = input.position()
+        packed.clear()
         for (row in 0 until height) {
-            buffer.position(row * plane.rowStride)
-            buffer.get(packedBytes, row * rowBytes, rowBytes)
+            input.position(initialPosition + row * plane.rowStride)
+            input.get(scratch, 0, rowBytes)
+            packed.put(scratch, 0, rowBytes)
         }
-        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
-            it.copyPixelsFromBuffer(ByteBuffer.wrap(packedBytes))
-        }
+        packed.flip()
+
+        val bitmap = checkNotNull(sourceBitmap)
+        bitmap.copyPixelsFromBuffer(packed)
+        return bitmap
     }
 
-    private fun letterboxBitmap(
+    /**
+     * Rotates, mirrors, scales and letterboxes directly into one reusable model bitmap.
+     * No temporary rotated bitmap, Matrix or RectF is created for every frame.
+     */
+    private fun drawModelInput(
         source: Bitmap,
-        targetWidth: Int,
-        targetHeight: Int
-    ): Pair<Bitmap, LetterboxTransform> {
-        val scale = minOf(targetWidth.toFloat() / source.width, targetHeight.toFloat() / source.height)
-        val contentWidth = source.width * scale
-        val contentHeight = source.height * scale
-        val left = (targetWidth - contentWidth) / 2f
-        val top = (targetHeight - contentHeight) / 2f
-        val output = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
-        Canvas(output).apply {
-            drawColor(android.graphics.Color.BLACK)
-            drawBitmap(source, null, RectF(left, top, left + contentWidth, top + contentHeight),
-                Paint(Paint.FILTER_BITMAP_FLAG))
+        rotationDegrees: Int,
+        mirror: Boolean
+    ): HandFrameTransform {
+        if (modelBitmap == null) {
+            modelBitmap = Bitmap.createBitmap(
+                outputWidthPx,
+                outputHeightPx,
+                Bitmap.Config.ARGB_8888
+            )
+            modelCanvas = Canvas(checkNotNull(modelBitmap))
         }
-        return output to LetterboxTransform(left, top, contentWidth, contentHeight, targetWidth, targetHeight)
+        val canvas = checkNotNull(modelCanvas)
+        val rotation = ((rotationDegrees % 360) + 360) % 360
+            .let { if (it % 90 == 0) it else 0 }
+        val rotatedWidth = if (rotation == 90 || rotation == 270) source.height else source.width
+        val rotatedHeight = if (rotation == 90 || rotation == 270) source.width else source.height
+        val scale = minOf(
+            outputWidthPx.toFloat() / rotatedWidth.toFloat(),
+            outputHeightPx.toFloat() / rotatedHeight.toFloat()
+        )
+        val contentWidth = rotatedWidth * scale
+        val contentHeight = rotatedHeight * scale
+        val left = (outputWidthPx - contentWidth) / 2f
+        val top = (outputHeightPx - contentHeight) / 2f
+
+        canvas.drawColor(Color.BLACK)
+        val saveCount = canvas.save()
+        canvas.translate(left, top)
+        canvas.scale(scale, scale)
+
+        if (mirror) {
+            canvas.translate(rotatedWidth.toFloat(), 0f)
+            canvas.scale(-1f, 1f)
+        }
+
+        when (rotation) {
+            90 -> {
+                canvas.translate(source.height.toFloat(), 0f)
+                canvas.rotate(90f)
+            }
+            180 -> {
+                canvas.translate(source.width.toFloat(), source.height.toFloat())
+                canvas.rotate(180f)
+            }
+            270 -> {
+                canvas.translate(0f, source.width.toFloat())
+                canvas.rotate(270f)
+            }
+        }
+
+        canvas.drawBitmap(source, 0f, 0f, bitmapPaint)
+        canvas.restoreToCount(saveCount)
+
+        return HandFrameTransform(
+            leftPx = left,
+            topPx = top,
+            scale = scale,
+            targetWidthPx = outputWidthPx,
+            targetHeightPx = outputHeightPx,
+            rotatedWidthPx = rotatedWidth,
+            rotatedHeightPx = rotatedHeight
+        )
+    }
+
+    private fun nextMonotonicTimestamp(): Long {
+        while (true) {
+            val previous = lastSubmittedTimestampMs.get()
+            val next = maxOf(SystemClock.uptimeMillis(), previous + 1L)
+            if (lastSubmittedTimestampMs.compareAndSet(previous, next)) return next
+        }
     }
 
     private fun onResult(result: HandLandmarkerResult, input: MPImage) {
@@ -168,13 +315,22 @@ class HandLandmarkerController(
             val handednessLists = result.handedness()
             val worldLandmarkLists = result.worldLandmarks()
             val transform = inFlightTransform.get()
-            while (pinchEstimators.size < landmarkLists.size) pinchEstimators.add(PinchEstimator())
-            while (pinchEstimators.size > landmarkLists.size) pinchEstimators.removeAt(pinchEstimators.lastIndex)
+
+            while (pinchEstimators.size < landmarkLists.size) {
+                pinchEstimators.add(PinchEstimator())
+            }
+            while (pinchEstimators.size > landmarkLists.size) {
+                pinchEstimators.removeAt(pinchEstimators.lastIndex)
+            }
+
             val hands = landmarkLists.mapIndexed { index, landmarks ->
                 val points = landmarks.map { landmark ->
                     val mapped = transform?.toSourceNormalized(landmark.x(), landmark.y())
-                    if (mapped == null) HandPoint(landmark.x(), landmark.y(), landmark.z())
-                    else HandPoint(mapped.first, mapped.second, landmark.z())
+                    if (mapped == null) {
+                        HandPoint(landmark.x(), landmark.y(), landmark.z())
+                    } else {
+                        HandPoint(mapped.first, mapped.second, landmark.z())
+                    }
                 }
                 val pinch = pinchEstimators[index].update(points)
                 val label = handednessLists.getOrNull(index)
@@ -186,13 +342,14 @@ class HandLandmarkerController(
                     "right" -> HandSide.RIGHT
                     else -> HandSide.UNKNOWN
                 }
-                // The front-camera frame is mirrored before inference, so restore subject handedness.
+                // Preserve the current front-camera convention after mirroring the input image.
                 val side = if (mirrorFrontCamera) detectedSide.opposite() else detectedSide
                 val worldPoints = worldLandmarkLists.getOrNull(index).orEmpty().map {
                     HandPoint(if (mirrorFrontCamera) -it.x() else it.x(), it.y(), it.z())
                 }
                 TrackedHand(points, pinch.strength, pinch.isPinching, side, worldPoints)
             }
+
             val startedAtNanos = inFlightStartedAtNanos.getAndSet(0L)
             val latencyMs = if (startedAtNanos > 0L) {
                 ((SystemClock.elapsedRealtimeNanos() - startedAtNanos).coerceAtLeast(0L) /
@@ -200,16 +357,21 @@ class HandLandmarkerController(
             } else {
                 0L
             }
-            val sourceSize = inFlightSourceSize.getAndSet(0 to 0)
+            val sourceWidth = inFlightSourceWidth.getAndSet(0L).toInt()
+            val sourceHeight = inFlightSourceHeight.getAndSet(0L).toInt()
+            val preprocessingMs = inFlightPreprocessingMs.getAndSet(0L)
+
+            completedFrames.incrementAndGet()
             onFrame(
                 HandTrackingFrame(
                     timestampMs = result.timestampMs(),
                     hands = hands,
                     pipelineLatencyMs = latencyMs,
-                    sourceWidthPx = sourceSize.first,
-                    sourceHeightPx = sourceSize.second,
+                    sourceWidthPx = sourceWidth,
+                    sourceHeightPx = sourceHeight,
                     inputWidthPx = outputWidthPx,
-                    inputHeightPx = outputHeightPx
+                    inputHeightPx = outputHeightPx,
+                    preprocessingLatencyMs = preprocessingMs
                 )
             )
         } catch (error: Exception) {
@@ -225,39 +387,37 @@ class HandLandmarkerController(
 
     private fun onTaskError(error: RuntimeException) {
         inFlightImage.getAndSet(null)?.close()
-        inFlightTransform.set(null)
-        inFlightStartedAtNanos.set(0L)
-        inFlightSourceSize.set(0 to 0)
         pinchEstimators.forEach { it.reset() }
-        processing.set(false)
+        resetInFlightState()
         if (!closed.get()) {
             Log.e(TAG, "MediaPipe task error", error)
             onError(error.message ?: "MediaPipe reported an unknown error.")
         }
     }
 
+    private fun resetInFlightState() {
+        inFlightTransform.set(null)
+        inFlightStartedAtNanos.set(0L)
+        inFlightSourceWidth.set(0L)
+        inFlightSourceHeight.set(0L)
+        inFlightPreprocessingMs.set(0L)
+        processing.set(false)
+    }
+
     override fun close() {
         if (closed.compareAndSet(false, true)) {
             inFlightImage.getAndSet(null)?.close()
-            inFlightTransform.set(null)
-            inFlightStartedAtNanos.set(0L)
-            inFlightSourceSize.set(0 to 0)
+            resetInFlightState()
             pinchEstimators.forEach { it.reset() }
             landmarker.close()
-        }
-    }
 
-    private data class LetterboxTransform(
-        val leftPx: Float,
-        val topPx: Float,
-        val contentWidthPx: Float,
-        val contentHeightPx: Float,
-        val targetWidthPx: Int,
-        val targetHeightPx: Int
-    ) {
-        fun toSourceNormalized(x: Float, y: Float): Pair<Float, Float> =
-            (((x * targetWidthPx - leftPx) / contentWidthPx).coerceIn(0f, 1f)) to
-                (((y * targetHeightPx - topPx) / contentHeightPx).coerceIn(0f, 1f))
+            // Do not recycle bitmaps while a native callback could still hold a reference.
+            sourceBitmap = null
+            modelBitmap = null
+            modelCanvas = null
+            packedPixels = null
+            rowScratch = null
+        }
     }
 
     private companion object {
