@@ -1025,6 +1025,9 @@ std::string persistentReport(
         << R"(,"orientationValidSamples":)" << persistentSession.orientationValidSamples
         << R"(,"positionValidSamples":)" << persistentSession.positionValidSamples
         << R"(,"fullTrackingSamples":)" << persistentSession.fullTrackingSamples
+        << R"(,"orientationTrackedSamples":)" << persistentSession.orientationTrackedSamples
+        << R"(,"positionTrackedSamples":)" << persistentSession.positionTrackedSamples
+        << R"(,"fullTrackedSamples":)" << persistentSession.fullTrackedSamples
         << R"(,"lastViewStateFlags":)" << persistentSession.lastViewStateFlags
         << R"(,"maxHeadPositionDeltaMeters":)" << persistentSession.maxHeadPositionDeltaMeters
         << R"(,"maxHeadRotationDeltaDegrees":)" << persistentSession.maxHeadRotationDeltaDegrees
