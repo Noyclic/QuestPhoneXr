@@ -29,6 +29,39 @@ class OpenXrProbeReportTest {
     }
 
     @Test
+    fun persistentReportParsesHeadTrackingValidityAndMotion() {
+        val report = OpenXrProbeReport.parse(
+            """{"status":"FRAME_SUBMITTED","xrResult":0,"framesSubmitted":120,"sessionState":5,"poseSamples":118,"orientationValidSamples":118,"positionValidSamples":0,"fullTrackingSamples":0,"lastViewStateFlags":1,"maxHeadPositionDeltaMeters":0.0,"maxHeadRotationDeltaDegrees":12.5,"message":"tracking report"}"""
+        )
+
+        assertTrue(report.isSuccessful)
+        assertEquals(120L, report.framesSubmitted)
+        assertEquals(5, report.sessionState)
+        assertEquals(118L, report.poseSamples)
+        assertEquals(118L, report.orientationValidSamples)
+        assertEquals(0L, report.positionValidSamples)
+        assertEquals(0L, report.fullTrackingSamples)
+        assertEquals(1L, report.lastViewStateFlags)
+        assertEquals(0.0, report.maxHeadPositionDeltaMeters!!, 0.0001)
+        assertEquals(12.5, report.maxHeadRotationDeltaDegrees!!, 0.0001)
+        assertTrue(report.toDisplayText().contains("FOCUSED"))
+        assertTrue(report.toDisplayText().contains("ориентация"))
+    }
+
+    @Test
+    fun oldReportsRemainReadableWithoutTrackingFields() {
+        val report = OpenXrProbeReport.parse(
+            """{"status":"FRAME_SUBMITTED","xrResult":0,"framesSubmitted":8,"message":"legacy persistent report"}"""
+        )
+
+        assertTrue(report.isSuccessful)
+        assertEquals(8L, report.framesSubmitted)
+        assertEquals(null, report.sessionState)
+        assertEquals(null, report.poseSamples)
+        assertEquals(null, report.maxHeadPositionDeltaMeters)
+    }
+
+    @Test
     fun legacySingleFrameSuccessRemainsRecognized() {
         val report = OpenXrProbeReport.parse(
             """{"status":"FIRST_FRAME_SUBMITTED_GLES","xrResult":0,"message":"single frame"}"""
