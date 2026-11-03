@@ -958,3 +958,917 @@ Java_com_noyclic_questphonexr_runtime_OpenXrGlesSessionProbe_nativeProbeSession(
         frameSubmission.result
     ).c_str());
 }
+
+
+// Persistent GLES session used by the isolated runtime Activity. Unlike the
+// bounded diagnostic above, this state survives individual GLSurfaceView frames.
+namespace {
+struct PersistentGlesSessionState {
+    JavaVM* vm = nullptr;
+    jobject activityGlobal = nullptr;
+    jobject applicationContextGlobal = nullptr;
+    XrInstance instance = XR_NULL_HANDLE;
+    XrSystemId systemId = XR_NULL_SYSTEM_ID;
+    XrSession session = XR_NULL_HANDLE;
+    XrSpace space = XR_NULL_HANDLE;
+    XrSwapchain swapchain = XR_NULL_HANDLE;
+    std::vector<XrSwapchainImageOpenGLESKHR> images;
+    uint32_t viewCount = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    EGLDisplay display = EGL_NO_DISPLAY;
+    EGLContext context = EGL_NO_CONTEXT;
+    EGLSurface drawSurface = EGL_NO_SURFACE;
+    EGLSurface readSurface = EGL_NO_SURFACE;
+    GLuint framebuffer = 0;
+    XrSessionState sessionState = XR_SESSION_STATE_UNKNOWN;
+    bool sessionBegun = false;
+    bool paused = false;
+    bool created = false;
+    uint64_t submittedFrames = 0;
+    std::string glVersion;
+};
+
+std::mutex persistentSessionMutex;
+PersistentGlesSessionState persistentSession;
+
+std::string persistentReport(
+    const char* status,
+    const std::string& message,
+    XrResult result = XR_SUCCESS
+) {
+    std::ostringstream out;
+    out << R"({"status":")" << status
+        << R"(","xrResult":)" << static_cast<int>(result)
+        << R"(","framesSubmitted":)" << persistentSession.submittedFrames
+        << R"(,"message":")" << jsonEscape(message) << R"("})";
+    return out.str();
+}
+
+void destroyPersistentGlesSession(JNIEnv* env) {
+    auto& state = persistentSession;
+
+    if (state.session != XR_NULL_HANDLE && state.sessionBegun) {
+        (void)xrRequestExitSession(state.session);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1200);
+        bool stopped = false;
+        while (std::chrono::steady_clock::now() < deadline) {
+            XrEventDataBuffer event{};
+            event.type = XR_TYPE_EVENT_DATA_BUFFER;
+            const XrResult pollResult = xrPollEvent(state.instance, &event);
+            if (pollResult == XR_SUCCESS &&
+                event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
+                const auto* changed =
+                    reinterpret_cast<const XrEventDataSessionStateChanged*>(&event);
+                if (changed->session == state.session) {
+                    state.sessionState = changed->state;
+                    if (changed->state == XR_SESSION_STATE_STOPPING) {
+                        stopped = xrEndSession(state.session) == XR_SUCCESS;
+                        break;
+                    }
+                    if (changed->state == XR_SESSION_STATE_EXITING ||
+                        changed->state == XR_SESSION_STATE_LOSS_PENDING) {
+                        break;
+                    }
+                }
+            } else if (pollResult != XR_SUCCESS && pollResult != XR_EVENT_UNAVAILABLE) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        state.sessionBegun = !stopped;
+    }
+
+    if (state.framebuffer != 0 && eglGetCurrentContext() == state.context) {
+        glDeleteFramebuffers(1, &state.framebuffer);
+    }
+    state.framebuffer = 0;
+
+    if (state.swapchain != XR_NULL_HANDLE) {
+        (void)xrDestroySwapchain(state.swapchain);
+        state.swapchain = XR_NULL_HANDLE;
+    }
+    if (state.space != XR_NULL_HANDLE) {
+        (void)xrDestroySpace(state.space);
+        state.space = XR_NULL_HANDLE;
+    }
+    if (state.session != XR_NULL_HANDLE) {
+        (void)xrDestroySession(state.session);
+        state.session = XR_NULL_HANDLE;
+    }
+    if (state.instance != XR_NULL_HANDLE) {
+        (void)xrDestroyInstance(state.instance);
+        state.instance = XR_NULL_HANDLE;
+    }
+
+    if (env != nullptr) {
+        if (state.activityGlobal != nullptr) env->DeleteGlobalRef(state.activityGlobal);
+        if (state.applicationContextGlobal != nullptr) {
+            env->DeleteGlobalRef(state.applicationContextGlobal);
+        }
+    }
+    state = PersistentGlesSessionState{};
+}
+
+bool persistentPollEvents(std::string& errorMessage, XrResult& errorResult) {
+    auto& state = persistentSession;
+    XrEventDataBuffer event{};
+    event.type = XR_TYPE_EVENT_DATA_BUFFER;
+    XrResult result = xrPollEvent(state.instance, &event);
+    while (result == XR_SUCCESS) {
+        if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
+            const auto* changed =
+                reinterpret_cast<const XrEventDataSessionStateChanged*>(&event);
+            if (changed->session == state.session) {
+                state.sessionState = changed->state;
+                if (changed->state == XR_SESSION_STATE_STOPPING && state.sessionBegun) {
+                    const XrResult endResult = xrEndSession(state.session);
+                    if (endResult != XR_SUCCESS) {
+                        errorMessage = "xrEndSession failed while processing STOPPING.";
+                        errorResult = endResult;
+                        return false;
+                    }
+                    state.sessionBegun = false;
+                } else if ((changed->state == XR_SESSION_STATE_EXITING ||
+                            changed->state == XR_SESSION_STATE_LOSS_PENDING) &&
+                           state.sessionBegun) {
+                    state.sessionBegun = false;
+                    errorMessage = "The runtime is exiting or has lost the OpenXR session.";
+                    errorResult = XR_ERROR_SESSION_LOST;
+                    return false;
+                }
+            }
+        }
+
+        event = {};
+        event.type = XR_TYPE_EVENT_DATA_BUFFER;
+        result = xrPollEvent(state.instance, &event);
+    }
+
+    if (result != XR_EVENT_UNAVAILABLE) {
+        errorMessage = "xrPollEvent failed while servicing the persistent session.";
+        errorResult = result;
+        return false;
+    }
+
+    if (!state.paused && !state.sessionBegun &&
+        state.sessionState == XR_SESSION_STATE_READY) {
+        XrSessionBeginInfo beginInfo{};
+        beginInfo.type = XR_TYPE_SESSION_BEGIN_INFO;
+        beginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+        result = xrBeginSession(state.session, &beginInfo);
+        if (result != XR_SUCCESS) {
+            errorMessage = "xrBeginSession failed after the runtime entered READY.";
+            errorResult = result;
+            return false;
+        }
+        state.sessionBegun = true;
+    }
+    return true;
+}
+
+jstring persistentFailure(
+    JNIEnv* env,
+    const char* status,
+    const std::string& message,
+    XrResult result
+) {
+    const std::string value = persistentReport(status, message, result);
+    destroyPersistentGlesSession(env);
+    return env->NewStringUTF(value.c_str());
+}
+} // namespace
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativeCreateSession(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jobject activityContext
+) {
+    std::lock_guard<std::mutex> lock(persistentSessionMutex);
+    if (activityContext == nullptr) {
+        return env->NewStringUTF(persistentReport(
+            "ANDROID_CONTEXT_UNAVAILABLE", "Android Activity is unavailable.",
+            XR_ERROR_INITIALIZATION_FAILED
+        ).c_str());
+    }
+    if (persistentSession.created) {
+        return env->NewStringUTF(persistentReport(
+            "SESSION_ALREADY_CREATED", "The persistent OpenXR session already exists."
+        ).c_str());
+    }
+
+    auto& state = persistentSession;
+    if (env->GetJavaVM(&state.vm) != JNI_OK || state.vm == nullptr) {
+        return env->NewStringUTF(persistentReport(
+            "ANDROID_CONTEXT_UNAVAILABLE", "Could not obtain the Android JavaVM.",
+            XR_ERROR_INITIALIZATION_FAILED
+        ).c_str());
+    }
+
+    state.activityGlobal = env->NewGlobalRef(activityContext);
+    if (state.activityGlobal == nullptr) {
+        return env->NewStringUTF(persistentReport(
+            "ANDROID_CONTEXT_UNAVAILABLE", "Could not retain the live Activity for the runtime handoff.",
+            XR_ERROR_OUT_OF_MEMORY
+        ).c_str());
+    }
+
+    jobject applicationContext = activityContext;
+    jclass contextClass = env->GetObjectClass(activityContext);
+    jmethodID getApplicationContext = env->GetMethodID(
+        contextClass, "getApplicationContext", "()Landroid/content/Context;"
+    );
+    if (getApplicationContext != nullptr) {
+        jobject app = env->CallObjectMethod(activityContext, getApplicationContext);
+        if (app != nullptr) applicationContext = app;
+        if (env->ExceptionCheck()) env->ExceptionClear();
+    }
+    state.applicationContextGlobal = env->NewGlobalRef(applicationContext);
+    if (applicationContext != activityContext) env->DeleteLocalRef(applicationContext);
+    if (state.applicationContextGlobal == nullptr) {
+        return persistentFailure(
+            env, "ANDROID_CONTEXT_UNAVAILABLE",
+            "Could not retain the Android application context for the loader.", XR_ERROR_OUT_OF_MEMORY
+        );
+    }
+
+    XrResult initResult = XR_SUCCESS;
+    {
+        std::lock_guard<std::mutex> loaderLock(loaderMutex);
+        if (!loaderInitialized) {
+            PFN_xrInitializeLoaderKHR initializeLoader = nullptr;
+            const XrResult procResult = xrGetInstanceProcAddr(
+                XR_NULL_HANDLE, "xrInitializeLoaderKHR",
+                reinterpret_cast<PFN_xrVoidFunction*>(&initializeLoader)
+            );
+            if (procResult != XR_SUCCESS || initializeLoader == nullptr) {
+                cachedLoaderInitResult = procResult;
+            } else {
+                XrLoaderInitInfoAndroidKHR initInfo{};
+                initInfo.type = XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR;
+                initInfo.next = nullptr;
+                initInfo.applicationVM = state.vm;
+                initInfo.applicationContext =
+                    reinterpret_cast<jobject>(state.applicationContextGlobal);
+                cachedLoaderInitResult = initializeLoader(
+                    reinterpret_cast<const XrLoaderInitInfoBaseHeaderKHR*>(&initInfo)
+                );
+                loaderInitialized = cachedLoaderInitResult == XR_SUCCESS;
+            }
+        }
+        initResult = cachedLoaderInitResult;
+    }
+    if (initResult != XR_SUCCESS) {
+        return persistentFailure(
+            env, "LOADER_INITIALIZATION_FAILED", "xrInitializeLoaderKHR failed.",
+            initResult
+        );
+    }
+
+    uint32_t extensionCount = 0;
+    XrResult result = xrEnumerateInstanceExtensionProperties(nullptr, 0, &extensionCount, nullptr);
+    if (result != XR_SUCCESS) {
+        return persistentFailure(
+            env, "RUNTIME_ENUMERATION_FAILED", "Runtime extension enumeration failed.", result
+        );
+    }
+    std::vector<XrExtensionProperties> extensions(extensionCount);
+    for (auto& extension : extensions) {
+        extension.type = XR_TYPE_EXTENSION_PROPERTIES;
+        extension.next = nullptr;
+    }
+    if (extensionCount > 0) {
+        result = xrEnumerateInstanceExtensionProperties(
+            nullptr, extensionCount, &extensionCount, extensions.data()
+        );
+        if (result != XR_SUCCESS) {
+            return persistentFailure(
+                env, "RUNTIME_ENUMERATION_FAILED", "Runtime extension list could not be read.", result
+            );
+        }
+        extensions.resize(extensionCount);
+    }
+
+    const auto hasExtension = [&extensions](const char* name) {
+        return std::any_of(
+            extensions.begin(), extensions.end(),
+            [name](const XrExtensionProperties& extension) {
+                return std::string(extension.extensionName) == name;
+            }
+        );
+    };
+    if (!hasExtension(XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME)) {
+        return persistentFailure(
+            env, "ANDROID_INSTANCE_EXTENSION_UNAVAILABLE",
+            "Runtime does not advertise XR_KHR_android_create_instance.",
+            XR_ERROR_EXTENSION_NOT_PRESENT
+        );
+    }
+    if (!hasExtension(XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME)) {
+        return persistentFailure(
+            env, "GLES_EXTENSION_UNAVAILABLE",
+            "Runtime does not advertise XR_KHR_opengl_es_enable.",
+            XR_ERROR_EXTENSION_NOT_PRESENT
+        );
+    }
+
+    const char* enabledExtensions[] = {
+        XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME,
+        XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME
+    };
+    XrInstanceCreateInfoAndroidKHR androidInfo{};
+    androidInfo.type = XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR;
+    androidInfo.next = nullptr;
+    androidInfo.applicationVM = state.vm;
+    androidInfo.applicationActivity = state.activityGlobal;
+
+    XrInstanceCreateInfo instanceInfo{};
+    instanceInfo.type = XR_TYPE_INSTANCE_CREATE_INFO;
+    instanceInfo.next = &androidInfo;
+    const char* appName = "QuestPhoneXR";
+    const char* engineName = "QuestPhoneXR";
+    std::copy(appName, appName + std::char_traits<char>::length(appName),
+              instanceInfo.applicationInfo.applicationName);
+    std::copy(engineName, engineName + std::char_traits<char>::length(engineName),
+              instanceInfo.applicationInfo.engineName);
+    instanceInfo.applicationInfo.applicationVersion = 1;
+    instanceInfo.applicationInfo.engineVersion = 1;
+    instanceInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
+    instanceInfo.enabledExtensionCount = 2;
+    instanceInfo.enabledExtensionNames = enabledExtensions;
+    result = xrCreateInstance(&instanceInfo, &state.instance);
+    if (result != XR_SUCCESS) {
+        return persistentFailure(
+            env, "INSTANCE_CREATION_FAILED", "xrCreateInstance failed for the persistent session.", result
+        );
+    }
+
+    XrSystemGetInfo systemInfo{};
+    systemInfo.type = XR_TYPE_SYSTEM_GET_INFO;
+    systemInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
+    result = xrGetSystem(state.instance, &systemInfo, &state.systemId);
+    if (result != XR_SUCCESS) {
+        return persistentFailure(
+            env, "HMD_SYSTEM_UNAVAILABLE", "xrGetSystem did not return an HMD system.", result
+        );
+    }
+
+    PFN_xrGetOpenGLESGraphicsRequirementsKHR getRequirements = nullptr;
+    result = xrGetInstanceProcAddr(
+        state.instance, "xrGetOpenGLESGraphicsRequirementsKHR",
+        reinterpret_cast<PFN_xrVoidFunction*>(&getRequirements)
+    );
+    if (result != XR_SUCCESS || getRequirements == nullptr) {
+        return persistentFailure(
+            env, "GLES_REQUIREMENTS_UNAVAILABLE",
+            "Could not load xrGetOpenGLESGraphicsRequirementsKHR.", result
+        );
+    }
+    XrGraphicsRequirementsOpenGLESKHR requirements{};
+    requirements.type = XR_TYPE_GRAPHICS_REQUIREMENTS_OPENGL_ES_KHR;
+    result = getRequirements(state.instance, state.systemId, &requirements);
+    if (result != XR_SUCCESS) {
+        return persistentFailure(
+            env, "GLES_REQUIREMENTS_FAILED", "Runtime rejected the GLES requirements query.", result
+        );
+    }
+
+    state.display = eglGetCurrentDisplay();
+    state.context = eglGetCurrentContext();
+    state.drawSurface = eglGetCurrentSurface(EGL_DRAW);
+    state.readSurface = eglGetCurrentSurface(EGL_READ);
+    if (state.display == EGL_NO_DISPLAY || state.context == EGL_NO_CONTEXT ||
+        state.drawSurface == EGL_NO_SURFACE || state.readSurface == EGL_NO_SURFACE) {
+        return persistentFailure(
+            env, "EGL_CONTEXT_UNAVAILABLE",
+            "The calling GL thread has no current EGL display, context and window surfaces.",
+            XR_ERROR_GRAPHICS_DEVICE_INVALID
+        );
+    }
+
+    EGLint configId = 0;
+    if (eglQueryContext(state.display, state.context, EGL_CONFIG_ID, &configId) != EGL_TRUE ||
+        configId == 0) {
+        return persistentFailure(
+            env, "EGL_CONFIG_QUERY_FAILED",
+            "Could not read the EGL config ID for the active renderer context.",
+            XR_ERROR_GRAPHICS_DEVICE_INVALID
+        );
+    }
+    const EGLint configAttributes[] = { EGL_CONFIG_ID, configId, EGL_NONE };
+    EGLConfig config = nullptr;
+    EGLint configCount = 0;
+    if (eglChooseConfig(state.display, configAttributes, &config, 1, &configCount) != EGL_TRUE ||
+        configCount != 1) {
+        return persistentFailure(
+            env, "EGL_CONFIG_QUERY_FAILED",
+            "Could not resolve the exact EGL config for the active context.",
+            XR_ERROR_GRAPHICS_DEVICE_INVALID
+        );
+    }
+
+    const char* version = reinterpret_cast<const char*>(glGetString(GL_VERSION));
+    state.glVersion = version != nullptr ? version : "unknown";
+    int glMajor = 0;
+    int glMinor = 0;
+    if (version != nullptr) std::sscanf(version, "%*[^0-9]%d.%d", &glMajor, &glMinor);
+    const XrVersion actualVersion = XR_MAKE_VERSION(glMajor, glMinor, 0);
+    if (glMajor == 0 || actualVersion < requirements.minApiVersionSupported ||
+        actualVersion > requirements.maxApiVersionSupported) {
+        std::ostringstream message;
+        message << "Active GLES context " << state.glVersion << " is outside runtime range "
+                << XR_VERSION_MAJOR(requirements.minApiVersionSupported) << "."
+                << XR_VERSION_MINOR(requirements.minApiVersionSupported) << " - "
+                << XR_VERSION_MAJOR(requirements.maxApiVersionSupported) << "."
+                << XR_VERSION_MINOR(requirements.maxApiVersionSupported) << ".";
+        return persistentFailure(
+            env, "GLES_VERSION_UNSUPPORTED", message.str(),
+            XR_ERROR_GRAPHICS_REQUIREMENTS_CALL_MISSING
+        );
+    }
+
+    XrGraphicsBindingOpenGLESAndroidKHR graphicsBinding{};
+    graphicsBinding.type = XR_TYPE_GRAPHICS_BINDING_OPENGL_ES_ANDROID_KHR;
+    graphicsBinding.display = state.display;
+    graphicsBinding.config = config;
+    graphicsBinding.context = state.context;
+    XrSessionCreateInfo sessionInfo{};
+    sessionInfo.type = XR_TYPE_SESSION_CREATE_INFO;
+    sessionInfo.next = &graphicsBinding;
+    sessionInfo.systemId = state.systemId;
+    result = xrCreateSession(state.instance, &sessionInfo, &state.session);
+    if (result != XR_SUCCESS) {
+        return persistentFailure(
+            env, "SESSION_CREATION_FAILED", "xrCreateSession failed for the persistent GLES session.", result
+        );
+    }
+
+    result = xrEnumerateViewConfigurationViews(
+        state.instance, state.systemId, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+        0, &state.viewCount, nullptr
+    );
+    if (result != XR_SUCCESS || state.viewCount != 2) {
+        return persistentFailure(
+            env, "STEREO_VIEW_CONFIGURATION_UNAVAILABLE",
+            "Runtime did not expose exactly two primary stereo views.",
+            result == XR_SUCCESS ? XR_ERROR_VIEW_CONFIGURATION_TYPE_UNSUPPORTED : result
+        );
+    }
+
+    std::vector<XrViewConfigurationView> viewConfigurationViews(state.viewCount);
+    for (auto& view : viewConfigurationViews) {
+        view.type = XR_TYPE_VIEW_CONFIGURATION_VIEW;
+        view.next = nullptr;
+    }
+    result = xrEnumerateViewConfigurationViews(
+        state.instance, state.systemId, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+        state.viewCount, &state.viewCount, viewConfigurationViews.data()
+    );
+    if (result != XR_SUCCESS) {
+        return persistentFailure(
+            env, "STEREO_VIEW_CONFIGURATION_FAILED",
+            "Could not read the primary stereo view configuration.", result
+        );
+    }
+
+    state.width = 1;
+    state.height = 1;
+    for (const auto& view : viewConfigurationViews) {
+        state.width = std::max(state.width, view.recommendedImageRectWidth);
+        state.height = std::max(state.height, view.recommendedImageRectHeight);
+    }
+
+    uint32_t formatCount = 0;
+    result = xrEnumerateSwapchainFormats(state.session, 0, &formatCount, nullptr);
+    if (result != XR_SUCCESS || formatCount == 0) {
+        return persistentFailure(
+            env, "SWAPCHAIN_FORMATS_UNAVAILABLE",
+            "Runtime did not return any swapchain formats.",
+            result == XR_SUCCESS ? XR_ERROR_SWAPCHAIN_FORMAT_UNSUPPORTED : result
+        );
+    }
+    std::vector<int64_t> formats(formatCount);
+    result = xrEnumerateSwapchainFormats(
+        state.session, formatCount, &formatCount, formats.data()
+    );
+    if (result != XR_SUCCESS || formatCount == 0) {
+        return persistentFailure(
+            env, "SWAPCHAIN_FORMATS_UNAVAILABLE",
+            "Could not read the runtime swapchain formats.",
+            result == XR_SUCCESS ? XR_ERROR_SWAPCHAIN_FORMAT_UNSUPPORTED : result
+        );
+    }
+    auto rgba = std::find(formats.begin(), formats.end(), static_cast<int64_t>(GL_RGBA8));
+    auto srgb = std::find(formats.begin(), formats.end(), static_cast<int64_t>(GL_SRGB8_ALPHA8));
+    const int64_t selectedFormat = rgba != formats.end() ? *rgba :
+        (srgb != formats.end() ? *srgb : formats.front());
+
+    XrSwapchainCreateInfo swapchainInfo{};
+    swapchainInfo.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
+    swapchainInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+    swapchainInfo.format = selectedFormat;
+    swapchainInfo.sampleCount = 1;
+    swapchainInfo.width = state.width;
+    swapchainInfo.height = state.height;
+    swapchainInfo.faceCount = 1;
+    swapchainInfo.arraySize = state.viewCount;
+    swapchainInfo.mipCount = 1;
+    result = xrCreateSwapchain(state.session, &swapchainInfo, &state.swapchain);
+    if (result != XR_SUCCESS) {
+        return persistentFailure(
+            env, "SWAPCHAIN_CREATION_FAILED", "xrCreateSwapchain failed.", result
+        );
+    }
+
+    uint32_t imageCount = 0;
+    result = xrEnumerateSwapchainImages(state.swapchain, 0, &imageCount, nullptr);
+    if (result != XR_SUCCESS || imageCount == 0) {
+        return persistentFailure(
+            env, "SWAPCHAIN_IMAGES_UNAVAILABLE",
+            "Runtime returned no swapchain images.",
+            result == XR_SUCCESS ? XR_ERROR_RUNTIME_FAILURE : result
+        );
+    }
+    state.images.resize(imageCount);
+    for (auto& image : state.images) {
+        image.type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        image.next = nullptr;
+    }
+    result = xrEnumerateSwapchainImages(
+        state.swapchain, imageCount, &imageCount,
+        reinterpret_cast<XrSwapchainImageBaseHeader*>(state.images.data())
+    );
+    if (result != XR_SUCCESS) {
+        return persistentFailure(
+            env, "SWAPCHAIN_IMAGES_FAILED", "Could not retrieve the swapchain texture array.", result
+        );
+    }
+    state.images.resize(imageCount);
+
+    XrReferenceSpaceCreateInfo spaceInfo{};
+    spaceInfo.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
+    spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+    spaceInfo.poseInReferenceSpace.orientation.w = 1.0f;
+    result = xrCreateReferenceSpace(state.session, &spaceInfo, &state.space);
+    if (result != XR_SUCCESS) {
+        return persistentFailure(
+            env, "REFERENCE_SPACE_FAILED", "Could not create the LOCAL reference space.", result
+        );
+    }
+
+    state.sessionState = XR_SESSION_STATE_UNKNOWN;
+    state.sessionBegun = false;
+    state.paused = false;
+    state.created = true;
+    state.submittedFrames = 0;
+    std::ostringstream message;
+    message << "Persistent OpenXR GLES session and stereo swapchain created on the isolated GL thread. "
+            << "Waiting for READY; " << state.glVersion << ", " << state.width
+            << "x" << state.height << ", " << imageCount << " swapchain images. "
+            << "The session will remain allocated across individual frame callbacks.";
+    return env->NewStringUTF(persistentReport(
+        "SESSION_CREATED_WAITING_FOR_READY", message.str()
+    ).c_str());
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativeRenderFrame(
+    JNIEnv* env,
+    jobject /* thiz */
+) {
+    std::lock_guard<std::mutex> lock(persistentSessionMutex);
+    auto& state = persistentSession;
+    if (!state.created || state.instance == XR_NULL_HANDLE || state.session == XR_NULL_HANDLE) {
+        return env->NewStringUTF(persistentReport(
+            "SESSION_NOT_CREATED", "Create the persistent OpenXR session before rendering.",
+            XR_ERROR_HANDLE_INVALID
+        ).c_str());
+    }
+    if (state.paused) {
+        return env->NewStringUTF(persistentReport(
+            "SESSION_PAUSED", "The Android Activity is paused; frame submission is suspended."
+        ).c_str());
+    }
+    if (eglGetCurrentContext() != state.context || eglGetCurrentDisplay() != state.display) {
+        return env->NewStringUTF(persistentReport(
+            "EGL_CONTEXT_CHANGED",
+            "The GLSurfaceView EGL context changed. Destroy and recreate the persistent session on the new GL context.",
+            XR_ERROR_GRAPHICS_DEVICE_INVALID
+        ).c_str());
+    }
+
+    std::string eventError;
+    XrResult eventResult = XR_SUCCESS;
+    if (!persistentPollEvents(eventError, eventResult)) {
+        return env->NewStringUTF(persistentReport(
+            "SESSION_EVENT_FAILED", eventError, eventResult
+        ).c_str());
+    }
+    if (!state.sessionBegun) {
+        return env->NewStringUTF(persistentReport(
+            "WAITING_FOR_SESSION_READY",
+            "OpenXR session is allocated and waiting for the runtime READY state."
+        ).c_str());
+    }
+
+    XrFrameState frameState{};
+    frameState.type = XR_TYPE_FRAME_STATE;
+    XrFrameWaitInfo waitInfo{};
+    waitInfo.type = XR_TYPE_FRAME_WAIT_INFO;
+    XrResult result = xrWaitFrame(state.session, &waitInfo, &frameState);
+    if (result != XR_SUCCESS) {
+        return env->NewStringUTF(persistentReport(
+            "WAIT_FRAME_FAILED", "xrWaitFrame failed in the persistent render callback.", result
+        ).c_str());
+    }
+
+    XrFrameBeginInfo beginInfo{};
+    beginInfo.type = XR_TYPE_FRAME_BEGIN_INFO;
+    result = xrBeginFrame(state.session, &beginInfo);
+    if (result != XR_SUCCESS) {
+        return env->NewStringUTF(persistentReport(
+            "BEGIN_FRAME_FAILED", "xrBeginFrame failed in the persistent render callback.", result
+        ).c_str());
+    }
+
+    if (frameState.shouldRender == XR_FALSE) {
+        XrFrameEndInfo endInfo{};
+        endInfo.type = XR_TYPE_FRAME_END_INFO;
+        endInfo.displayTime = frameState.predictedDisplayTime;
+        endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+        result = xrEndFrame(state.session, &endInfo);
+        if (result != XR_SUCCESS) {
+            return env->NewStringUTF(persistentReport(
+                "END_EMPTY_FRAME_FAILED", "Runtime rejected a non-rendered frame.", result
+            ).c_str());
+        }
+        return env->NewStringUTF(persistentReport(
+            "FRAME_NOT_RENDERED", "Runtime requested an empty frame; the persistent session remains active."
+        ).c_str());
+    }
+
+    std::vector<XrView> locatedViews(state.viewCount);
+    for (auto& view : locatedViews) {
+        view.type = XR_TYPE_VIEW;
+        view.next = nullptr;
+    }
+    XrViewState viewState{};
+    viewState.type = XR_TYPE_VIEW_STATE;
+    XrViewLocateInfo locateInfo{};
+    locateInfo.type = XR_TYPE_VIEW_LOCATE_INFO;
+    locateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+    locateInfo.displayTime = frameState.predictedDisplayTime;
+    locateInfo.space = state.space;
+    uint32_t locatedCount = state.viewCount;
+    result = xrLocateViews(
+        state.session, &locateInfo, &viewState, state.viewCount,
+        &locatedCount, locatedViews.data()
+    );
+    if (result != XR_SUCCESS || locatedCount != state.viewCount) {
+        XrFrameEndInfo endInfo{};
+        endInfo.type = XR_TYPE_FRAME_END_INFO;
+        endInfo.displayTime = frameState.predictedDisplayTime;
+        endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+        (void)xrEndFrame(state.session, &endInfo);
+        return env->NewStringUTF(persistentReport(
+            "LOCATE_VIEWS_FAILED", "xrLocateViews did not return both stereo eye poses.",
+            result == XR_SUCCESS ? XR_ERROR_VIEW_INVALID : result
+        ).c_str());
+    }
+
+    XrSwapchainImageAcquireInfo acquireInfo{};
+    acquireInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO;
+    uint32_t imageIndex = 0;
+    result = xrAcquireSwapchainImage(state.swapchain, &acquireInfo, &imageIndex);
+    if (result != XR_SUCCESS) {
+        XrFrameEndInfo endInfo{};
+        endInfo.type = XR_TYPE_FRAME_END_INFO;
+        endInfo.displayTime = frameState.predictedDisplayTime;
+        endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+        (void)xrEndFrame(state.session, &endInfo);
+        return env->NewStringUTF(persistentReport(
+            "ACQUIRE_IMAGE_FAILED", "xrAcquireSwapchainImage failed.", result
+        ).c_str());
+    }
+
+    XrSwapchainImageWaitInfo imageWaitInfo{};
+    imageWaitInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
+    imageWaitInfo.timeout = 250'000'000;
+    result = xrWaitSwapchainImage(state.swapchain, &imageWaitInfo);
+    if (result != XR_SUCCESS || imageIndex >= state.images.size()) {
+        XrSwapchainImageReleaseInfo releaseInfo{};
+        releaseInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
+        (void)xrReleaseSwapchainImage(state.swapchain, &releaseInfo);
+        XrFrameEndInfo endInfo{};
+        endInfo.type = XR_TYPE_FRAME_END_INFO;
+        endInfo.displayTime = frameState.predictedDisplayTime;
+        endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+        (void)xrEndFrame(state.session, &endInfo);
+        return env->NewStringUTF(persistentReport(
+            "WAIT_IMAGE_FAILED",
+            imageIndex >= state.images.size()
+                ? "Runtime returned a swapchain image index outside the image list."
+                : "xrWaitSwapchainImage did not become ready within 250 ms.",
+            imageIndex >= state.images.size() ? XR_ERROR_INDEX_OUT_OF_RANGE : result
+        ).c_str());
+    }
+
+    while (glGetError() != GL_NO_ERROR) {}
+    if (state.framebuffer == 0) glGenFramebuffers(1, &state.framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, state.framebuffer);
+    bool framebufferComplete = true;
+    for (uint32_t eye = 0; eye < state.viewCount; ++eye) {
+        glFramebufferTextureLayer(
+            GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+            state.images[imageIndex].image, 0, static_cast<GLint>(eye)
+        );
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            framebufferComplete = false;
+            break;
+        }
+        glViewport(0, 0, static_cast<GLsizei>(state.width), static_cast<GLsizei>(state.height));
+        glClearColor(eye == 0 ? 0.04f : 0.02f, 0.16f, eye == 0 ? 0.30f : 0.22f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glFlush();
+    const GLenum glError = glGetError();
+
+    XrSwapchainImageReleaseInfo releaseInfo{};
+    releaseInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
+    const XrResult releaseResult = xrReleaseSwapchainImage(state.swapchain, &releaseInfo);
+
+    if (!framebufferComplete || glError != GL_NO_ERROR || releaseResult != XR_SUCCESS) {
+        XrFrameEndInfo endInfo{};
+        endInfo.type = XR_TYPE_FRAME_END_INFO;
+        endInfo.displayTime = frameState.predictedDisplayTime;
+        endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+        (void)xrEndFrame(state.session, &endInfo);
+        const XrResult failure = releaseResult != XR_SUCCESS ? releaseResult :
+            (glError != GL_NO_ERROR ? XR_ERROR_GRAPHICS_DEVICE_INVALID : XR_ERROR_GRAPHICS_DEVICE_INVALID);
+        return env->NewStringUTF(persistentReport(
+            "GLES_SWAPCHAIN_RENDER_FAILED",
+            !framebufferComplete
+                ? "The runtime swapchain image could not be attached as a GLES framebuffer."
+                : "GLES drawing or swapchain image release failed.",
+            failure
+        ).c_str());
+    }
+
+    std::vector<XrCompositionLayerProjectionView> projectionViews(state.viewCount);
+    for (uint32_t eye = 0; eye < state.viewCount; ++eye) {
+        auto& projectionView = projectionViews[eye];
+        projectionView.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+        projectionView.pose = locatedViews[eye].pose;
+        projectionView.fov = locatedViews[eye].fov;
+        projectionView.subImage.swapchain = state.swapchain;
+        projectionView.subImage.imageRect.offset = {0, 0};
+        projectionView.subImage.imageRect.extent = {
+            static_cast<int32_t>(state.width), static_cast<int32_t>(state.height)
+        };
+        projectionView.subImage.imageArrayIndex = eye;
+    }
+
+    XrCompositionLayerProjection projectionLayer{};
+    projectionLayer.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
+    projectionLayer.space = state.space;
+    projectionLayer.viewCount = state.viewCount;
+    projectionLayer.views = projectionViews.data();
+    const XrCompositionLayerBaseHeader* layers[] = {
+        reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projectionLayer)
+    };
+    XrFrameEndInfo endInfo{};
+    endInfo.type = XR_TYPE_FRAME_END_INFO;
+    endInfo.displayTime = frameState.predictedDisplayTime;
+    endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+    endInfo.layerCount = 1;
+    endInfo.layers = layers;
+    result = xrEndFrame(state.session, &endInfo);
+    if (result != XR_SUCCESS) {
+        return env->NewStringUTF(persistentReport(
+            "END_FRAME_FAILED", "xrEndFrame rejected the persistent stereo projection layer.", result
+        ).c_str());
+    }
+
+    ++state.submittedFrames;
+    std::ostringstream message;
+    message << "Persistent OpenXR session active; submitted stereo GLES frame "
+            << state.submittedFrames << ". Session and swapchain were not recreated.";
+    return env->NewStringUTF(persistentReport("FRAME_SUBMITTED", message.str()).c_str());
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativePauseSession(
+    JNIEnv* env,
+    jobject /* thiz */
+) {
+    std::lock_guard<std::mutex> lock(persistentSessionMutex);
+    auto& state = persistentSession;
+    if (!state.created) {
+        return env->NewStringUTF(persistentReport(
+            "SESSION_NOT_CREATED", "No persistent OpenXR session needs pausing.",
+            XR_ERROR_HANDLE_INVALID
+        ).c_str());
+    }
+    state.paused = true;
+    if (!state.sessionBegun) {
+        return env->NewStringUTF(persistentReport(
+            "SESSION_PAUSED", "Session rendering paused; no running session needed an exit request."
+        ).c_str());
+    }
+
+    XrResult result = xrRequestExitSession(state.session);
+    if (result != XR_SUCCESS) {
+        return env->NewStringUTF(persistentReport(
+            "PAUSE_REQUEST_FAILED", "xrRequestExitSession failed during Activity pause.", result
+        ).c_str());
+    }
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1500);
+    while (std::chrono::steady_clock::now() < deadline) {
+        XrEventDataBuffer event{};
+        event.type = XR_TYPE_EVENT_DATA_BUFFER;
+        result = xrPollEvent(state.instance, &event);
+        if (result == XR_SUCCESS &&
+            event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
+            const auto* changed =
+                reinterpret_cast<const XrEventDataSessionStateChanged*>(&event);
+            if (changed->session == state.session) {
+                state.sessionState = changed->state;
+                if (changed->state == XR_SESSION_STATE_STOPPING) {
+                    result = xrEndSession(state.session);
+                    if (result == XR_SUCCESS) {
+                        state.sessionBegun = false;
+                        return env->NewStringUTF(persistentReport(
+                            "SESSION_PAUSED", "Runtime reached STOPPING and xrEndSession completed."
+                        ).c_str());
+                    }
+                    return env->NewStringUTF(persistentReport(
+                        "PAUSE_END_FAILED", "xrEndSession failed while pausing the Activity.", result
+                    ).c_str());
+                }
+                if (changed->state == XR_SESSION_STATE_EXITING ||
+                    changed->state == XR_SESSION_STATE_LOSS_PENDING) {
+                    state.sessionBegun = false;
+                    return env->NewStringUTF(persistentReport(
+                        "SESSION_PAUSED_RUNTIME_EXIT", "Runtime exited the session during Activity pause.",
+                        XR_ERROR_SESSION_LOST
+                    ).c_str());
+                }
+            }
+        } else if (result != XR_SUCCESS && result != XR_EVENT_UNAVAILABLE) {
+            return env->NewStringUTF(persistentReport(
+                "PAUSE_EVENT_FAILED", "Could not poll the runtime while pausing.", result
+            ).c_str());
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+
+    return env->NewStringUTF(persistentReport(
+        "PAUSE_PENDING_STOPPING",
+        "Exit was requested; STOPPING was not observed before the bounded pause deadline."
+    ).c_str());
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativeResumeSession(
+    JNIEnv* env,
+    jobject /* thiz */
+) {
+    std::lock_guard<std::mutex> lock(persistentSessionMutex);
+    if (!persistentSession.created) {
+        return env->NewStringUTF(persistentReport(
+            "SESSION_NOT_CREATED", "Create the persistent OpenXR session after surface recreation.",
+            XR_ERROR_HANDLE_INVALID
+        ).c_str());
+    }
+    persistentSession.paused = false;
+    return env->NewStringUTF(persistentReport(
+        "SESSION_RESUME_PENDING_READY",
+        "Rendering resumed; the next GL callback will process runtime events and begin again after READY."
+    ).c_str());
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativeDestroySession(
+    JNIEnv* env,
+    jobject /* thiz */
+) {
+    std::lock_guard<std::mutex> lock(persistentSessionMutex);
+    if (!persistentSession.created &&
+        persistentSession.instance == XR_NULL_HANDLE &&
+        persistentSession.activityGlobal == nullptr) {
+        return env->NewStringUTF(persistentReport(
+            "SESSION_ALREADY_DESTROYED", "No persistent OpenXR resources remain."
+        ).c_str());
+    }
+    const uint64_t frames = persistentSession.submittedFrames;
+    destroyPersistentGlesSession(env);
+    std::ostringstream message;
+    message << "Persistent OpenXR instance, session, space and swapchain destroyed. "
+            << "Stereo frames submitted during this run: " << frames << ".";
+    return env->NewStringUTF(persistentReport(
+        "SESSION_DESTROYED", message.str()
+    ).c_str());
+}
