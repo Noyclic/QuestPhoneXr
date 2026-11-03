@@ -140,7 +140,7 @@ class SandboxSimulationTest {
     }
 
     @Test
-    fun joyConStickMovesTheVirtualHandAcrossTheFullReachPlaneEvenWithCameraTracking() {
+    fun joyConStickMovesPlayerWhileCameraTrackedHandRemainsIndependent() {
         val simulation = SandboxSimulation()
         val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
         points[8] = HandPoint(0.5f, 0.5f, 0f)
@@ -162,11 +162,28 @@ class SandboxSimulationTest {
             1f / 30f
         )
 
-        val moved = simulation.snapshot().leftHand
+        val snapshot = simulation.snapshot()
+        val moved = snapshot.leftHand
         assertTrue(moved.cameraTracked)
-        assertEquals(2.25f, moved.cursor.x, 0.001f)
-        assertEquals(1.075f, moved.cursor.y, 0.001f)
+        assertEquals(0.06f, snapshot.playerPosition.x, 0.001f)
+        assertEquals(-0.04f, snapshot.playerPosition.z, 0.001f)
+        // The hand follows the camera in local space; the stick moves the player, not the hand.
+        assertEquals(snapshot.playerPosition.x, moved.cursor.x, 0.001f)
+        assertEquals(snapshot.playerPosition.z - 2.55f, moved.cursor.z, 0.001f)
         assertEquals(moved.cursor, moved.landmarks[8])
+    }
+
+    @Test
+    fun rightJoyConCanMovePlayerWhenLeftControllerIsUnavailable() {
+        val simulation = SandboxSimulation()
+        simulation.update(
+            listOf(controller(hand = HandSide.RIGHT, stickX = -1f, stickY = 1f)),
+            0.05f
+        )
+
+        val position = simulation.snapshot().playerPosition
+        assertEquals(-0.12f, position.x, 0.001f)
+        assertEquals(0.12f, position.z, 0.001f)
     }
 
     @Test

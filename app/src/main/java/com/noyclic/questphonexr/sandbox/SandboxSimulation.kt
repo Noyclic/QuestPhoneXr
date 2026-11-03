@@ -53,7 +53,9 @@ data class SandboxSceneSnapshot(
     val leftHand: SandboxHandState,
     val rightHand: SandboxHandState,
     val grabbedObjectCount: Int,
-    val score: Int = 0
+    val score: Int = 0,
+    /** World-space player position controlled by the left Joy-Con stick. */
+    val playerPosition: SandboxVector3 = SandboxVector3(0f, 0f, 0f)
 )
 
 /**
@@ -101,6 +103,7 @@ class SandboxSimulation {
     private var handCalibration = SandboxHandCalibration.DEFAULT
     private var nextObjectId = 1
     private var score = 0
+    private var playerPosition = ZERO
 
     init {
         reset()
@@ -111,6 +114,7 @@ class SandboxSimulation {
         objects.clear()
         nextObjectId = 1
         score = 0
+        playerPosition = ZERO
         objects += createObject(SandboxObjectType.CUBE, SandboxVector3(-0.9f, -0.25f, -3.0f))
         objects += createObject(SandboxObjectType.BALL, SandboxVector3(0f, 0.25f, -3.15f))
         objects += createObject(SandboxObjectType.CUBE, SandboxVector3(0.9f, -0.25f, -3.0f))
@@ -164,6 +168,7 @@ class SandboxSimulation {
     ) {
         val dt = deltaSeconds.takeIf { it.isFinite() }?.coerceIn(MIN_STEP_SECONDS, MAX_STEP_SECONDS)
             ?: MIN_STEP_SECONDS
+        movePlayer(controllers, dt)
         val handsBySide = handFrame.hands
             .filter { it.side != HandSide.UNKNOWN }
             .associateBy { it.side }
@@ -200,17 +205,19 @@ class SandboxSimulation {
             rightRaw.copy(trackingLost = rightTrackingLost)
         }
 
-        leftCursor = left.cursor
-        rightCursor = right.cursor
+        val leftWorld = left.withWorldOffset(playerPosition)
+        val rightWorld = right.withWorldOffset(playerPosition)
+        leftCursor = leftWorld.cursor
+        rightCursor = rightWorld.cursor
         leftConnected = left.connected
         rightConnected = right.connected
         leftCameraTracked = left.cameraTracked
         rightCameraTracked = right.cameraTracked
-        leftLandmarks = left.landmarks
-        rightLandmarks = right.landmarks
+        leftLandmarks = leftWorld.landmarks
+        rightLandmarks = rightWorld.landmarks
 
-        updateGrab(HandSide.LEFT, left.grabbing, left.cursor, dt, left.trackingLost)
-        updateGrab(HandSide.RIGHT, right.grabbing, right.cursor, dt, right.trackingLost)
+        updateGrab(HandSide.LEFT, left.grabbing, leftWorld.cursor, dt, left.trackingLost)
+        updateGrab(HandSide.RIGHT, right.grabbing, rightWorld.cursor, dt, right.trackingLost)
         updatePhysics(dt)
     }
 
@@ -236,9 +243,34 @@ class SandboxSimulation {
                 rightLandmarks
             ),
             grabbedObjectCount = objects.count { it.heldBy != null },
-            score = score
+            score = score,
+            playerPosition = playerPosition
         )
     }
+
+    private fun movePlayer(
+        controllers: List<PhysicalControllerSnapshot>,
+        deltaSeconds: Float
+    ) {
+        // The left Joy-Con is the locomotion stick. If only the right one is connected,
+        // allow it to move the player too. Camera-tracked hands remain independent.
+        val movement = controllers.firstOrNull { it.hand == HandSide.LEFT }
+            ?: controllers.firstOrNull { it.hand == HandSide.RIGHT }
+            ?: return
+        val x = if (kotlin.math.abs(movement.stickX) > PLAYER_STICK_DEADZONE) movement.stickX else 0f
+        val y = if (kotlin.math.abs(movement.stickY) > PLAYER_STICK_DEADZONE) movement.stickY else 0f
+        if (x == 0f && y == 0f) return
+        playerPosition = SandboxVector3(
+            x = (playerPosition.x + x * PLAYER_MOVE_SPEED * deltaSeconds).coerceIn(-PLAYER_WORLD_LIMIT, PLAYER_WORLD_LIMIT),
+            y = 0f,
+            z = (playerPosition.z + y * PLAYER_MOVE_SPEED * deltaSeconds).coerceIn(-PLAYER_WORLD_LIMIT, PLAYER_WORLD_LIMIT)
+        )
+    }
+
+    private fun ControllerState.withWorldOffset(offset: SandboxVector3) = copy(
+        cursor = cursor + offset,
+        landmarks = landmarks.map { it + offset }
+    )
 
     private fun createObject(type: SandboxObjectType, position: SandboxVector3) =
         MutableObject(nextObjectId++, type, position)
@@ -266,7 +298,7 @@ class SandboxSimulation {
                 )
             }
         val fallbackCursor = if (hand == HandSide.LEFT) DEFAULT_LEFT_CURSOR else DEFAULT_RIGHT_CURSOR
-        val cursor = gamepadCursor ?: cameraCursor ?: fallbackCursor
+        val cursor = cameraCursor ?: gamepadCursor ?: fallbackCursor
         val renderedLandmarks = if (gamepadCursor != null && cameraCursor != null) {
             val offset = gamepadCursor - cameraCursor
             cameraLandmarks.map { it + offset }
@@ -375,6 +407,9 @@ class SandboxSimulation {
         private const val TARGET_HIT_RADIUS = 0.48f
         private const val GAMEPAD_CURSOR_DEPTH = -2.35f
         private const val GAMEPAD_STICK_DEADZONE = 0.16f
+        private const val PLAYER_STICK_DEADZONE = 0.16f
+        private const val PLAYER_MOVE_SPEED = 2.4f
+        private const val PLAYER_WORLD_LIMIT = 40f
         private const val GAMEPAD_REACH_WIDTH = 3.0f
         private const val GAMEPAD_REACH_HEIGHT = 2.15f
         private const val GRAB_THRESHOLD = 0.45f
