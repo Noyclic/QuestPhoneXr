@@ -65,6 +65,25 @@ class SandboxHandPoseTest {
     }
 
     @Test
+    fun cameraRotationTransformsHandFromCameraSpaceIntoWorldSpace() {
+        val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+        points[8] = HandPoint(0.7f, 0.5f, 0f)
+        // +90 degree yaw in the same row-major convention used by PhoneVrMath.
+        val cameraToWorld = floatArrayOf(
+            0f, 0f, 1f,
+            0f, 1f, 0f,
+            -1f, 0f, 0f
+        )
+        val mapped = SandboxHandPoseMapper.map(
+            points,
+            cameraToWorldRotation = cameraToWorld
+        )
+        assertEquals(-2.55f, mapped[8].x, 0.002f)
+        assertEquals(0f, mapped[8].y, 0.002f)
+        assertEquals(-0.4896f, mapped[8].z, 0.003f)
+    }
+
+    @Test
     fun fartherHandGetsAProportionallyLargerReachVolume() {
         val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
         points[8] = HandPoint(1f, 0f, 0f)
