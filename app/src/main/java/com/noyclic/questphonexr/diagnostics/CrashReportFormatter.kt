@@ -5,7 +5,7 @@ object CrashReportFormatter {
     const val MAX_ISSUE_REPORT_CHARS = 2_200
 
     private val secretAssignment = Regex(
-        """(?i)\b(authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|api[_-]?key|client[_-]?secret|password|passwd)\b(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)"""
+        """(?i)\\b(authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|api[_-]?key|client[_-]?secret|password|passwd)\\b(\\s*[:=]\\s*)(?:Bearer\\s+)?(?:"[^"]*"|'[^']*'|[^\\s,;]+)"""
     )
     private val bearerToken = Regex("""(?i)\b(Bearer\s+)[A-Za-z0-9._~+/=-]+""")
     private val sharedStoragePath = Regex("""(?i)(/storage/emulated/0|/sdcard)(?:/[^\s"'<>)]*)?""")
