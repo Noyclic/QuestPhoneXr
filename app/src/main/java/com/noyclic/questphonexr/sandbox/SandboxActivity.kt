@@ -40,6 +40,7 @@ import com.noyclic.questphonexr.input.AndroidGamepadInputAdapter
 import com.noyclic.questphonexr.tracking.HandLandmarkerController
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
+import com.noyclic.questphonexr.input.XrTrackingUdpSender
 import com.noyclic.questphonexr.vr.ViewerProfile
 import com.noyclic.questphonexr.vr.ViewerProfileStore
 import com.noyclic.questphonexr.performance.AndroidDeviceProfiler
@@ -79,6 +80,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private var sensorAvailable = false
     private var lastFrameNanos = 0L
     private var lastStatusUpdateMs = 0L
+    private var trackingSender: XrTrackingUdpSender? = null
+    @Volatile private var latestHeadRotationMatrix: FloatArray? = null
+    private var pcBridgeHost = ""
+    private var pcBridgeStatus = "ПК: отключён"
 
     private val gamepadInput = AndroidGamepadInputAdapter { snapshots ->
         controllerSnapshots = snapshots
@@ -131,6 +136,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 val hands = if (latestHands.hands.isNotEmpty() && handsAgeMs > HAND_FRAME_STALE_MS) {
                     HandTrackingFrame(SystemClock.uptimeMillis(), emptyList()).also {
                         latestHandFrame = it
+                        trackingSender?.publish(it)
                     }
                 } else {
                     latestHands
@@ -174,6 +180,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
             ?: sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
         sensorAvailable = rotationSensor != null
+        pcBridgeHost = getSharedPreferences(PC_BRIDGE_PREFERENCES, MODE_PRIVATE)
+            .getString(KEY_PC_HOST, "")
+            .orEmpty()
 
         renderer = SandboxRenderer().apply {
             applyViewerProfile(viewerProfile)
@@ -243,6 +252,15 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             )
             addView(buttons)
+            addView(
+                controlButton("Подключить ПК · телеметрия рук и головы") {
+                    showPcBridgeDialog()
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
             addView(
                 controlButton("Калибровка рук") { showHandCalibrationDialog() },
                 LinearLayout.LayoutParams(
@@ -571,6 +589,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             "—"
         }
         latestHandFrame = frame
+        trackingSender?.publish(frame)
     }
 
     private fun showControllerAssignmentDialog() {
@@ -604,6 +623,71 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                         gamepadInput.assignDevice(selected.deviceId, hand)
                     }
                     .show()
+            }
+            .setNegativeButton("Закрыть", null)
+            .show()
+    }
+
+    private fun showPcBridgeDialog() {
+        val hostInput = EditText(this).apply {
+            hint = "Например: 192.168.1.25"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            setSingleLine(true)
+            setText(pcBridgeHost)
+            setSelection(text.length)
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val padding = (20 * resources.displayMetrics.density).toInt()
+            setPadding(padding, padding / 2, padding, 0)
+            addView(TextView(this@SandboxActivity).apply {
+                text = "Укажи IPv4-адрес компьютера. Телефон и ПК должны быть в одной локальной сети.\n\nПорт UDP: 39471 · частота: до 30 пакетов/с.\nНа ПК должен быть запущен QuestPhoneXRTrackingReceiver."
+                setTextColor(Color.DKGRAY)
+                textSize = 14f
+            })
+            addView(hostInput)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Связь с ПК · XR Tracking")
+            .setView(content)
+            .setPositiveButton("Подключить") { _, _ ->
+                val host = hostInput.text.toString().trim()
+                if (host.isBlank()) {
+                    Toast.makeText(this, "Укажи IP-адрес компьютера.", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                pcBridgeHost = host
+                getSharedPreferences(PC_BRIDGE_PREFERENCES, MODE_PRIVATE)
+                    .edit()
+                    .putString(KEY_PC_HOST, host)
+                    .apply()
+
+                val sender = trackingSender ?: XrTrackingUdpSender(
+                    onStatus = { message ->
+                        runOnUiThread {
+                            if (!isFinishing) {
+                                pcBridgeStatus = message
+                                updateStatus()
+                            }
+                        }
+                    }
+                ).also { trackingSender = it }
+                latestHeadRotationMatrix?.let(sender::updateHeadRotation)
+                sender.publish(
+                    latestHandFrame.takeIf { it.timestampMs > 0L }
+                        ?: HandTrackingFrame(SystemClock.uptimeMillis(), emptyList())
+                )
+                runCatching { sender.start(host) }
+                    .onFailure { error ->
+                        pcBridgeStatus = "ПК: ${error.message ?: "неверный адрес"}"
+                        updateStatus()
+                    }
+            }
+            .setNeutralButton("Остановить") { _, _ ->
+                trackingSender?.stop()
+                pcBridgeStatus = "ПК: отключён"
+                updateStatus()
             }
             .setNegativeButton("Закрыть", null)
             .show()
@@ -667,6 +751,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             append(" мс · камера ").append(cameraSourceSizeLabel)
             append(" → модель ").append(mediaPipeInputSizeLabel)
             append('\n')
+            append(pcBridgeStatus).append('\n')
             append("Joy-Con L: ").append(if (leftConnected) "подключён" else "нет")
             append(" · R: ").append(if (rightConnected) "подключён" else "нет")
             append('\n')
@@ -748,7 +833,11 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 true
             }
         }
-        if (remapped) renderer.updateHeadRotation(displayRotationMatrix)
+        if (remapped) {
+            renderer.updateHeadRotation(displayRotationMatrix)
+            latestHeadRotationMatrix = displayRotationMatrix.copyOf()
+            trackingSender?.updateHeadRotation(displayRotationMatrix)
+        }
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
@@ -795,6 +884,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     }
 
     override fun onDestroy() {
+        trackingSender?.close()
+        trackingSender = null
         cameraProvider?.unbindAll()
         handTracker?.close()
         cameraExecutor.shutdown()
@@ -806,5 +897,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         const val MAX_PHYSICS_STEP_SECONDS = 0.05f
         const val STATUS_REFRESH_INTERVAL_MS = 250L
         const val HAND_FRAME_STALE_MS = 500L
+        const val PC_BRIDGE_PREFERENCES = "pc_tracking_bridge"
+        const val KEY_PC_HOST = "host"
     }
 }
