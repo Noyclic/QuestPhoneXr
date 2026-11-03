@@ -27,6 +27,7 @@ import com.noyclic.questphonexr.sandbox.SandboxActivity
 import com.noyclic.questphonexr.diagnostics.CrashReportStore
 import com.noyclic.questphonexr.diagnostics.CrashReportFormatter
 import com.noyclic.questphonexr.runtime.OpenXrRuntimeDiscovery
+import com.noyclic.questphonexr.runtime.OpenXrRuntimeProbeActivity
 import com.noyclic.questphonexr.runtime.MonadoAndroidRuntimeProbe
 import com.noyclic.questphonexr.performance.OpenGlesEglProbe
 import com.noyclic.questphonexr.performance.AndroidDeviceCompatibilityProbe
@@ -303,6 +304,11 @@ class GameLibraryActivity : ComponentActivity() {
         runtimePanel.addView(openXrRuntimeStatusView)
         runtimePanel.addView(button("Проверить OpenXR Runtime").apply {
             setOnClickListener { refreshOpenXrRuntimeStatus() }
+        })
+        runtimePanel.addView(button("Проверить реальный XR-сеанс · изолированно").apply {
+            setOnClickListener {
+                startActivity(Intent(this@GameLibraryActivity, OpenXrRuntimeProbeActivity::class.java))
+            }
         })
         runtimePanel.addView(button("Установить / выбрать OpenXR Runtime").apply {
             setOnClickListener { openRuntimeBrokerSetup() }
