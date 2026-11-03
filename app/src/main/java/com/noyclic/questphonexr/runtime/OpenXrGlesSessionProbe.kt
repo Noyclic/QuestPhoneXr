@@ -13,7 +13,9 @@ object OpenXrGlesSessionProbe {
 
     private external fun nativeProbeSession(activity: Context): String
 
-    fun inspect(activity: Context): String {
+    fun inspect(activity: Context): String = inspectReport(activity).toDisplayText()
+
+    fun inspectReport(activity: Context): OpenXrProbeReport {
         if (!libraryLoaded) {
             synchronized(this) {
                 if (!libraryLoaded) {
@@ -27,21 +29,20 @@ object OpenXrGlesSessionProbe {
             }
         }
         if (!libraryLoaded) {
-            return "native probe unavailable: " + (loadError ?: "unknown error")
+            return OpenXrProbeReport(
+                status = "NATIVE_LIBRARY_UNAVAILABLE",
+                xrResult = null,
+                message = "Native probe unavailable: " + (loadError ?: "unknown error")
+            )
         }
         return runCatching {
-            val report = JSONObject(nativeProbeSession(activity))
-            val status = report.optString("status", "UNKNOWN")
-            val message = report.optString("message", "No diagnostic message.")
-            val result = if (report.has("xrResult")) {
-                " · XrResult " + report.optInt("xrResult")
-            } else {
-                ""
-            }
-            status + result + "\n" + message
+            OpenXrProbeReport.parse(nativeProbeSession(activity))
         }.getOrElse { error ->
-            "OpenXR GLES session probe failed: " +
-                (error.message ?: error.javaClass.simpleName)
+            OpenXrProbeReport(
+                status = "NATIVE_PROBE_FAILED",
+                xrResult = null,
+                message = error.message ?: error.javaClass.simpleName
+            )
         }
     }
 }
