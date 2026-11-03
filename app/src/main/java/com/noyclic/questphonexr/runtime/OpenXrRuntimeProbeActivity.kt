@@ -293,16 +293,20 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
         if (::glView.isInitialized) {
             val shouldDestroy = isFinishing
             lastXrFrameAttemptNanos = 0L
-            if (nativeSessionCreated) {
+            // sessionRequested can become true before nativeCreateSession finishes.
+            // Queue pause/destroy behind the pending create so the new native
+            // session cannot be left running after Activity.onPause().
+            if (nativeSessionCreated || sessionRequested) {
                 glView.queueEvent {
-                    val report = if (shouldDestroy) {
-                        OpenXrPersistentGlesSession.destroy().also {
+                    val report = when {
+                        shouldDestroy -> OpenXrPersistentGlesSession.destroy().also {
                             nativeSessionCreated = false
+                            sessionRequested = false
                         }
-                    } else {
-                        OpenXrPersistentGlesSession.pause()
+                        nativeSessionCreated -> OpenXrPersistentGlesSession.pause()
+                        else -> null
                     }
-                    publishReport(report, stopOnFailure = false)
+                    if (report != null) publishReport(report, stopOnFailure = false)
                 }
                 glView.requestRender()
             }
