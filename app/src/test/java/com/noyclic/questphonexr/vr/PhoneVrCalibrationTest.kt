@@ -2,6 +2,7 @@ package com.noyclic.questphonexr.vr
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PhoneVrCalibrationTest {
@@ -34,6 +35,35 @@ class PhoneVrCalibrationTest {
     fun unsupportedFrameRateSnapsToNearestAvailableLimit() {
         assertEquals(45, ViewerProfile(targetFps = 38).normalized().targetFps)
         assertEquals(20, ViewerProfile(targetFps = 1).normalized().targetFps)
+    }
+
+    @Test
+    fun lensDistortionSettingsAreClampedToTheSupportedRange() {
+        assertEquals(
+            ViewerProfile.MAX_LENS_DISTORTION_PERCENT,
+            ViewerProfile(lensDistortionPercent = 999).normalized().lensDistortionPercent
+        )
+        assertEquals(
+            ViewerProfile.MIN_LENS_DISTORTION_PERCENT,
+            ViewerProfile(lensDistortionPercent = -999).normalized().lensDistortionPercent
+        )
+    }
+
+    @Test
+    fun neutralLensSettingLeavesTextureCoordinatesUnchanged() {
+        val result = PhoneVrMath.distortedTextureCoordinate(0.82f, 0.27f, 0f)
+        assertArrayEquals(floatArrayOf(0.82f, 0.27f), result, 0.0001f)
+    }
+
+    @Test
+    fun lensWarpKeepsTheOpticalCenterFixedAndMovesEdgesByItsSign() {
+        val center = PhoneVrMath.distortedTextureCoordinate(0.5f, 0.5f, 0.4f)
+        val positive = PhoneVrMath.distortedTextureCoordinate(0.9f, 0.5f, 0.2f)
+        val negative = PhoneVrMath.distortedTextureCoordinate(0.9f, 0.5f, -0.2f)
+
+        assertArrayEquals(floatArrayOf(0.5f, 0.5f), center, 0.0001f)
+        assertTrue(positive[0] > 0.9f)
+        assertTrue(negative[0] < 0.9f)
     }
 
     @Test
