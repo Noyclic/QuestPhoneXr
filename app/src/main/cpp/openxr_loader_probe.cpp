@@ -119,7 +119,7 @@ Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbe(
 
     if (extensionCount > 0) {
         enumResult = xrEnumerateInstanceExtensionProperties(
-            nullptr, extensionCount, &extensions[0], &extensionCount
+            nullptr, extensionCount, &extensionCount, extensions.data()
         );
         if (enumResult != XR_SUCCESS) {
             return env->NewStringUTF(makeReport(
