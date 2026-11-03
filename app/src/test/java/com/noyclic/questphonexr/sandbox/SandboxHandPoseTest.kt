@@ -7,6 +7,34 @@ import org.junit.Test
 
 class SandboxHandPoseTest {
     @Test
+    fun monocularDepthMovesHandCloserWhenApparentPalmGetsWider() {
+        val estimator = MonocularHandDepthEstimator()
+        val narrow = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+        narrow[5] = HandPoint(0.40f, 0.4f, 0f)
+        narrow[17] = HandPoint(0.22f, 0.4f, 0f)
+        val far = estimator.update(narrow)!!
+
+        val wide = narrow.toMutableList().also {
+            it[5] = HandPoint(0.46f, 0.4f, 0f)
+            it[17] = HandPoint(0.22f, 0.4f, 0f)
+        }
+        val near = estimator.update(wide)!!
+        assertTrue(near < far)
+        assertTrue(near >= 1.0f)
+    }
+
+    @Test
+    fun depthEstimatorResetsAfterTrackingLoss() {
+        val estimator = MonocularHandDepthEstimator()
+        val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+        points[5] = HandPoint(0.4f, 0.4f, 0f)
+        points[17] = HandPoint(0.22f, 0.4f, 0f)
+        assertTrue(estimator.update(points) != null)
+        estimator.reset()
+        assertEquals(null, estimator.update(emptyList()))
+    }
+
+    @Test
     fun mapsAllTwentyOneMediaPipePointsToTheReachPlane() {
         val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
         points[0] = HandPoint(0.2f, 0.4f, 0f)
