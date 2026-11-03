@@ -77,18 +77,36 @@ object OpenXrLoaderProbe {
             buildString {
                 append("Результат: ").append(root.optString("status", "UNKNOWN"))
                 root.optString("path").takeIf { it.isNotBlank() }?.let {
-                    append("\\nПуть: ").append(it)
+                    append("\nПуть: ").append(it)
                 }
                 if (root.has("negotiationExportFound")) {
-                    append("\\nЭкспорт xrNegotiateLoaderRuntimeInterface: ")
+                    append("\nЭкспорт xrNegotiateLoaderRuntimeInterface: ")
                         .append(if (root.optBoolean("negotiationExportFound")) "найден" else "не найден")
                 }
+                if (root.has("negotiationResult")) {
+                    append("\nРезультат negotiation: ")
+                        .append(root.optString("negotiationResultName", root.optInt("negotiationResult").toString()))
+                }
+                if (root.has("runtimeInterfaceVersion")) {
+                    append("\nRuntime interface version: ").append(root.optInt("runtimeInterfaceVersion"))
+                }
+                root.optString("runtimeApiVersionName").takeIf { it.isNotBlank() }?.let {
+                    append("\nRuntime OpenXR API: ").append(it)
+                }
+                if (root.has("getInstanceProcAddrAvailable")) {
+                    append("\nxrGetInstanceProcAddr: ")
+                        .append(if (root.optBoolean("getInstanceProcAddrAvailable")) "получен" else "отсутствует")
+                }
+                if (root.has("interfaceVersionValid")) {
+                    append("\nВерсия интерфейса совместима: ")
+                        .append(if (root.optBoolean("interfaceVersionValid")) "да" else "нет")
+                }
                 root.optString("message").takeIf { it.isNotBlank() }?.let {
-                    append("\\n").append(it)
+                    append("\n").append(it)
                 }
             }
         }.getOrElse { error ->
-            "Native runtime dlopen probe failed: " +
+            "Native runtime negotiation probe failed: " +
                 (error.message ?: error.javaClass.simpleName)
         }
     }
