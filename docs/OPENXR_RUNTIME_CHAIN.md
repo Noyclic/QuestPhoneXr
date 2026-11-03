@@ -46,6 +46,21 @@ The xrGetSystem: -6 entry following a failed xrCreateInstance is not a second in
 
 This diagnosis applies only when extension enumeration and instance creation came from the same build and the same process sequence shown above. The independent dlopen test by itself does not prove what the Khronos Loader selected.
 
+## Direct Monado instance isolation test
+
+The diagnostic now has a second xrCreateInstance path. It runs only if the preceding Khronos Loader test successfully enumerated extensions and then failed to create the instance in the same :xr_diagnostics process.
+
+The test re-opens and negotiates the selected Monado library, obtains xrEnumerateInstanceExtensionProperties, xrCreateInstance and (for cleanup) xrDestroyInstance directly from the runtime's negotiated xrGetInstanceProcAddr, and calls those functions without going through the Khronos Loader dispatch or any API-layer chain. It requests only XR_KHR_android_create_instance, matching the lightweight Loader smoke test. It does not create a session or swapchain.
+
+The direct test intentionally does not call xrInitializeLoaderKHR again. In the immediately preceding successful Loader extension-enumeration sequence, Khronos Loader 1.1.65 has already loaded the runtime and forwarded Android loader initialization to it. A second initialization attempt in the same process could itself introduce a new failure and contaminate the comparison.
+
+Interpretation:
+- If direct Monado xrCreateInstance succeeds while the preceding Loader call returns -51, the selected runtime can create an instance in this process; investigate the Loader/API-layer chain above the direct runtime call.
+- If direct Monado xrCreateInstance also returns -51, the failure is inside the selected runtime's direct call path, including Monado's Android IPC/service startup. That still does not reveal the internal reason; the next step is to correlate the result with Monado service logs and the Android connect() / Surface lifecycle.
+- If direct runtime extension enumeration fails or does not advertise XR_KHR_android_create_instance, the prior aggregate Loader extension list was not sufficient evidence that Monado itself advertised the needed Android extension.
+
+A successful direct diagnostic instance is destroyed immediately. If cleanup fails, the report labels that explicitly; closing the diagnostic process remains the final cleanup boundary. This test narrows the failing layer but does not establish session, graphics, compositor, tracking, or Quest APK compatibility.
+
 ## Process separation matters
 
 The APK declares:

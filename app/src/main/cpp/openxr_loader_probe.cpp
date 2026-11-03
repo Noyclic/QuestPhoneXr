@@ -2217,3 +2217,280 @@ Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbeRuntimeLibrar
     return env->NewStringUTF(out.str().c_str());
 }
 
+
+
+// Diagnostic-only direct runtime call. Invoke this AFTER the Khronos Loader smoke
+// test has successfully enumerated extensions in this same process. The Loader
+// forwards xrInitializeLoaderKHR to the selected runtime during that enumeration;
+// we deliberately do not initialize it a second time here. Calling the negotiated
+// runtime GIPA directly bypasses the Khronos Loader dispatch and API-layer chain,
+// allowing us to determine whether -51 is returned by Monado itself or above it.
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbeRuntimeInstance(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jstring javaPath,
+    jobject activityContext
+) {
+    if (javaPath == nullptr || activityContext == nullptr) {
+        return env->NewStringUTF(
+            R"({"status":"DIRECT_RUNTIME_INPUT_MISSING","message":"Runtime library path or Android Activity is missing."})"
+        );
+    }
+
+    JavaVM* vm = nullptr;
+    if (env->GetJavaVM(&vm) != JNI_OK || vm == nullptr) {
+        return env->NewStringUTF(
+            R"({"status":"DIRECT_RUNTIME_JVM_UNAVAILABLE","message":"Could not obtain the Android JavaVM."})"
+        );
+    }
+
+    const char* rawPath = env->GetStringUTFChars(javaPath, nullptr);
+    if (rawPath == nullptr) {
+        return env->NewStringUTF(
+            R"({"status":"DIRECT_RUNTIME_PATH_READ_FAILED","message":"Could not read the runtime library path."})"
+        );
+    }
+    const std::string path(rawPath);
+    env->ReleaseStringUTFChars(javaPath, rawPath);
+
+    void* handle = nullptr;
+    XrResult negotiationResult = XR_ERROR_INITIALIZATION_FAILED;
+    XrResult extensionProcResult = XR_ERROR_FUNCTION_UNSUPPORTED;
+    XrResult enumerationResult = XR_ERROR_INITIALIZATION_FAILED;
+    XrResult createProcResult = XR_ERROR_FUNCTION_UNSUPPORTED;
+    XrResult createResult = XR_ERROR_INITIALIZATION_FAILED;
+    XrResult destroyProcResult = XR_ERROR_FUNCTION_UNSUPPORTED;
+    XrResult destroyResult = XR_ERROR_FUNCTION_UNSUPPORTED;
+    uint32_t extensionCount = 0;
+    bool instanceHandleValid = false;
+    bool instanceDestroyed = false;
+    std::vector<XrExtensionProperties> extensions;
+
+    auto finish = [&](const char* status, const std::string& detail) -> jstring {
+        std::ostringstream out;
+        out << R"({"status":")" << status
+            << R"(","path":")" << jsonEscape(path)
+            << R"(","negotiationResult":)" << static_cast<int>(negotiationResult)
+            << R"(,"negotiationResultName":")" << xrResultName(negotiationResult) << "\""
+            << R"(,"directExtensionProcResult":)" << static_cast<int>(extensionProcResult)
+            << R"(,"directExtensionEnumerationResult":)" << static_cast<int>(enumerationResult)
+            << R"(,"directExtensionCount":)" << extensionCount
+            << R"(,"directCreateProcResult":)" << static_cast<int>(createProcResult)
+            << R"(,"directInstanceCreateResult":)" << static_cast<int>(createResult)
+            << R"(,"directInstanceCreateResultName":")" << xrResultName(createResult) << "\""
+            << R"(,"directInstanceHandleValid":)" << (instanceHandleValid ? "true" : "false")
+            << R"(,"directDestroyProcResult":)" << static_cast<int>(destroyProcResult)
+            << R"(,"directInstanceDestroyResult":)" << static_cast<int>(destroyResult)
+            << R"(,"directInstanceDestroyed":)" << (instanceDestroyed ? "true" : "false")
+            << R"(,"runtimeExtensions":[)";
+        for (size_t i = 0; i < extensions.size(); ++i) {
+            if (i != 0) out << ",";
+            out << "\"" << jsonEscape(extensions[i].extensionName) << "\"";
+        }
+        out << R"(],"message":")" << jsonEscape(detail) << "\"}";
+        if (handle != nullptr) {
+            dlclose(handle);
+            handle = nullptr;
+        }
+        return env->NewStringUTF(out.str().c_str());
+    };
+
+    dlerror();
+    handle = dlopen(path.c_str(), RTLD_LAZY | RTLD_LOCAL);
+    if (handle == nullptr) {
+        const char* errorMessage = dlerror();
+        const std::string detail = errorMessage != nullptr ? errorMessage : "dlopen returned NULL without linker error text.";
+        return finish("DIRECT_RUNTIME_DLOPEN_FAILED", detail);
+    }
+
+    dlerror();
+    auto negotiate = reinterpret_cast<PFN_xrNegotiateLoaderRuntimeInterface>(
+        dlsym(handle, "xrNegotiateLoaderRuntimeInterface")
+    );
+    const char* symbolError = dlerror();
+    if (negotiate == nullptr || symbolError != nullptr) {
+        const std::string detail = symbolError != nullptr ? symbolError : "Runtime negotiation export is missing.";
+        return finish("DIRECT_RUNTIME_NEGOTIATION_EXPORT_MISSING", detail);
+    }
+
+    XrNegotiateLoaderInfo loaderInfo{};
+    loaderInfo.structType = XR_LOADER_INTERFACE_STRUCT_LOADER_INFO;
+    loaderInfo.structVersion = XR_LOADER_INFO_STRUCT_VERSION;
+    loaderInfo.structSize = sizeof(XrNegotiateLoaderInfo);
+    loaderInfo.minInterfaceVersion = 1;
+    loaderInfo.maxInterfaceVersion = XR_CURRENT_LOADER_RUNTIME_VERSION;
+    loaderInfo.minApiVersion = XR_MAKE_VERSION(1, 0, 0);
+    loaderInfo.maxApiVersion = XR_CURRENT_API_VERSION;
+
+    XrNegotiateRuntimeRequest runtimeRequest{};
+    runtimeRequest.structType = XR_LOADER_INTERFACE_STRUCT_RUNTIME_REQUEST;
+    runtimeRequest.structVersion = XR_RUNTIME_INFO_STRUCT_VERSION;
+    runtimeRequest.structSize = sizeof(XrNegotiateRuntimeRequest);
+    negotiationResult = negotiate(&loaderInfo, &runtimeRequest);
+    if (negotiationResult != XR_SUCCESS || runtimeRequest.getInstanceProcAddr == nullptr) {
+        return finish(
+            "DIRECT_RUNTIME_NEGOTIATION_FAILED",
+            "Direct runtime negotiation failed or returned no xrGetInstanceProcAddr."
+        );
+    }
+
+    // The immediately preceding Khronos Loader smoke test successfully enumerated
+    // extensions in this process. Khronos 1.1.65 loads the RuntimeInterface during
+    // that call and forwards xrInitializeLoaderKHR to the negotiated runtime.
+    // Do not call xrInitializeLoaderKHR again here: Android runtimes may reject a
+    // second initialization attempt in the same process.
+
+    PFN_xrEnumerateInstanceExtensionProperties enumerateExtensions = nullptr;
+    extensionProcResult = runtimeRequest.getInstanceProcAddr(
+        XR_NULL_HANDLE, "xrEnumerateInstanceExtensionProperties",
+        reinterpret_cast<PFN_xrVoidFunction*>(&enumerateExtensions)
+    );
+    if (extensionProcResult != XR_SUCCESS || enumerateExtensions == nullptr) {
+        return finish(
+            "DIRECT_RUNTIME_EXTENSION_FUNCTION_UNAVAILABLE",
+            "The negotiated runtime did not provide xrEnumerateInstanceExtensionProperties."
+        );
+    }
+
+    enumerationResult = enumerateExtensions(nullptr, 0, &extensionCount, nullptr);
+    if (enumerationResult != XR_SUCCESS) {
+        return finish(
+            "DIRECT_RUNTIME_ENUMERATION_FAILED",
+            "Monado's direct xrEnumerateInstanceExtensionProperties call failed."
+        );
+    }
+    if (extensionCount > 4096) {
+        return finish(
+            "DIRECT_RUNTIME_ENUMERATION_INVALID_COUNT",
+            "Runtime returned an implausibly large extension count; allocation was refused."
+        );
+    }
+
+    extensions.resize(extensionCount);
+    for (auto& extension : extensions) {
+        extension.type = XR_TYPE_EXTENSION_PROPERTIES;
+        extension.next = nullptr;
+    }
+    if (extensionCount > 0) {
+        uint32_t writtenCount = 0;
+        enumerationResult = enumerateExtensions(
+            nullptr, extensionCount, &writtenCount, extensions.data()
+        );
+        if (enumerationResult != XR_SUCCESS) {
+            extensions.clear();
+            return finish(
+                "DIRECT_RUNTIME_ENUMERATION_FAILED",
+                "Monado's direct extension-list read failed."
+            );
+        }
+        if (writtenCount > extensions.size()) {
+            extensions.clear();
+            return finish(
+                "DIRECT_RUNTIME_ENUMERATION_INVALID_COUNT",
+                "Runtime reported more extensions than the supplied output capacity."
+            );
+        }
+        extensions.resize(writtenCount);
+        extensionCount = writtenCount;
+    }
+
+    const bool hasAndroidCreate = std::any_of(
+        extensions.begin(), extensions.end(),
+        [](const XrExtensionProperties& extension) {
+            return std::string(extension.extensionName) ==
+                XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME;
+        }
+    );
+    if (!hasAndroidCreate) {
+        createResult = XR_ERROR_EXTENSION_NOT_PRESENT;
+        return finish(
+            "DIRECT_ANDROID_EXTENSION_UNAVAILABLE",
+            "Monado's direct extension list does not contain XR_KHR_android_create_instance."
+        );
+    }
+
+    PFN_xrCreateInstance createInstance = nullptr;
+    createProcResult = runtimeRequest.getInstanceProcAddr(
+        XR_NULL_HANDLE, "xrCreateInstance",
+        reinterpret_cast<PFN_xrVoidFunction*>(&createInstance)
+    );
+    if (createProcResult != XR_SUCCESS || createInstance == nullptr) {
+        return finish(
+            "DIRECT_RUNTIME_CREATE_FUNCTION_UNAVAILABLE",
+            "The negotiated runtime did not provide a callable xrCreateInstance."
+        );
+    }
+
+    const char* enabledExtensions[] = {
+        XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME
+    };
+    XrInstanceCreateInfoAndroidKHR androidInfo{};
+    androidInfo.type = XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR;
+    androidInfo.next = nullptr;
+    androidInfo.applicationVM = vm;
+    androidInfo.applicationActivity = activityContext;
+
+    XrInstanceCreateInfo createInfo{};
+    createInfo.type = XR_TYPE_INSTANCE_CREATE_INFO;
+    createInfo.next = &androidInfo;
+    const char* appName = "QuestPhoneXR Direct Runtime Probe";
+    const char* engineName = "QuestPhoneXR";
+    std::copy(
+        appName, appName + std::char_traits<char>::length(appName),
+        createInfo.applicationInfo.applicationName
+    );
+    std::copy(
+        engineName, engineName + std::char_traits<char>::length(engineName),
+        createInfo.applicationInfo.engineName
+    );
+    createInfo.applicationInfo.applicationVersion = 1;
+    createInfo.applicationInfo.engineVersion = 1;
+    createInfo.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
+    createInfo.enabledExtensionCount = 1;
+    createInfo.enabledExtensionNames = enabledExtensions;
+
+    XrInstance instance = XR_NULL_HANDLE;
+    createResult = createInstance(&createInfo, &instance);
+    instanceHandleValid = instance != XR_NULL_HANDLE;
+    if (createResult == XR_SUCCESS && instanceHandleValid) {
+        PFN_xrDestroyInstance destroyInstance = nullptr;
+        destroyProcResult = runtimeRequest.getInstanceProcAddr(
+            instance, "xrDestroyInstance",
+            reinterpret_cast<PFN_xrVoidFunction*>(&destroyInstance)
+        );
+        if (destroyProcResult == XR_SUCCESS && destroyInstance != nullptr) {
+            destroyResult = destroyInstance(instance);
+            instanceDestroyed = destroyResult == XR_SUCCESS;
+        } else {
+            destroyResult = destroyProcResult;
+        }
+
+        const std::string detail = instanceDestroyed
+            ? "Direct Monado xrCreateInstance succeeded without the Khronos Loader or API layers; the diagnostic instance was destroyed immediately. If the preceding Loader call returned -51, the failure is above the direct runtime call path."
+            : "Direct Monado xrCreateInstance succeeded, but xrDestroyInstance could not complete cleanly; the diagnostic instance may remain active until this process exits.";
+        return finish(
+            instanceDestroyed ? "DIRECT_RUNTIME_INSTANCE_CREATED" : "DIRECT_RUNTIME_INSTANCE_CREATED_CLEANUP_WARNING",
+            detail
+        );
+    }
+
+    if (createResult == XR_SUCCESS) {
+        createResult = XR_ERROR_RUNTIME_FAILURE;
+    }
+    if (instanceHandleValid) {
+        PFN_xrDestroyInstance destroyInstance = nullptr;
+        destroyProcResult = runtimeRequest.getInstanceProcAddr(
+            instance, "xrDestroyInstance",
+            reinterpret_cast<PFN_xrVoidFunction*>(&destroyInstance)
+        );
+        if (destroyProcResult == XR_SUCCESS && destroyInstance != nullptr) {
+            destroyResult = destroyInstance(instance);
+            instanceDestroyed = destroyResult == XR_SUCCESS;
+        }
+    }
+    return finish(
+        "DIRECT_RUNTIME_INSTANCE_FAILED",
+        "Direct Monado xrCreateInstance failed without the Khronos Loader or API layers. The failure is inside the selected runtime call path, including its Android IPC startup; this does not yet identify the internal cause."
+    );
+}

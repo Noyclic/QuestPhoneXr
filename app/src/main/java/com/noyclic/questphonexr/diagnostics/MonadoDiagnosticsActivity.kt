@@ -141,9 +141,34 @@ class MonadoDiagnosticsActivity : ComponentActivity() {
                     }
                 loader?.let { appendLine(it.toDisplayText()) }
                 appendLine()
+                appendLine("=== DIRECT MONADO xrCreateInstance (WITHOUT LOADER / API LAYERS) ===")
+                val loaderFailedAfterEnumeration = loader?.let {
+                    it.extensionEnumerationResult == 0 &&
+                        it.instanceCreateResult != null &&
+                        it.instanceCreateResult != 0
+                } == true
+                if (loaderFailedAfterEnumeration) {
+                    val directCandidate = discovery?.activeCandidate
+                    if (directCandidate == null) {
+                        appendLine("Skipped: the active runtime library path was not discovered.")
+                    } else {
+                        appendLine("Runs after the Khronos Loader test in this same process. It reuses runtime initialization forwarded by the Loader and deliberately does not initialize Monado a second time.")
+                        appendLine(runCatching {
+                            OpenXrLoaderProbe.inspectRuntimeInstance(
+                                this@MonadoDiagnosticsActivity,
+                                directCandidate.libraryPath
+                            )
+                        }.getOrElse { error ->
+                            "Direct Monado instance probe exception: " + error.javaClass.simpleName + ": " + error.message
+                        })
+                    }
+                } else {
+                    appendLine("Skipped: direct comparison requires successful Khronos Loader extension enumeration followed by a failed xrCreateInstance in this process.")
+                }
+                appendLine()
                 appendLine("=== LIMITATIONS ===")
                 appendLine("No unrestricted system Logcat is available to a normal app on Android 15.")
-                appendLine("No XR session, Surface hand-off, swapchain, compositor or game was started.")
+                appendLine("No XR session, swapchain, compositor or game was started. The direct Monado test calls xrCreateInstance and may start runtime IPC; a successfully created diagnostic instance is destroyed immediately.")
                 appendLine("The report is local and is shared only after the user presses Share.")
             }.take(MAX_REPORT_CHARS)
 

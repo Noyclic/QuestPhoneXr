@@ -50,6 +50,7 @@ object OpenXrLoaderProbe {
 
     private external fun nativeProbe(context: Context): String
     private external fun nativeProbeRuntimeLibrary(path: String): String
+    private external fun nativeProbeRuntimeInstance(path: String, activity: Context): String
 
     private fun ensureNativeLibraryLoaded(): Boolean {
         if (!libraryLoaded) {
@@ -116,6 +117,73 @@ object OpenXrLoaderProbe {
             }
         }.getOrElse { error ->
             "Native runtime negotiation probe failed: " +
+                (error.message ?: error.javaClass.simpleName)
+        }
+    }
+
+    /**
+     * Calls the negotiated Monado runtime directly after the Khronos Loader smoke
+     * test has initialized it in this same process. This bypasses API layers.
+     */
+    fun inspectRuntimeInstance(context: Context, path: String): String {
+        if (!ensureNativeLibraryLoaded()) {
+            return "Direct runtime probe unavailable: " + (loadError ?: "unknown error")
+        }
+        return runCatching {
+            val root = JSONObject(nativeProbeRuntimeInstance(path, context))
+            buildString {
+                append("Результат прямого вызова Monado: ")
+                    .append(root.optString("status", "UNKNOWN"))
+                root.optString("path").takeIf { it.isNotBlank() }?.let {
+                    append("\nПуть: ").append(it)
+                }
+                if (root.has("negotiationResult")) {
+                    append("\nDirect negotiation: ")
+                        .append(root.optString("negotiationResultName", root.optInt("negotiationResult").toString()))
+                }
+                if (root.has("directExtensionProcResult")) {
+                    append("\nПрямое получение xrEnumerateInstanceExtensionProperties: ")
+                        .append(root.optInt("directExtensionProcResult"))
+                }
+                if (root.has("directExtensionEnumerationResult")) {
+                    append("\nПрямое перечисление расширений Monado: ")
+                        .append(root.optInt("directExtensionEnumerationResult"))
+                        .append(" (").append(root.optInt("directExtensionCount")).append(")")
+                }
+                if (root.has("directCreateProcResult")) {
+                    append("\nПрямое получение xrCreateInstance: ")
+                        .append(root.optInt("directCreateProcResult"))
+                }
+                if (root.has("directInstanceCreateResult")) {
+                    append("\nПрямой xrCreateInstance Monado: ")
+                        .append(root.optString(
+                            "directInstanceCreateResultName",
+                            root.optInt("directInstanceCreateResult").toString()
+                        ))
+                        .append(" (").append(root.optInt("directInstanceCreateResult")).append(")")
+                }
+                if (root.has("directInstanceHandleValid")) {
+                    append("\nДескриптор Instance: ")
+                        .append(if (root.optBoolean("directInstanceHandleValid")) "получен" else "NULL")
+                }
+                if (root.has("directInstanceDestroyResult")) {
+                    append("\nПрямой xrDestroyInstance: ")
+                        .append(root.optInt("directInstanceDestroyResult"))
+                }
+                root.optString("message").takeIf { it.isNotBlank() }?.let {
+                    append("\n").append(it)
+                }
+                val extensions = root.optJSONArray("runtimeExtensions")
+                if (extensions != null && extensions.length() > 0) {
+                    append("\nРасширения, полученные напрямую от Monado (")
+                        .append(extensions.length()).append("):\n")
+                    for (index in 0 until extensions.length()) {
+                        append("• ").append(extensions.optString(index)).append("\n")
+                    }
+                }
+            }
+        }.getOrElse { error ->
+            "Direct Monado xrCreateInstance probe failed: " +
                 (error.message ?: error.javaClass.simpleName)
         }
     }
