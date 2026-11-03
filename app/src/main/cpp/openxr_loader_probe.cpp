@@ -98,6 +98,39 @@ std::string makeReport(
     return out.str();
 }
 
+std::string summarizeAvailableApiLayers() {
+    uint32_t layerCount = 0;
+    XrResult result = xrEnumerateApiLayerProperties(0, &layerCount, nullptr);
+    std::vector<XrApiLayerProperties> layers;
+    if (result == XR_SUCCESS && layerCount > 0) {
+        layers.resize(layerCount);
+        for (auto& layer : layers) {
+            layer.type = XR_TYPE_API_LAYER_PROPERTIES;
+            layer.next = nullptr;
+        }
+        uint32_t writtenCount = 0;
+        result = xrEnumerateApiLayerProperties(
+            layerCount, &writtenCount, layers.data()
+        );
+        if (result == XR_SUCCESS) {
+            layers.resize(writtenCount);
+        } else {
+            layers.clear();
+        }
+    }
+
+    std::ostringstream summary;
+    summary << "apiLayerEnumerationResult=" << static_cast<int>(result)
+            << "; discoveredApiLayerCount=" << layers.size();
+    for (const auto& layer : layers) {
+        summary << "; availableApiLayer=" << layer.layerName
+                << " (spec " << XR_VERSION_MAJOR(layer.specVersion) << "."
+                << XR_VERSION_MINOR(layer.specVersion)
+                << ", implementation " << layer.layerVersion << ")";
+    }
+    return summary.str();
+}
+
 struct FrameLoopSubmission {
     const char* status;
     XrResult result;
@@ -607,6 +640,7 @@ Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbe(
                 << "; enabledExtensions=[" << XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME << "]";
         details << "; note=This same Khronos Loader call successfully enumerated " << extensionCount
                 << " extension(s) through the Khronos Loader immediately before xrCreateInstance. With the pinned OpenXR Loader 1.1.65, this non-layer-specific enumeration loads and caches RuntimeInterface; the subsequent xrCreateInstance reuses it and does not need a fresh runtime-manifest lookup. The application requested zero explicit API layers, but Android/Khronos implicit layers may still be loaded and were not enumerated by this probe. Therefore -51 may originate in an enabled implicit layer or in the selected runtime's xrCreateInstance. Capture Loader/Monado logs and inspect API-layer discovery to identify the exact source.";
+        details << "; " << summarizeAvailableApiLayers();
         if (createResult == XR_SUCCESS) {
             details << "; runtime returned XR_SUCCESS but left XrInstance null";
         }
@@ -1402,6 +1436,7 @@ Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativeCreateSe
         if (result == XR_ERROR_RUNTIME_UNAVAILABLE) {
             details << "; note=This same Khronos Loader process successfully enumerated " << extensions.size()
                     << " extensions through the Khronos Loader immediately before xrCreateInstance. With the pinned OpenXR Loader 1.1.65, this non-layer-specific enumeration loads and caches RuntimeInterface; the subsequent xrCreateInstance reuses it and does not need a fresh manifest/library lookup. The application requested zero explicit API layers, but Android/Khronos implicit layers may still be loaded and were not enumerated by this probe. Therefore -51 may originate in an enabled implicit layer or in the selected runtime's xrCreateInstance. Capture Loader/Monado logs and inspect API-layer discovery to identify the exact source.";
+            details << "; " << summarizeAvailableApiLayers();
         }
         if (result == XR_SUCCESS) {
             details << "; runtime returned XR_SUCCESS but left XrInstance null";
