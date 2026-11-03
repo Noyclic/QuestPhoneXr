@@ -31,12 +31,28 @@ QuestPhoneXR must not manually duplicate this private protocol in parallel with 
 - Always tear down in reverse order and report the exact failing stage and XrResult.
 - This remains a bounded hardware-validation probe. It does not yet keep an OpenXR session alive between frames/callbacks, render the Sandbox scene into the OpenXR swapchain, provide camera passthrough, expose hand tracking as OpenXR actions, add controller actions, or execute arbitrary Quest APKs.
 
-## Next milestone: persistent Sandbox session
-1. Refactor native initialization, per-frame submission and teardown into a persistent session object with explicit lifecycle states.
-2. Create/destroy that object only on the SandboxActivity GLES 3 GL thread, using the SandboxActivity's own current EGL context and window surface.
-3. Handle Android pause/resume, surface recreation, READY/STOPPING/EXITING and swapchain image ownership without blocking the UI thread.
-4. Keep the existing phone-view Sandbox renderer as a fallback until the persistent OpenXR path is device-verified.
-5. Route scene rendering into both eyes only after session lifecycle and compositor submission are stable; don't treat a diagnostic clear-only frame as completed Sandbox integration.
+## Persistent-session implementation status
+
+The first persistent-session slice is now implemented in the isolated `:xr_runtime_probe` process:
+
+- `OpenXrPersistentGlesSession` owns the native OpenXR instance, session, LOCAL space, stereo swapchain and swapchain image list between GL callbacks.
+- `nativeCreateSession`, `nativeRenderFrame`, `nativePauseSession`, `nativeResumeSession` and `nativeDestroySession` form the native lifecycle boundary.
+- A render callback submits at most one stereo projection frame. It does not create or destroy the OpenXR instance/session/swapchain for each frame.
+- The loop processes READY and STOPPING events, begins only after READY, and pauses by requesting session exit before the Activity releases its GL thread.
+- The diagnostic screen displays a submitted-frame counter and stops issuing native frame calls after a stage failure.
+- EGL context identity is checked on every render callback. If the context is recreated, the Activity destroys stale session resources and creates a new session on the new GL context.
+- The process remains isolated because Monado's Android Surface/IPC path previously caused a native-side crash. Binder reachability is not proof that Surface handoff is safe.
+
+This is a **persistent runtime validation screen**, not yet the persistent Sandbox renderer. It currently clears the two swapchain eye layers; the existing Sandbox still renders to its own phone-view surface and does not submit its scene through this session. The Sandbox Activity therefore remains protected from native runtime failures.
+
+## Next milestone: migrate the proven owner into Sandbox
+
+1. Verify the persistent screen on the Redmi: reach READY, submit multiple frames over time, pause/resume, stop and restart without losing the runtime.
+2. Only after device verification, move the native session owner into the Sandbox process and bind it to the SandboxActivity's own active GLES 3 context.
+3. Preserve the phone-view Sandbox renderer as a fallback until the in-Sandbox session and compositor path are device-verified.
+4. Route the existing scene into both eyes only after session lifecycle and compositor submission are stable; a clear-only diagnostic frame is not completed Sandbox integration.
+5. Later, add camera passthrough, MediaPipe hand actions and controller actions; a persistent OpenXR session alone does not provide these.
+
 
 ## Success criteria
 A device report says SUSTAINED_FRAMES_SUBMITTED_GLES only after one xrBeginSession and 30 complete consecutive stereo frame cycles with successful xrEndFrame calls. The legacy FIRST_FRAME_SUBMITTED_GLES status remains recognized for older APKs. A created swapchain or a single successful frame alone is not sustained-loop success.
