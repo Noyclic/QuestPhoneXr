@@ -605,7 +605,8 @@ Java_com_noyclic_questphonexr_runtime_OpenXrLoaderProbe_nativeProbe(
                 << "; instanceHandle=" << (instance == XR_NULL_HANDLE ? "NULL" : "valid")
                 << "; requestedApiVersion=1.0.0"
                 << "; enabledExtensions=[" << XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME << "]"
-                << "; note=XR_ERROR_RUNTIME_UNAVAILABLE means the Khronos loader could not find or load an active OpenXR runtime; successful extension enumeration alone does not prove that Monado was loaded";
+        details << "; note=This same Khronos Loader call successfully enumerated " << extensionCount
+                << " runtime extension(s) immediately before xrCreateInstance. With the pinned OpenXR Loader 1.1.65, that enumeration loads and caches RuntimeInterface; the subsequent xrCreateInstance reuses it and forwards the call through the runtime's xrGetInstanceProcAddr. Therefore -51 here is not evidence of a fresh runtime-manifest lookup failure. With zero API layers enabled, the leading explanation is that the selected runtime's xrCreateInstance returned -51. Capture Monado/Loader logs to determine the internal cause.";
         if (createResult == XR_SUCCESS) {
             details << "; runtime returned XR_SUCCESS but left XrInstance null";
         }
@@ -1399,7 +1400,8 @@ Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativeCreateSe
                 << "; advertisedExtensionCount=" << extensions.size()
                 << "; loaderInitialized=" << (loaderInitialized ? "true" : "false");
         if (result == XR_ERROR_RUNTIME_UNAVAILABLE) {
-            details << "; diagnosis=Khronos loader could not find or load the selected runtime manifest/runtime library. Check Android runtime selection/manifest registration and Monado service startup; this failure occurs before graphics binding or session creation.";
+            details << "; note=This same Khronos Loader process successfully enumerated " << extensions.size()
+                    << " runtime extensions immediately before xrCreateInstance. With the pinned OpenXR Loader 1.1.65, RuntimeInterface is loaded during enumeration and reused for instance creation; the call is forwarded through the selected runtime's xrGetInstanceProcAddr. Therefore -51 here is not evidence of a fresh manifest/library lookup failure. With zero API layers enabled, the leading explanation is that the selected runtime's xrCreateInstance returned -51. Capture Monado/Loader logs to determine the internal cause.";
         }
         if (result == XR_SUCCESS) {
             details << "; runtime returned XR_SUCCESS but left XrInstance null";
