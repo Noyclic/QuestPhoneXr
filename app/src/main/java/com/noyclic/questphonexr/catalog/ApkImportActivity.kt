@@ -226,11 +226,44 @@ class ApkImportActivity : ComponentActivity() {
             card.addView(text("• $warning", 12f, 0xFFFFD28A.toInt())
                 .apply { setPadding(0, dp(6), 0, 0) })
         }
+
+        val apkFile = File(filesDir, "imported-apks/${info.fileName}")
+        val missingFeatures = info.requiredFeatures.filterNot {
+            packageManager.hasSystemFeature(it)
+        }.toSet()
+        val runtimeAssessment = ApkRuntimeCompatibility.inspect(
+            info = info,
+            archive = apkFile,
+            deviceApiLevel = android.os.Build.VERSION.SDK_INT,
+            supportedAbis = android.os.Build.SUPPORTED_ABIS.toList(),
+            missingRequiredFeatures = missingFeatures
+        )
+        card.addView(text(
+            "Маршрут совместимости: ${runtimeAssessment.route.label}",
+            12f,
+            if (runtimeAssessment.route == ApkLaunchRoute.ANDROID_APP_CANDIDATE) 0xFF8FE0B5.toInt() else 0xFFFFD28A.toInt(),
+            Typeface.BOLD
+        ).apply { setPadding(0, dp(9), 0, dp(3)) })
+        card.addView(text(
+            "Движок: ${runtimeAssessment.engine}" +
+                (runtimeAssessment.xrTechnologies.takeIf { it.isNotEmpty() }?.joinToString(
+                    prefix = " · XR: "
+                ) ?: ""),
+            11f,
+            0xFFB8C7DB.toInt()
+        ))
+        runtimeAssessment.details.forEach { detail ->
+            card.addView(text("• $detail", 11f, 0xFFAAB4C2.toInt())
+                .apply { setPadding(0, dp(4), 0, 0) })
+        }
         card.addView(text(
             "Импортировано: " + SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
                 .format(Date(info.importedAtEpochMs)),
             11f, 0xFF8994A5.toInt()
         ).apply { setPadding(0, dp(7), 0, dp(5)) })
+        card.addView(button("Открыть установленное приложение").apply {
+            setOnClickListener { launchInstalled(info) }
+        })
         card.addView(button("Установить на Android").apply {
             setOnClickListener { installOnAndroid(info) }
         })
@@ -256,6 +289,20 @@ class ApkImportActivity : ComponentActivity() {
         return card
     }
 
+
+    private fun launchInstalled(info: ImportedApkInfo) {
+        val launchIntent = packageManager.getLaunchIntentForPackage(info.packageName)
+        if (launchIntent == null) {
+            statusView.text = "Для ${info.displayName} не найдено установленное Android-приложение с экраном запуска. Сначала установи APK или проверь, поддерживает ли он обычный Android."
+            return
+        }
+        runCatching {
+            startActivity(launchIntent)
+            statusView.text = "Открываем ${info.displayName} как отдельное Android-приложение. Это не запуск внутри VR-оболочки."
+        }.onFailure { error ->
+            statusView.text = "Android не смог открыть приложение: ${error.message ?: "ошибка запуска"}"
+        }
+    }
 
     private fun installOnAndroid(info: ImportedApkInfo) {
         val archive = File(filesDir, "imported-apks/${info.fileName}")
