@@ -95,6 +95,7 @@ class MonadoDiagnosticsActivity : ComponentActivity() {
                 appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
                 appendLine("Android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
                 appendLine("ABI: ${Build.SUPPORTED_ABIS.joinToString()}")
+                appendLine("Diagnostics process: ${android.app.Application.getProcessName()} (pid ${android.os.Process.myPid()})")
                 appendLine()
                 appendLine("=== OPENXR RUNTIME BROKER ===")
                 val discovery = runCatching { OpenXrRuntimeDiscovery.inspect(this@MonadoDiagnosticsActivity) }
@@ -114,7 +115,7 @@ class MonadoDiagnosticsActivity : ComponentActivity() {
                         appendLine("Function remapping: ${candidate.hasFunctionRemapping}")
                         appendLine()
                         appendLine("--- DIRECT MONADO LIBRARY LOAD / NEGOTIATION ---")
-                        appendLine("This checks dlopen + xrNegotiateLoaderRuntimeInterface only; it does not create an XrInstance or start a session.")
+                        appendLine("Independent dlopen + xrNegotiateLoaderRuntimeInterface check only. It does not call xrInitializeLoaderKHR, does not test Khronos Loader manifest selection, and does not call runtime xrCreateInstance or start a session.")
                         appendLine(runCatching {
                             OpenXrLoaderProbe.inspectRuntimeLibrary(candidate.libraryPath)
                         }.getOrElse { error ->
