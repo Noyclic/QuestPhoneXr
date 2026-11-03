@@ -14,7 +14,7 @@ class MonadoVulkanPrerequisitesTest {
             extensions = mapOf(
                 "VK_ANDROID_external_memory_android_hardware_buffer" to true
             ),
-            handles = listOf(handle("ANDROID_HARDWARE_BUFFER buffer", importable = true))
+            handles = listOf(handle("ANDROID_HARDWARE_BUFFER image RGBA8", importable = true))
         )))
 
         assertEquals(MonadoVulkanPrerequisiteState.AHB_PATH_CANDIDATE, result.state)

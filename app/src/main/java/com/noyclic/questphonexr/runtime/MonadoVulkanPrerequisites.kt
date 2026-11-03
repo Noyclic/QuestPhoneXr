@@ -72,7 +72,7 @@ object MonadoVulkanPrerequisites {
         }
 
         val ahb = devices.firstOrNull { device ->
-            val handle = device.externalHandles.firstOrNull { it.name == "ANDROID_HARDWARE_BUFFER buffer" }
+            val handle = device.externalHandles.firstOrNull { it.name == "ANDROID_HARDWARE_BUFFER image RGBA8" }
             device.extensions[AHB] == true && handle?.queried == true && handle.importable
         }
         if (ahb != null) {

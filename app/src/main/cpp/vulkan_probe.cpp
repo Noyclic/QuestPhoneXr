@@ -87,6 +87,45 @@ ExternalChecks queryBufferHandle(
     return result;
 }
 
+ExternalChecks queryAhbImage(VkPhysicalDevice physicalDevice) {
+    ExternalChecks result;
+#if defined(VK_VERSION_1_1) && defined(VK_ANDROID_external_memory_android_hardware_buffer)
+    VkPhysicalDeviceExternalImageFormatInfo externalInfo{};
+    externalInfo.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO;
+    externalInfo.handleType =
+        VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID;
+
+    VkPhysicalDeviceImageFormatInfo2 imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2;
+    imageInfo.pNext = &externalInfo;
+    imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    imageInfo.type = VK_IMAGE_TYPE_2D;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.flags = 0;
+
+    VkExternalImageFormatProperties externalProperties{};
+    externalProperties.sType = VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES;
+
+    VkImageFormatProperties2 imageProperties{};
+    imageProperties.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
+    imageProperties.pNext = &externalProperties;
+
+    const VkResult queryResult = vkGetPhysicalDeviceImageFormatProperties2(
+        physicalDevice, &imageInfo, &imageProperties);
+    result.queried = true;
+    if (queryResult == VK_SUCCESS) {
+        const auto features =
+            externalProperties.externalMemoryProperties.externalMemoryFeatures;
+        result.importable =
+            (features & VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT) != 0;
+        result.exportable =
+            (features & VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT) != 0;
+    }
+#endif
+    return result;
+}
+
 ExternalChecks querySemaphoreHandle(
     VkPhysicalDevice physicalDevice,
     VkExternalSemaphoreHandleTypeFlagBits handleType
@@ -228,7 +267,7 @@ std::string probe() {
             dmaBuf = queryBufferHandle(physicalDevice, VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT);
 #endif
 #if defined(VK_ANDROID_external_memory_android_hardware_buffer)
-            ahbBuffer = queryBufferHandle(physicalDevice, VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID);
+            ahbBuffer = queryAhbImage(physicalDevice);
 #endif
         }
 
@@ -252,7 +291,7 @@ std::string probe() {
         out << ",";
         appendCheck(out, "DMA_BUF buffer", dmaBuf);
         out << ",";
-        appendCheck(out, "ANDROID_HARDWARE_BUFFER buffer", ahbBuffer);
+        appendCheck(out, "ANDROID_HARDWARE_BUFFER image RGBA8", ahbBuffer);
         out << ",";
         appendCheck(out, "OPAQUE_FD semaphore", opaqueSemaphore);
         out << ",";
