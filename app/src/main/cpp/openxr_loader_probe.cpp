@@ -1027,7 +1027,9 @@ void destroyPersistentGlesSession(JNIEnv* env) {
                 if (changed->session == state.session) {
                     state.sessionState = changed->state;
                     if (changed->state == XR_SESSION_STATE_STOPPING) {
-                        stopped = xrEndSession(state.session) == XR_SUCCESS;
+                        const XrResult endResult = xrEndSession(state.session);
+                        stopped = endResult == XR_SUCCESS ||
+                            endResult == XR_SESSION_LOSS_PENDING;
                         break;
                     }
                     if (changed->state == XR_SESSION_STATE_EXITING ||
@@ -1094,12 +1096,18 @@ bool persistentPollEvents(std::string& errorMessage, XrResult& errorResult) {
                 }
                 if (changed->state == XR_SESSION_STATE_STOPPING && state.sessionBegun) {
                     const XrResult endResult = xrEndSession(state.session);
-                    if (endResult != XR_SUCCESS) {
+                    if (endResult != XR_SUCCESS && endResult != XR_SESSION_LOSS_PENDING) {
                         errorMessage = "xrEndSession failed while processing STOPPING.";
                         errorResult = endResult;
                         return false;
                     }
                     state.sessionBegun = false;
+                    if (endResult == XR_SESSION_LOSS_PENDING) {
+                        state.sessionState = XR_SESSION_STATE_LOSS_PENDING;
+                        errorMessage = "The runtime reported session loss while ending the session.";
+                        errorResult = XR_SESSION_LOSS_PENDING;
+                        return false;
+                    }
                 }
             }
         }
@@ -1794,6 +1802,15 @@ Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativePauseSes
     }
 
     XrResult result = xrRequestExitSession(state.session);
+    if (result == XR_SESSION_LOSS_PENDING) {
+        state.sessionState = XR_SESSION_STATE_LOSS_PENDING;
+        state.sessionBegun = false;
+        return env->NewStringUTF(persistentReport(
+            "SESSION_PAUSED_RUNTIME_EXIT",
+            "xrRequestExitSession reported that the runtime session is being lost.",
+            result
+        ).c_str());
+    }
     if (result != XR_SUCCESS) {
         return env->NewStringUTF(persistentReport(
             "PAUSE_REQUEST_FAILED", "xrRequestExitSession failed during Activity pause.", result
@@ -1813,8 +1830,16 @@ Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativePauseSes
                 state.sessionState = changed->state;
                 if (changed->state == XR_SESSION_STATE_STOPPING) {
                     result = xrEndSession(state.session);
-                    if (result == XR_SUCCESS) {
+                    if (result == XR_SUCCESS || result == XR_SESSION_LOSS_PENDING) {
                         state.sessionBegun = false;
+                        if (result == XR_SESSION_LOSS_PENDING) {
+                            state.sessionState = XR_SESSION_STATE_LOSS_PENDING;
+                            return env->NewStringUTF(persistentReport(
+                                "SESSION_PAUSED_RUNTIME_EXIT",
+                                "Runtime reported session loss while ending the paused session.",
+                                result
+                            ).c_str());
+                        }
                         return env->NewStringUTF(persistentReport(
                             "SESSION_PAUSED", "Runtime reached STOPPING and xrEndSession completed."
                         ).c_str());
