@@ -25,9 +25,6 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.Executors
-import com.noyclic.questphonexr.runtime.OpenXrRuntimeDiscovery
-import com.noyclic.questphonexr.runtime.OpenXrRuntimeDiscoveryReport
-import com.noyclic.questphonexr.runtime.OpenXrLaunchCoordinator
 
 /** Imports APK archives into app-private storage and displays a manifest-only report. */
 class ApkImportActivity : ComponentActivity() {
@@ -195,11 +192,10 @@ class ApkImportActivity : ComponentActivity() {
             ).apply { setPadding(0, dp(16), 0, dp(16)) })
             return
         }
-        val runtimeReport = OpenXrRuntimeDiscovery.inspect(this)
-        entries.forEach { info -> entriesContainer.addView(createEntryCard(info, runtimeReport)) }
+        entries.forEach { info -> entriesContainer.addView(createEntryCard(info)) }
     }
 
-    private fun createEntryCard(info: ImportedApkInfo, runtimeReport: OpenXrRuntimeDiscoveryReport): LinearLayout {
+    private fun createEntryCard(info: ImportedApkInfo): LinearLayout {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(0xFF202630.toInt(), dp(12).toFloat())
@@ -260,16 +256,6 @@ class ApkImportActivity : ComponentActivity() {
             card.addView(text("• $detail", 11f, 0xFFAAB4C2.toInt())
                 .apply { setPadding(0, dp(4), 0, 0) })
         }
-        if (runtimeAssessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE) {
-            val readiness = OpenXrLaunchCoordinator.evaluate(
-                runtimeAssessment.route,
-                runtimeReport,
-                packageManager.getLaunchIntentForPackage(info.packageName) != null
-            )
-            card.addView(text("OpenXR preflight: ${readiness.message}", 11f,
-                if (readiness.canHandOffToAndroid) 0xFF8FE0B5.toInt() else 0xFFFFD28A.toInt())
-                .apply { setPadding(0, dp(7), 0, dp(2)) })
-        }
         card.addView(text(
             "Импортировано: " + SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
                 .format(Date(info.importedAtEpochMs)),
@@ -314,20 +300,18 @@ class ApkImportActivity : ComponentActivity() {
         val missing = info.requiredFeatures.filterNot { packageManager.hasSystemFeature(it) }.toSet()
         val assessment = ApkRuntimeCompatibility.inspect(info, archive, android.os.Build.VERSION.SDK_INT,
             android.os.Build.SUPPORTED_ABIS.toList(), missing)
-        if (assessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE ||
-            assessment.route == ApkLaunchRoute.QUEST_RUNTIME_REQUIRED ||
-            assessment.route == ApkLaunchRoute.DEVICE_REQUIREMENTS_BLOCKED
+        if (assessment.route == ApkLaunchRoute.DEVICE_REQUIREMENTS_BLOCKED ||
+            assessment.route == ApkLaunchRoute.QUEST_RUNTIME_REQUIRED
         ) {
-            val readiness = OpenXrLaunchCoordinator.evaluate(
-                assessment.route, OpenXrRuntimeDiscovery.inspect(this), isInstalled = true
-            )
-            if (!readiness.canHandOffToAndroid) {
-                statusView.text = "Предварительная проверка остановила запуск: ${readiness.message}"
-                return
+            statusView.text = assessment.details.joinToString("\n").ifBlank {
+                "Для этого APK пока нет совместимого маршрута запуска."
             }
+            return
+        }
+        if (assessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE) {
             runCatching {
                 startActivity(launchIntent)
-                statusView.text = "Передано Android. Runtime найден, но xrCreateInstance, графика и запуск игры ещё не подтверждены."
+                statusView.text = "Передано Android. Собственный EndXR Runtime пока разрабатывается; запуск XR-игры ещё не гарантирован."
             }.onFailure { error ->
                 statusView.text = "Не удалось открыть приложение: ${error.message ?: "ошибка запуска"}"
             }
