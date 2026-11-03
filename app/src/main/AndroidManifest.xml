@@ -7,6 +7,7 @@
     <uses-permission android:name="org.khronos.openxr.permission.OPENXR_SYSTEM" />
 
     <queries>
+        <package android:name="org.khronos.openxr.runtime_broker" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
