@@ -268,9 +268,11 @@ class SandboxSimulation {
         val y = if (kotlin.math.abs(movement.stickY) > PLAYER_STICK_DEADZONE) movement.stickY else 0f
         if (x == 0f && y == 0f) return
         playerPosition = SandboxVector3(
-            x = (playerPosition.x + x * PLAYER_MOVE_SPEED * deltaSeconds).coerceIn(-PLAYER_WORLD_LIMIT, PLAYER_WORLD_LIMIT),
+            x = (playerPosition.x + x * PLAYER_MOVE_SPEED * deltaSeconds)
+                .coerceIn(-PLAYER_X_LIMIT, PLAYER_X_LIMIT),
             y = 0f,
-            z = (playerPosition.z + y * PLAYER_MOVE_SPEED * deltaSeconds).coerceIn(-PLAYER_WORLD_LIMIT, PLAYER_WORLD_LIMIT)
+            z = (playerPosition.z + y * PLAYER_MOVE_SPEED * deltaSeconds)
+                .coerceIn(PLAYER_MIN_Z, PLAYER_MAX_Z)
         )
     }
 
@@ -423,7 +425,10 @@ class SandboxSimulation {
         private const val GAMEPAD_STICK_DEADZONE = 0.16f
         private const val PLAYER_STICK_DEADZONE = 0.16f
         private const val PLAYER_MOVE_SPEED = 2.4f
-        private const val PLAYER_WORLD_LIMIT = 40f
+        // Keep Joy-Con locomotion inside the new 12 m × 12 m arena platform.
+        private const val PLAYER_X_LIMIT = 5.0f
+        private const val PLAYER_MIN_Z = -9.5f
+        private const val PLAYER_MAX_Z = 1.2f
         private const val GAMEPAD_REACH_WIDTH = 3.0f
         private const val GAMEPAD_REACH_HEIGHT = 2.15f
         private const val GRAB_THRESHOLD = 0.45f
