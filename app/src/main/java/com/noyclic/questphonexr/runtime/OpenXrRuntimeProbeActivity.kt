@@ -34,6 +34,7 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
     @Volatile private var sessionRequested = false
     @Volatile private var nativeSessionCreated = false
     @Volatile private var lastStatusUpdateMs = 0L
+    private var lastXrFrameAttemptNanos = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -82,6 +83,11 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
 
                 override fun onDrawFrame(gl: javax.microedition.khronos.opengles.GL10?) {
                     if (!sessionRequested || !nativeSessionCreated) return
+                    val frameStartNanos = System.nanoTime()
+                    if (lastXrFrameAttemptNanos != 0L &&
+                        frameStartNanos - lastXrFrameAttemptNanos < MIN_RUNTIME_FRAME_INTERVAL_NANOS
+                    ) return
+                    lastXrFrameAttemptNanos = frameStartNanos
                     val report = OpenXrPersistentGlesSession.renderFrame()
                     val now = SystemClock.uptimeMillis()
                     val isSteadyFrame = report.status == "FRAME_SUBMITTED" ||
@@ -157,7 +163,7 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
                 textSize = 12f
             })
             addView(TextView(this@OpenXrRuntimeProbeActivity).apply {
-                text = "Сессия и swapchain создаются один раз. Каждый GL callback отправляет один стереокадр; пауза и возврат обрабатываются отдельно."
+                text = "Сессия и swapchain создаются один раз. XR-цикл ограничен ${TARGET_RUNTIME_FPS} кадр/с; пауза и возврат обрабатываются отдельно."
                 setTextColor(0xFFD4DCE8.toInt())
                 textSize = 12f
                 setPadding(0, 6, 0, 8)
@@ -198,6 +204,7 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
     private fun startPersistentSession() {
         if (!glReady || sessionRequested || isFinishing) return
         sessionRequested = true
+        lastXrFrameAttemptNanos = 0L
         runButton.isEnabled = false
         runButton.text = "Создаём XR-сессию…"
         statusView.text = "Инициализация OpenXR выполняется на GLES GL-потоке…"
@@ -214,6 +221,7 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
     private fun stopPersistentSession() {
         if (!sessionRequested && !nativeSessionCreated) return
         sessionRequested = false
+        lastXrFrameAttemptNanos = 0L
         runButton.isEnabled = false
         runButton.text = "Останавливаем XR-сессию…"
         glView.queueEvent {
@@ -269,6 +277,7 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
         if (::glView.isInitialized) {
             glView.onResume()
             if (sessionRequested && nativeSessionCreated) {
+                lastXrFrameAttemptNanos = 0L
                 glView.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
                 glView.queueEvent {
                     val report = OpenXrPersistentGlesSession.resume()
@@ -283,6 +292,7 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
     override fun onPause() {
         if (::glView.isInitialized) {
             val shouldDestroy = isFinishing
+            lastXrFrameAttemptNanos = 0L
             if (nativeSessionCreated) {
                 glView.queueEvent {
                     val report = if (shouldDestroy) {
@@ -308,5 +318,8 @@ class OpenXrRuntimeProbeActivity : ComponentActivity() {
 
     companion object {
         private const val STATUS_UPDATE_INTERVAL_MS = 500L
+        private const val TARGET_RUNTIME_FPS = 30L
+        private const val MIN_RUNTIME_FRAME_INTERVAL_NANOS =
+            1_000_000_000L / TARGET_RUNTIME_FPS
     }
 }
