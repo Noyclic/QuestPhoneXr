@@ -986,6 +986,17 @@ struct PersistentGlesSessionState {
     bool paused = false;
     bool created = false;
     uint64_t submittedFrames = 0;
+    uint64_t poseSamples = 0;
+    uint64_t orientationValidSamples = 0;
+    uint64_t positionValidSamples = 0;
+    uint64_t fullTrackingSamples = 0;
+    uint32_t lastViewStateFlags = 0;
+    bool hasInitialHeadPosition = false;
+    bool hasInitialHeadOrientation = false;
+    XrVector3f initialHeadPosition{};
+    XrQuaternionf initialHeadOrientation{};
+    double maxHeadPositionDeltaMeters = 0.0;
+    double maxHeadRotationDeltaDegrees = 0.0;
     std::string glVersion;
 };
 
@@ -1002,9 +1013,18 @@ std::string persistentReport(
     const uint64_t displayedFrameCount =
         overrideFrameCount ? frameCount : persistentSession.submittedFrames;
     std::ostringstream out;
+    out << std::fixed << std::setprecision(6);
     out << R"({"status":")" << status
         << R"(","xrResult":)" << static_cast<int>(result)
         << R"(","framesSubmitted":)" << displayedFrameCount
+        << R"(,"sessionState":)" << static_cast<int>(persistentSession.sessionState)
+        << R"(,"poseSamples":)" << persistentSession.poseSamples
+        << R"(,"orientationValidSamples":)" << persistentSession.orientationValidSamples
+        << R"(,"positionValidSamples":)" << persistentSession.positionValidSamples
+        << R"(,"fullTrackingSamples":)" << persistentSession.fullTrackingSamples
+        << R"(,"lastViewStateFlags":)" << persistentSession.lastViewStateFlags
+        << R"(,"maxHeadPositionDeltaMeters":)" << persistentSession.maxHeadPositionDeltaMeters
+        << R"(,"maxHeadRotationDeltaDegrees":)" << persistentSession.maxHeadRotationDeltaDegrees
         << R"(,"message":")" << jsonEscape(message) << R"("})";
     return out.str();
 }
@@ -1545,6 +1565,17 @@ Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativeCreateSe
     state.paused = false;
     state.created = true;
     state.submittedFrames = 0;
+    state.poseSamples = 0;
+    state.orientationValidSamples = 0;
+    state.positionValidSamples = 0;
+    state.fullTrackingSamples = 0;
+    state.lastViewStateFlags = 0;
+    state.hasInitialHeadPosition = false;
+    state.hasInitialHeadOrientation = false;
+    state.initialHeadPosition = {};
+    state.initialHeadOrientation = {};
+    state.maxHeadPositionDeltaMeters = 0.0;
+    state.maxHeadRotationDeltaDegrees = 0.0;
     std::ostringstream message;
     message << "Persistent OpenXR GLES session and stereo swapchain created on the isolated GL thread. "
             << "Waiting for READY; " << state.glVersion << ", " << state.width
@@ -1658,6 +1689,54 @@ Java_com_noyclic_questphonexr_runtime_OpenXrPersistentGlesSession_nativeRenderFr
             "LOCATE_VIEWS_FAILED", "xrLocateViews did not return both stereo eye poses.",
             result == XR_SUCCESS ? XR_ERROR_VALIDATION_FAILURE : result
         ).c_str());
+    }
+
+    // Track validity independently: runtimes may report orientation without
+    // positional tracking, which is still useful 3DoF data for this phone.
+    state.lastViewStateFlags = viewState.viewStateFlags;
+    ++state.poseSamples;
+    const bool orientationValid =
+        (viewState.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT) != 0;
+    const bool positionValid =
+        (viewState.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT) != 0;
+    if (orientationValid) ++state.orientationValidSamples;
+    if (positionValid) ++state.positionValidSamples;
+    if (orientationValid && positionValid) ++state.fullTrackingSamples;
+
+    const XrPosef& headPose = locatedViews[0].pose;
+    if (positionValid) {
+        if (!state.hasInitialHeadPosition) {
+            state.initialHeadPosition = headPose.position;
+            state.hasInitialHeadPosition = true;
+        } else {
+            const double dx = static_cast<double>(headPose.position.x - state.initialHeadPosition.x);
+            const double dy = static_cast<double>(headPose.position.y - state.initialHeadPosition.y);
+            const double dz = static_cast<double>(headPose.position.z - state.initialHeadPosition.z);
+            state.maxHeadPositionDeltaMeters = std::max(
+                state.maxHeadPositionDeltaMeters, std::sqrt(dx * dx + dy * dy + dz * dz)
+            );
+        }
+    }
+    if (orientationValid) {
+        if (!state.hasInitialHeadOrientation) {
+            state.initialHeadOrientation = headPose.orientation;
+            state.hasInitialHeadOrientation = true;
+        } else {
+            const auto& first = state.initialHeadOrientation;
+            const auto& current = headPose.orientation;
+            const double dot = std::abs(
+                static_cast<double>(first.x) * current.x +
+                static_cast<double>(first.y) * current.y +
+                static_cast<double>(first.z) * current.z +
+                static_cast<double>(first.w) * current.w
+            );
+            const double clampedDot = std::clamp(dot, 0.0, 1.0);
+            const double angleDegrees =
+                2.0 * std::acos(clampedDot) * 180.0 / 3.14159265358979323846;
+            state.maxHeadRotationDeltaDegrees = std::max(
+                state.maxHeadRotationDeltaDegrees, angleDegrees
+            );
+        }
     }
 
     XrSwapchainImageAcquireInfo acquireInfo{};
