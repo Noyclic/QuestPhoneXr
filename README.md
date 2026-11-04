@@ -133,6 +133,7 @@ To download a build, open [GitHub Actions](https://github.com/Noyclic/QuestPhone
 - [EndXR runtime: implementation and limitations](docs/ENDXR_RUNTIME.md)
 - [Project architecture](docs/ARCHITECTURE.md)
 - [External OpenXR loader test guide](docs/OPENXR_LOADER_VALIDATION.md)
+- [EndXR cross-process input IPC security](docs/IPC_SECURITY.md)
 - [Device compatibility diagnostics](docs/DEVICE_COMPATIBILITY.md)
 
 ## Licensing
