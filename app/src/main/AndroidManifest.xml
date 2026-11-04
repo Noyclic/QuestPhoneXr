@@ -8,6 +8,10 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="org.khronos.openxr.permission.OPENXR_SYSTEM" />
 
+    <permission
+        android:name="com.noyclic.questphonexr.permission.READ_INPUT_SNAPSHOT"
+        android:protectionLevel="signature" />
+
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
@@ -57,7 +61,8 @@
             android:name=".runtime.EndXrInputContentProvider"
             android:authorities="com.noyclic.questphonexr.endxrinput"
             android:exported="true"
-            android:grantUriPermissions="true" />
+            android:readPermission="com.noyclic.questphonexr.permission.READ_INPUT_SNAPSHOT"
+            android:grantUriPermissions="false" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
