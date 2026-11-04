@@ -39,6 +39,14 @@ grep -Ei 'endxr|vulkan|OpenGLRenderer|FATAL EXCEPTION|Fatal signal|DEBUG   :' ci
 adb pull /sdcard/Android/data/com.noyclic.questphonexr/files/ci-screenshots/. ci-results/screenshots/ || true
 adb pull /sdcard/Android/data/com.noyclic.questphonexr/files/ci-diagnostics/. ci-results/diagnostics/ || true
 
+# External app-specific storage can be hidden from adb shell on newer Android versions.
+# run-as reads the app-private copy without weakening storage permissions.
+adb exec-out run-as com.noyclic.questphonexr cat files/diagnostics/endxr-openxr-latest.log \
+  > ci-results/diagnostics/endxr-openxr-latest.log || true
+
+# Keep one independent screenshot even if app-specific screenshot storage is unavailable.
+adb exec-out screencap -p > ci-results/screenshots/emulator-final.png || true
+
 if [[ -d app/build/reports/androidTests/connected ]]; then
   cp -R app/build/reports/androidTests/connected ci-results/
 fi

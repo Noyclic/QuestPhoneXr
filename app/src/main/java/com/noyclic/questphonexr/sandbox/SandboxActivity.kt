@@ -387,8 +387,13 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             Toast.makeText(this, "Диагностика ещё не запускалась", Toast.LENGTH_SHORT).show()
             return
         }
+        Log.i(
+            "EndXR-DIAG",
+            "Copy requested: chars=${report.length}, schema4=${report.contains("diagnostic_schema=4")}"
+        )
         val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("EndXR runtime diagnostics", report))
+        Log.i("EndXR-DIAG", "Clipboard setPrimaryClip completed")
         Toast.makeText(this, "Отчёт скопирован · " + endXrOpenXrDiagnosticPath, Toast.LENGTH_LONG).show()
     }
 
