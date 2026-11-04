@@ -60,4 +60,4 @@ Planned work for this window:
 - A staged test path: inspect APK and dependencies, determine whether the title needs a compatibility layer or port, then attempt launch and record physical-device results.
 - Separate status badges and test reports so Gear VR support is never confused with Quest APK compatibility.
 
-The Gear VR window should be developed as its own ecosystem after the current EndXR IPC and physical external-client validation work. Do not let it destabilize the existing Sandbox, Quest library or OpenXR path.
+The Gear VR window should be developed as its own ecosystem after the current EndXR IPC and physical external-client validation work. Do not let it destabilize the existing Sandbox, Quest library or OpenXR path. The detailed research stages, APK inspection checklist and acceptance criteria are maintained in [GEAR_VR_RESEARCH.md](GEAR_VR_RESEARCH.md).
