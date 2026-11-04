@@ -62,6 +62,7 @@ import com.noyclic.questphonexr.performance.DevicePerformancePreset
 import com.noyclic.questphonexr.runtime.EndXrGlSurfaceLifecycle
 import com.noyclic.questphonexr.runtime.EndXrRuntimeBridge
 import com.noyclic.questphonexr.runtime.EndXrInputSnapshotStore
+import com.noyclic.questphonexr.runtime.EndXrHandInputEncoder
 import com.noyclic.questphonexr.runtime.EndXrHandTrackingService
 import com.noyclic.questphonexr.runtime.EndXrRuntimeState
 
@@ -425,8 +426,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         val frame = virtualControllerMapper.map(handFrame, controllers)
         val left = nativeInputRow(frame.left)
         val right = nativeInputRow(frame.right)
+        val cameraInput = EndXrHandInputEncoder.encode(handFrame)
         endXrRuntime.setControllerInput(left, right)
         EndXrInputSnapshotStore.publish(left, right)
+        EndXrInputSnapshotStore.publishHandPoses(cameraInput.leftPose, cameraInput.rightPose)
     }
 
     private fun showOpenXrInputDiagnostic() {

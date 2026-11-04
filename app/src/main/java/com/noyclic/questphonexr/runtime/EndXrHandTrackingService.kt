@@ -147,8 +147,9 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                     context = applicationContext,
                     mirrorFrontCamera = !useBackCamera,
                     onFrame = { frame ->
-                        val rows = EndXrHandInputEncoder.encode(frame)
-                        EndXrInputSnapshotStore.publish(rows.first, rows.second)
+                        val encoded = EndXrHandInputEncoder.encode(frame)
+                        EndXrInputSnapshotStore.publish(encoded.leftRow, encoded.rightRow)
+                        EndXrInputSnapshotStore.publishHandPoses(encoded.leftPose, encoded.rightPose)
                     },
                     onError = { message ->
                         Log.e(TAG, "MediaPipe foreground tracking error: $message")

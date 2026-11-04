@@ -71,6 +71,49 @@ internal data class EndXrControllerSample(
     }
 }
 
+
+/**
+ * A camera-derived palm pose estimate. Translation uses monocular perspective,
+ * orientation uses the hand-local MediaPipe skeleton. It is not metric 6DoF.
+ */
+internal data class EndXrHandPoseSample(
+    val active: Boolean = false,
+    val x: Float = 0f,
+    val y: Float = 0f,
+    val z: Float = 0f,
+    val qx: Float = 0f,
+    val qy: Float = 0f,
+    val qz: Float = 0f,
+    val qw: Float = 1f
+) {
+    companion object {
+        val EMPTY = EndXrHandPoseSample()
+
+        fun fromCameraPose(
+            x: Float, y: Float, z: Float,
+            qx: Float, qy: Float, qz: Float, qw: Float
+        ): EndXrHandPoseSample {
+            val values = floatArrayOf(x, y, z, qx, qy, qz, qw)
+            if (!values.all(Float::isFinite)) return EMPTY
+            if (kotlin.math.abs(x) > 8f || kotlin.math.abs(y) > 6f ||
+                z > -0.25f || z < -6f
+            ) return EMPTY
+            val magnitude = sqrt(
+                qx.toDouble() * qx + qy.toDouble() * qy +
+                    qz.toDouble() * qz + qw.toDouble() * qw
+            )
+            if (!magnitude.isFinite() || magnitude < 0.5 || magnitude > 1.5) return EMPTY
+            return EndXrHandPoseSample(
+                active = true, x = x, y = y, z = z,
+                qx = (qx / magnitude).toFloat(),
+                qy = (qy / magnitude).toFloat(),
+                qz = (qz / magnitude).toFloat(),
+                qw = (qw / magnitude).toFloat()
+            )
+        }
+    }
+}
+
 internal data class EndXrInputSnapshot(
     val sequence: Long,
     val updatedAtElapsedRealtimeNanos: Long,
@@ -79,7 +122,11 @@ internal data class EndXrInputSnapshot(
     val stale: Boolean,
     val headOrientation: EndXrHeadOrientationSample,
     val headOrientationUpdatedAtElapsedRealtimeNanos: Long,
-    val headOrientationStale: Boolean
+    val headOrientationStale: Boolean,
+    val leftHandPose: EndXrHandPoseSample,
+    val rightHandPose: EndXrHandPoseSample,
+    val handPoseUpdatedAtElapsedRealtimeNanos: Long,
+    val handPoseStale: Boolean
 )
 
 /**
@@ -101,7 +148,11 @@ internal object EndXrInputSnapshotStore {
             stale = true,
             headOrientation = EndXrHeadOrientationSample.EMPTY,
             headOrientationUpdatedAtElapsedRealtimeNanos = 0L,
-            headOrientationStale = true
+            headOrientationStale = true,
+            leftHandPose = EndXrHandPoseSample.EMPTY,
+            rightHandPose = EndXrHandPoseSample.EMPTY,
+            handPoseUpdatedAtElapsedRealtimeNanos = 0L,
+            handPoseStale = true
         )
     )
 
@@ -127,6 +178,22 @@ internal object EndXrInputSnapshotStore {
                 left = left,
                 right = right,
                 stale = false
+            )
+        }
+    }
+
+    fun publishHandPoses(
+        left: EndXrHandPoseSample,
+        right: EndXrHandPoseSample,
+        nowElapsedRealtimeNanos: Long = SystemClock.elapsedRealtimeNanos()
+    ) {
+        val timestamp = nowElapsedRealtimeNanos.coerceAtLeast(0L)
+        update { current ->
+            current.copy(
+                leftHandPose = left,
+                rightHandPose = right,
+                handPoseUpdatedAtElapsedRealtimeNanos = timestamp,
+                handPoseStale = false
             )
         }
     }
@@ -159,7 +226,11 @@ internal object EndXrInputSnapshotStore {
                 stale = false,
                 headOrientation = EndXrHeadOrientationSample.EMPTY,
                 headOrientationUpdatedAtElapsedRealtimeNanos = timestamp,
-                headOrientationStale = true
+                headOrientationStale = true,
+                leftHandPose = EndXrHandPoseSample.EMPTY,
+                rightHandPose = EndXrHandPoseSample.EMPTY,
+                handPoseUpdatedAtElapsedRealtimeNanos = timestamp,
+                handPoseStale = true
             )
         }
     }
@@ -172,12 +243,17 @@ internal object EndXrInputSnapshotStore {
         val controllerStale = controllerAge > MAX_SAMPLE_AGE_NANOS
         val headStale = current.headOrientationStale ||
             headAge > MAX_HEAD_ORIENTATION_AGE_NANOS
+        val poseAge = (now - current.handPoseUpdatedAtElapsedRealtimeNanos).coerceAtLeast(0L)
+        val poseStale = current.handPoseStale || poseAge > MAX_SAMPLE_AGE_NANOS
         return current.copy(
             left = if (controllerStale) EndXrControllerSample.EMPTY else current.left,
             right = if (controllerStale) EndXrControllerSample.EMPTY else current.right,
             stale = controllerStale,
             headOrientation = if (headStale) EndXrHeadOrientationSample.EMPTY else current.headOrientation,
-            headOrientationStale = headStale
+            headOrientationStale = headStale,
+            leftHandPose = if (poseStale) EndXrHandPoseSample.EMPTY else current.leftHandPose,
+            rightHandPose = if (poseStale) EndXrHandPoseSample.EMPTY else current.rightHandPose,
+            handPoseStale = poseStale
         )
     }
 }

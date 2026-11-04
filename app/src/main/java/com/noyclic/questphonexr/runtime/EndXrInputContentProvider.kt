@@ -53,7 +53,25 @@ class EndXrInputContentProvider : ContentProvider() {
                 snapshot.headOrientation.x,
                 snapshot.headOrientation.y,
                 snapshot.headOrientation.z,
-                snapshot.headOrientation.w
+                snapshot.headOrientation.w,
+                snapshot.handPoseStale.asInt(),
+                snapshot.handPoseUpdatedAtElapsedRealtimeNanos,
+                snapshot.leftHandPose.active.asInt(),
+                snapshot.leftHandPose.x,
+                snapshot.leftHandPose.y,
+                snapshot.leftHandPose.z,
+                snapshot.leftHandPose.qx,
+                snapshot.leftHandPose.qy,
+                snapshot.leftHandPose.qz,
+                snapshot.leftHandPose.qw,
+                snapshot.rightHandPose.active.asInt(),
+                snapshot.rightHandPose.x,
+                snapshot.rightHandPose.y,
+                snapshot.rightHandPose.z,
+                snapshot.rightHandPose.qx,
+                snapshot.rightHandPose.qy,
+                snapshot.rightHandPose.qz,
+                snapshot.rightHandPose.qw
             )
         )
 
@@ -123,7 +141,25 @@ class EndXrInputContentProvider : ContentProvider() {
             "head_orientation_x",
             "head_orientation_y",
             "head_orientation_z",
-            "head_orientation_w"
+            "head_orientation_w",
+            "hand_pose_stale",
+            "hand_pose_updated_at_elapsed_realtime_nanos",
+            "left_pose_active",
+            "left_pose_x",
+            "left_pose_y",
+            "left_pose_z",
+            "left_pose_qx",
+            "left_pose_qy",
+            "left_pose_qz",
+            "left_pose_qw",
+            "right_pose_active",
+            "right_pose_x",
+            "right_pose_y",
+            "right_pose_z",
+            "right_pose_qx",
+            "right_pose_qy",
+            "right_pose_qz",
+            "right_pose_qw"
         )
     }
 }
