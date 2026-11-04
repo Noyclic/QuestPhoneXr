@@ -52,7 +52,7 @@ object EndGvrCompatibility {
         }
 
         normalizedMetadata
-            .filter { key -> gearVrMetadataMarkers.any(key::contains) }
+            .filter { key -> gearVrMetadataMarkers.any { marker -> key.contains(marker) } }
             .forEach { gearMarkers += "Gear VR manifest metadata: $it" }
 
         normalizedFeatures

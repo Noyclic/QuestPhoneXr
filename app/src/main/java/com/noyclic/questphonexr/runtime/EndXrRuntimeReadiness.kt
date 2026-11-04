@@ -55,7 +55,7 @@ object EndXrRuntimeReadiness {
             "Также не хватает 6DoF position и XR hand tracking; выбор runtime через RuntimeBroker ещё не подтверждён на физическом телефоне."
 
     const val OPEN_XR_GAME_WARNING =
-        "EndXR экспортирует начальный OpenXR Action / Input API. Camera foreground service передаёт MediaPipe pinch/grip, приближённую позу ладони и ориентацию головы через IPC, но доступ к этому IPC пока разрешён только companion probe с подписью приложения. Сторонние игровые APK пока не могут получить эти данные; сначала нужен пользовательский доступ для конкретного пакета. Это не настоящие tracked controller poses и не 6DoF; Android gamepad capture и haptics пока отсутствуют, поэтому полноценная игра ещё не подтверждена."
+        "Перед запуском внешней игры важно учитывать ограничения: camera foreground service передаёт MediaPipe pinch/grip, приближённую позу ладони и ориентацию головы через IPC, но доступ к этому IPC пока разрешён только companion probe с подписью приложения. Сторонние игровые APK пока не могут получить эти данные; сначала нужен пользовательский доступ для конкретного пакета. Это не настоящие tracked controller poses и не 6DoF; Android gamepad capture и haptics пока отсутствуют, поэтому полноценная игра ещё не подтверждена."
 
     const val QUEST_GAME_WARNING =
         "Quest APK может зависеть от Meta/Oculus Runtime и системных сервисов гарнитуры. На обычном Android " +
