@@ -3,6 +3,7 @@
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <sstream>
