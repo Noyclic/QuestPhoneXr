@@ -36,8 +36,8 @@ gradle --no-daemon :app:connectedDebugAndroidTest || app_test_exit=$?
 test_exit="$app_test_exit"
 
 # connectedDebugAndroidTest may uninstall the target APK after its test run.
-# Reinstall QuestPhoneXR, then validate its exported Runtime Service from an
-# independent Android package that has its own OpenXR loader-style manifest queries.
+# Reinstall QuestPhoneXR, then run the official Khronos loader from an
+# independent package with its own native loader binary.
 client_test_exit=0
 if [[ -s app/build/outputs/apk/debug/app-debug.apk ]]; then
   if ! adb install -r app/build/outputs/apk/debug/app-debug.apk; then
@@ -56,7 +56,7 @@ fi
 
 # Keep logcat before the emulator action shuts the device down.
 adb logcat -b all -d -v threadtime > ci-results/emulator-logcat.txt || true
-grep -Ei 'endxr|vulkan|OpenGLRenderer|FATAL EXCEPTION|Fatal signal|DEBUG   :' ci-results/emulator-logcat.txt > ci-results/endxr-native-filtered.log || true
+grep -Ei 'endxr|openxr|vulkan|OpenGLRenderer|FATAL EXCEPTION|Fatal signal|DEBUG   :' ci-results/emulator-logcat.txt > ci-results/endxr-native-filtered.log || true
 
 # Instrumentation exports files through MediaStore to shared Downloads before
 # Gradle removes the target and test APKs. This survives package uninstall on API 35.
@@ -70,12 +70,11 @@ if [[ -s ci-results/device-artifacts/endxr-openxr-latest.log ]]; then
 elif [[ -s ci-results/device-artifacts/endxr-openxr-latest.log.txt ]]; then
   cp ci-results/device-artifacts/endxr-openxr-latest.log.txt ci-results/diagnostics/endxr-openxr-latest.log
 fi
-if [[ -s ci-results/device-artifacts/runtime-broker-probe.txt ]]; then
-  cp ci-results/device-artifacts/runtime-broker-probe.txt ci-results/diagnostics/
-fi
-if [[ -s ci-results/device-artifacts/external-client-probe.txt ]]; then
-  cp ci-results/device-artifacts/external-client-probe.txt ci-results/diagnostics/
-fi
+for report in runtime-broker-probe.txt external-client-probe.txt openxr-loader-client-probe.txt; do
+  if [[ -s "ci-results/device-artifacts/$report" ]]; then
+    cp "ci-results/device-artifacts/$report" ci-results/diagnostics/
+  fi
+done
 
 # Keep an independent final emulator screenshot even if a UI test failed.
 adb exec-out screencap -p > ci-results/screenshots/emulator-final.png || true
@@ -85,6 +84,12 @@ if [[ -d app/build/reports/androidTests/connected ]]; then
 fi
 if [[ -d app/build/outputs/androidTest-results/connected ]]; then
   cp -R app/build/outputs/androidTest-results/connected ci-results/
+fi
+if [[ -d runtime-client-probe/build/reports/androidTests/connected ]]; then
+  cp -R runtime-client-probe/build/reports/androidTests/connected ci-results/
+fi
+if [[ -d runtime-client-probe/build/outputs/androidTest-results/connected ]]; then
+  cp -R runtime-client-probe/build/outputs/androidTest-results/connected ci-results/
 fi
 
 if [[ "$test_exit" -eq 0 ]]; then
@@ -97,7 +102,11 @@ if [[ "$test_exit" -eq 0 ]]; then
     test_exit=1
   }
   test -s ci-results/diagnostics/external-client-probe.txt || {
-    echo "Instrumentation tests passed but the separate-package runtime discovery report is missing."
+    echo "Instrumentation tests passed but the separate-package service report is missing."
+    test_exit=1
+  }
+  test -s ci-results/diagnostics/openxr-loader-client-probe.txt || {
+    echo "Instrumentation tests passed but the official Khronos loader report is missing."
     test_exit=1
   }
   test -s ci-results/screenshots/mode-selection.png || {
