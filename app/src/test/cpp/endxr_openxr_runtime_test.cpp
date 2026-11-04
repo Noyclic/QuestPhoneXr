@@ -1,4 +1,5 @@
 #include "endxr_openxr_runtime.hpp"
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
