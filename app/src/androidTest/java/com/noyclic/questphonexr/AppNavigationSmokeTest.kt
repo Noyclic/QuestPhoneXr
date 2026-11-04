@@ -99,7 +99,7 @@ class AppNavigationSmokeTest {
             probePassed
         )
         assertTrue(
-            "OpenXR probe did not persist a schema-v2 diagnostic report:\n" + report,
+            "OpenXR probe did not persist a schema-v3 projection-layer report:\n" + report,
             report.contains("diagnostic_schema=3") &&
                 report.contains("projection_layer_composition=PASS") &&
                 report.contains("check_7=stereo projection layer composition + GLES backbuffer readback | PASS") &&
