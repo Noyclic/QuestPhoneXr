@@ -54,10 +54,12 @@ if [[ -s app/build/outputs/apk/debug/app-debug.apk ]]; then
     else
       echo "FAIL: untrusted adb shell was not denied by the EndXR input provider."
       cat ci-results/diagnostics/ipc-unauthorized-shell.txt
-      exit 1
+      client_test_exit=1
     fi
 
-    gradle --no-daemon :runtime-client-probe:connectedDebugAndroidTest || client_test_exit=$?
+    if [[ "$client_test_exit" -eq 0 ]]; then
+      gradle --no-daemon :runtime-client-probe:connectedDebugAndroidTest || client_test_exit=$?
+    fi
   fi
 else
   echo "QuestPhoneXR debug APK is missing; external client discovery cannot run."
