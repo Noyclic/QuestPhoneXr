@@ -18,6 +18,7 @@
 #include <vector>
 
 #if defined(__ANDROID__)
+#include <jni.h>
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 #else
@@ -64,8 +65,15 @@ constexpr GLenum GL_VIEWPORT = 0x0BA2;
 
 struct XrInstance_T {
     XrVersion requestedApiVersion = XR_MAKE_VERSION(1, 0, 0);
+#if defined(__ANDROID__)
+    JavaVM* applicationVm = nullptr;
+    jobject applicationActivity = nullptr;
+    std::mutex externalInputMutex;
+    std::chrono::steady_clock::time_point lastExternalInputPoll{};
+#else
     void* applicationVm = nullptr;
     void* applicationActivity = nullptr;
+#endif
     bool androidExtensionEnabled = false;
     bool glesExtensionEnabled = false;
     bool glesRequirementsQueried = false;
@@ -625,8 +633,27 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrCreateInstance(
     created->androidExtensionEnabled = androidEnabled;
     created->glesExtensionEnabled = glesEnabled;
     if (androidInfo != nullptr) {
+#if defined(__ANDROID__)
+        created->applicationVm = reinterpret_cast<JavaVM*>(androidInfo->applicationVM);
+        JNIEnv* env = nullptr;
+        if (created->applicationVm == nullptr ||
+            created->applicationVm->GetEnv(
+                reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK ||
+            env == nullptr) {
+            delete created;
+            return XR_ERROR_INITIALIZATION_FAILED;
+        }
+        created->applicationActivity = env->NewGlobalRef(
+            reinterpret_cast<jobject>(androidInfo->applicationActivity));
+        if (created->applicationActivity == nullptr || env->ExceptionCheck()) {
+            if (env->ExceptionCheck()) env->ExceptionClear();
+            delete created;
+            return XR_ERROR_INITIALIZATION_FAILED;
+        }
+#else
         created->applicationVm = androidInfo->applicationVM;
         created->applicationActivity = androidInfo->applicationActivity;
+#endif
     }
     const XrInstance createdHandle = makeInstanceHandle(created);
     {
@@ -658,6 +685,23 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrDestroyInstance(XrInstance instance) {
         object = found->second;
         g_instances.erase(found);
     }
+#if defined(__ANDROID__)
+    if (object->applicationVm != nullptr && object->applicationActivity != nullptr) {
+        JNIEnv* env = nullptr;
+        bool attachedHere = false;
+        const jint envStatus = object->applicationVm->GetEnv(
+            reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+        if (envStatus == JNI_EDETACHED) {
+            if (object->applicationVm->AttachCurrentThread(&env, nullptr) == JNI_OK) {
+                attachedHere = true;
+            }
+        }
+        if (env != nullptr) {
+            env->DeleteGlobalRef(object->applicationActivity);
+        }
+        if (attachedHere) object->applicationVm->DetachCurrentThread();
+    }
+#endif
     delete object;
     return XR_SUCCESS;
 }
@@ -1443,6 +1487,156 @@ EndXrControllerInput readControllerInput(int hand) {
         std::chrono::steady_clock::now() - input.updatedAt > std::chrono::milliseconds(300)) return {};
     return input;
 }
+
+#if defined(__ANDROID__)
+bool refreshExternalControllerInput(XrInstance_T* instance) {
+    if (instance == nullptr || !instance->androidExtensionEnabled ||
+        instance->applicationVm == nullptr || instance->applicationActivity == nullptr) {
+        return false;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    {
+        std::lock_guard<std::mutex> lock(instance->externalInputMutex);
+        if (instance->lastExternalInputPoll.time_since_epoch().count() != 0 &&
+            now - instance->lastExternalInputPoll < std::chrono::milliseconds(8)) {
+            return true;
+        }
+        instance->lastExternalInputPoll = now;
+    }
+
+    JNIEnv* env = nullptr;
+    bool attachedHere = false;
+    const jint envStatus = instance->applicationVm->GetEnv(
+        reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+    if (envStatus == JNI_EDETACHED) {
+        if (instance->applicationVm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
+            return false;
+        }
+        attachedHere = true;
+    } else if (envStatus != JNI_OK || env == nullptr) {
+        return false;
+    }
+
+    bool success = false;
+    if (env->PushLocalFrame(32) >= 0) {
+        do {
+            jclass contextClass = env->FindClass("android/content/Context");
+            if (contextClass == nullptr || env->ExceptionCheck()) break;
+            jmethodID getContentResolver = env->GetMethodID(
+                contextClass, "getContentResolver",
+                "()Landroid/content/ContentResolver;");
+            if (getContentResolver == nullptr || env->ExceptionCheck()) break;
+            jobject resolver = env->CallObjectMethod(
+                instance->applicationActivity, getContentResolver);
+            if (resolver == nullptr || env->ExceptionCheck()) break;
+
+            jclass uriClass = env->FindClass("android/net/Uri");
+            if (uriClass == nullptr || env->ExceptionCheck()) break;
+            jmethodID parseUri = env->GetStaticMethodID(
+                uriClass, "parse", "(Ljava/lang/String;)Landroid/net/Uri;");
+            if (parseUri == nullptr || env->ExceptionCheck()) break;
+            jstring uriText = env->NewStringUTF(
+                "content://com.noyclic.questphonexr.endxrinput/controller_state");
+            if (uriText == nullptr || env->ExceptionCheck()) break;
+            jobject uri = env->CallStaticObjectMethod(uriClass, parseUri, uriText);
+            if (uri == nullptr || env->ExceptionCheck()) break;
+
+            jclass resolverClass = env->FindClass("android/content/ContentResolver");
+            if (resolverClass == nullptr || env->ExceptionCheck()) break;
+            jmethodID query = env->GetMethodID(
+                resolverClass, "query",
+                "(Landroid/net/Uri;[Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;)Landroid/database/Cursor;");
+            if (query == nullptr || env->ExceptionCheck()) break;
+            jobject cursor = env->CallObjectMethod(
+                resolver, query, uri, nullptr, nullptr, nullptr, nullptr);
+            if (cursor == nullptr || env->ExceptionCheck()) break;
+
+            jclass cursorClass = env->FindClass("android/database/Cursor");
+            if (cursorClass == nullptr || env->ExceptionCheck()) break;
+            jmethodID moveToFirst = env->GetMethodID(cursorClass, "moveToFirst", "()Z");
+            jmethodID getColumnIndex = env->GetMethodID(
+                cursorClass, "getColumnIndexOrThrow", "(Ljava/lang/String;)I");
+            jmethodID getInt = env->GetMethodID(cursorClass, "getInt", "(I)I");
+            jmethodID getFloat = env->GetMethodID(cursorClass, "getFloat", "(I)F");
+            jmethodID close = env->GetMethodID(cursorClass, "close", "()V");
+            if (moveToFirst == nullptr || getColumnIndex == nullptr ||
+                getInt == nullptr || getFloat == nullptr || close == nullptr ||
+                env->ExceptionCheck()) break;
+
+            const jboolean hasRow = env->CallBooleanMethod(cursor, moveToFirst);
+            if (env->ExceptionCheck() || hasRow != JNI_TRUE) {
+                if (env->ExceptionCheck()) env->ExceptionClear();
+                env->CallVoidMethod(cursor, close);
+                break;
+            }
+
+            auto readInt = [&](const char* name, jint* value) -> bool {
+                jstring columnName = env->NewStringUTF(name);
+                if (columnName == nullptr || env->ExceptionCheck()) return false;
+                const jint index = env->CallIntMethod(cursor, getColumnIndex, columnName);
+                if (env->ExceptionCheck()) return false;
+                *value = env->CallIntMethod(cursor, getInt, index);
+                return !env->ExceptionCheck();
+            };
+            auto readFloat = [&](const char* name, jfloat* value) -> bool {
+                jstring columnName = env->NewStringUTF(name);
+                if (columnName == nullptr || env->ExceptionCheck()) return false;
+                const jint index = env->CallIntMethod(cursor, getColumnIndex, columnName);
+                if (env->ExceptionCheck()) return false;
+                *value = env->CallFloatMethod(cursor, getFloat, index);
+                return !env->ExceptionCheck();
+            };
+
+            jint stale = 1;
+            jint leftActive = 0, leftButtons = 0, rightActive = 0, rightButtons = 0;
+            jfloat leftTrigger = 0, leftGrip = 0, leftStickX = 0, leftStickY = 0;
+            jfloat rightTrigger = 0, rightGrip = 0, rightStickX = 0, rightStickY = 0;
+            const bool columnsRead =
+                readInt("stale", &stale) &&
+                readInt("left_active", &leftActive) &&
+                readFloat("left_trigger", &leftTrigger) &&
+                readFloat("left_grip", &leftGrip) &&
+                readFloat("left_stick_x", &leftStickX) &&
+                readFloat("left_stick_y", &leftStickY) &&
+                readInt("left_buttons", &leftButtons) &&
+                readInt("right_active", &rightActive) &&
+                readFloat("right_trigger", &rightTrigger) &&
+                readFloat("right_grip", &rightGrip) &&
+                readFloat("right_stick_x", &rightStickX) &&
+                readFloat("right_stick_y", &rightStickY) &&
+                readInt("right_buttons", &rightButtons);
+            env->CallVoidMethod(cursor, close);
+            if (!columnsRead || env->ExceptionCheck()) break;
+
+            if (stale != 0) {
+                endxrClearControllerInput();
+            } else {
+                endxrSetControllerInput(0, static_cast<std::uint32_t>(leftActive != 0),
+                    leftTrigger, leftGrip, leftStickX, leftStickY,
+                    static_cast<std::uint32_t>(leftButtons));
+                endxrSetControllerInput(1, static_cast<std::uint32_t>(rightActive != 0),
+                    rightTrigger, rightGrip, rightStickX, rightStickY,
+                    static_cast<std::uint32_t>(rightButtons));
+            }
+            success = true;
+        } while (false);
+
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+            endxrClearControllerInput();
+        }
+        env->PopLocalFrame(nullptr);
+    } else {
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        endxrClearControllerInput();
+    }
+
+    if (attachedHere) instance->applicationVm->DetachCurrentThread();
+    return success;
+}
+#endif
+
 XrPath currentProfileForHand(XrInstance instanceHandle, int hand) {
     XrInstance_T* instance = getInstance(instanceHandle);
     if (instance == nullptr || hand < 0 || hand > 1 || !readControllerInput(hand).active) return XR_NULL_PATH;
@@ -1897,6 +2091,12 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrSyncActions(
             !validUserPath(owner->owner, item.subactionPath)) return XR_ERROR_PATH_INVALID;
         active.push_back(item);
     }
+#if defined(__ANDROID__)
+    // The runtime is loaded into the game process, while QuestPhoneXR publishes
+    // controller snapshots from its own process. Pull one fresh snapshot at
+    // the action synchronization boundary, not once per individual action.
+    refreshExternalControllerInput(getInstance(owner->owner));
+#endif
     owner->activeActionSets = std::move(active);
     owner->actionSyncCompleted = true;
     return XR_SUCCESS;
