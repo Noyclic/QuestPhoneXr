@@ -61,6 +61,7 @@ import com.noyclic.questphonexr.performance.DevicePerformancePreset
 import com.noyclic.questphonexr.runtime.EndXrGlSurfaceLifecycle
 import com.noyclic.questphonexr.runtime.EndXrRuntimeBridge
 import com.noyclic.questphonexr.runtime.EndXrInputSnapshotStore
+import com.noyclic.questphonexr.runtime.EndXrHandTrackingService
 import com.noyclic.questphonexr.runtime.EndXrRuntimeState
 
 /** Phone-first 3D sandbox for testing stereo viewing, Joy-Con input and object grabbing. */
@@ -79,6 +80,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private val cameraExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
     private var cameraProvider: ProcessCameraProvider? = null
     private var handTracker: HandLandmarkerController? = null
+    @Volatile private var handTrackingStartPending = false
     private var cameraStatusMessage = "Камера рук: запускается"
 
     private lateinit var glView: GLSurfaceView
@@ -603,6 +605,15 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 )
             )
+            addView(
+                controlButton("Фоновое отслеживание рук для Quest-игр") {
+                    togglePersistentHandTracking()
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
         }
 
         val settingsScroll = android.widget.ScrollView(this).apply {
@@ -736,11 +747,17 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     }
 
     private fun startHandTracking() {
-        if (isFinishing || handTracker != null) return
+        if (isFinishing || handTracker != null || handTrackingStartPending ||
+            EndXrHandTrackingService.isRunning()
+        ) return
 
+        handTrackingStartPending = true
         val providerFuture = ProcessCameraProvider.getInstance(this)
         providerFuture.addListener({
-            if (isFinishing) return@addListener
+            if (isFinishing || EndXrHandTrackingService.isRunning()) {
+                handTrackingStartPending = false
+                return@addListener
+            }
             try {
                 val provider = providerFuture.get()
                 cameraProvider = provider
@@ -750,13 +767,14 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 } else {
                     CameraSelector.DEFAULT_FRONT_CAMERA
                 }
-                if (!useBackCamera && !provider.hasCamera(selector)) {
+                if (!provider.hasCamera(selector)) {
+                    handTrackingStartPending = false
                     cameraStatusMessage = "Камера рук: камера не найдена"
                     updateStatus()
                     return@addListener
                 }
 
-                handTracker = HandLandmarkerController(
+                val tracker = HandLandmarkerController(
                     context = applicationContext,
                     mirrorFrontCamera = !useBackCamera,
                     onFrame = ::onHandFrame,
@@ -771,6 +789,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     outputWidthPx = effectiveCameraWidthPx(),
                     outputHeightPx = effectiveCameraHeightPx()
                 )
+                handTracker = tracker
                 val analysis = ImageAnalysis.Builder()
                     .setTargetResolution(
                         android.util.Size(effectiveCameraWidthPx(), effectiveCameraHeightPx())
@@ -786,6 +805,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
                 provider.unbindAll()
                 provider.bindToLifecycle(this, selector, analysis)
+                handTrackingStartPending = false
                 cameraStatusMessage = if (useBackCamera) {
                     "MediaPipe: задняя камера · жест pinch включён"
                 } else {
@@ -793,11 +813,63 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 }
                 updateStatus()
             } catch (error: Exception) {
+                handTrackingStartPending = false
+                handTracker?.close()
+                handTracker = null
                 cameraStatusMessage = "Не удалось запустить камеру рук: " +
                     (error.message ?: "неизвестная ошибка")
                 updateStatus()
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun togglePersistentHandTracking() {
+        if (EndXrHandTrackingService.isRunning()) {
+            stopService(Intent(this, EndXrHandTrackingService::class.java))
+            cameraStatusMessage = "Останавливаем фоновое отслеживание рук…"
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (!isFinishing && !EndXrHandTrackingService.isRunning()) {
+                    startHandTracking()
+                }
+            }, 500L)
+            updateStatus()
+            return
+        }
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            cameraStatusMessage = "Сначала разреши доступ к камере, затем снова нажми кнопку."
+            updateStatus()
+            cameraPermission.launch(Manifest.permission.CAMERA)
+            return
+        }
+
+        // Transfer CameraX ownership while the Activity is still visible.
+        cameraProvider?.unbindAll()
+        handTracker?.close()
+        handTracker = null
+        handTrackingStartPending = false
+        EndXrInputSnapshotStore.clear()
+
+        val serviceIntent = EndXrHandTrackingService.createStartIntent(
+            this,
+            effectiveCameraWidthPx(),
+            effectiveCameraHeightPx(),
+            handTrackingPreset.maxTrackedHands,
+            adaptivePerformanceState.minimumInferenceIntervalMs
+        )
+        runCatching {
+            ContextCompat.startForegroundService(this, serviceIntent)
+            cameraStatusMessage =
+                "EndXR: запускаем фоновую камеру рук. Оставь уведомление активным перед запуском игры."
+        }.onFailure { error ->
+            EndXrHandTrackingService.markStartFailed()
+            cameraStatusMessage = "Не удалось запустить фоновую камеру: " +
+                (error.message ?: error.javaClass.simpleName)
+            startHandTracking()
+        }
+        updateStatus()
     }
 
     private fun effectiveCameraWidthPx(): Int =
@@ -1022,6 +1094,25 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     }
 
     private fun restartHandTracking() {
+        if (EndXrHandTrackingService.isRunning()) {
+            val intent = EndXrHandTrackingService.createStartIntent(
+                this,
+                effectiveCameraWidthPx(),
+                effectiveCameraHeightPx(),
+                handTrackingPreset.maxTrackedHands,
+                adaptivePerformanceState.minimumInferenceIntervalMs
+            )
+            runCatching {
+                ContextCompat.startForegroundService(this, intent)
+                cameraStatusMessage = "EndXR: обновляем параметры фоновой камеры…"
+            }.onFailure { error ->
+                EndXrHandTrackingService.markStartFailed()
+                cameraStatusMessage = "Не удалось обновить фоновую камеру: " +
+                    (error.message ?: error.javaClass.simpleName)
+            }
+            updateStatus()
+            return
+        }
         cameraProvider?.unbindAll()
         handTracker?.close()
         handTracker = null
@@ -1322,6 +1413,14 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         }
         inputManager.registerInputDeviceListener(this, Handler(Looper.getMainLooper()))
         controllerSnapshots = gamepadInput.refreshConnectedDevices()
+        if (EndXrHandTrackingService.isRunning()) {
+            cameraStatusMessage = "EndXR: фоновое отслеживание рук активно"
+        } else if (handTracker == null && !handTrackingStartPending &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+                PackageManager.PERMISSION_GRANTED
+        ) {
+            startHandTracking()
+        }
         applyImmersiveMode()
     }
 
@@ -1330,7 +1429,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         if (::sensorManager.isInitialized) sensorManager.unregisterListener(this)
         inputManager.unregisterInputDeviceListener(this)
         endXrRuntime.clearControllerInput()
-        EndXrInputSnapshotStore.clear()
+        if (!EndXrHandTrackingService.isRunning()) {
+            EndXrInputSnapshotStore.clear()
+        }
         if (::glView.isInitialized) {
             glView.queueEvent {
                 xrSurfaceLifecycle.onActivityPaused()
@@ -1434,8 +1535,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     override fun onDestroy() {
         trackingSender?.close()
         trackingSender = null
-        cameraProvider?.unbindAll()
-        handTracker?.close()
+        if (!EndXrHandTrackingService.isRunning()) {
+            cameraProvider?.unbindAll()
+            handTracker?.close()
+        }
         cameraExecutor.shutdown()
         super.onDestroy()
     }

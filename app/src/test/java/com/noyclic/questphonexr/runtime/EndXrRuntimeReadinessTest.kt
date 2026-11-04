@@ -10,8 +10,8 @@ class EndXrRuntimeReadinessTest {
         val byId = EndXrRuntimeReadiness.capabilities.associateBy { it.id }
         assertEquals(RuntimeCapabilityState.PARTIAL, byId.getValue("openxr-actions").state)
         assertEquals(RuntimeCapabilityState.PARTIAL, byId.getValue("controller-input").state)
-        assertTrue(byId.getValue("controller-input").details.contains("separate package"))
-        assertTrue(byId.getValue("controller-input").details.contains("clears input onPause"))
+        assertTrue(byId.getValue("controller-input").details.contains("foreground service"))
+        assertTrue(byId.getValue("controller-input").details.contains("not globally captured"))
         assertEquals(RuntimeCapabilityState.NOT_IMPLEMENTED, byId.getValue("position-tracking").state)
         assertEquals(RuntimeCapabilityState.NOT_IMPLEMENTED, byId.getValue("openxr-hand-tracking").state)
         assertEquals(RuntimeCapabilityState.NOT_VERIFIED, byId.getValue("runtime-broker").state)
@@ -31,7 +31,7 @@ class EndXrRuntimeReadinessTest {
         assertEquals(1, warnings.size)
         assertTrue(warnings.single().contains("ввод Sandbox уже отображается"))
         assertTrue(warnings.single().contains("Отдельный игровой процесс"))
-        assertTrue(warnings.single().contains("foreground-служба"))
+        assertTrue(warnings.single().contains("foreground service"))
         assertTrue(warnings.single().contains("haptics"))
     }
 }

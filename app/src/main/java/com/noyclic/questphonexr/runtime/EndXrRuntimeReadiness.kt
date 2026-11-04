@@ -40,7 +40,7 @@ object EndXrRuntimeReadiness {
             "Action sets, action lifecycle, paths, binding suggestions, action spaces and xrSyncActions are implemented. Boolean/Float/Vector2 values now resolve from left/right Sandbox input samples inside the same process; third-party process input is not connected."),
         RuntimeCapability("controller-input", "Controller input and cross-process transport",
             RuntimeCapabilityState.PARTIAL,
-            "MediaPipe pinch/grip and Android gamepad samples are published to a read-only Android IPC provider. EndXR polls that provider from xrSyncActions, and CI checks access from a separate package. The producer is still the Sandbox Activity and clears input onPause, so continuous input while an external game is foreground is not implemented. Controller poses and haptic transport are also unavailable."),
+            "MediaPipe pinch/grip samples can be published by a user-started camera foreground service after Sandbox pauses; the read-only IPC provider exposes them to EndXR inside a separate game process. Android gamepad key/motion events are not globally captured when another app owns focus. Controller poses and haptic transport are also unavailable."),
         RuntimeCapability("openxr-hand-tracking", "OpenXR hand-tracking extension",
             RuntimeCapabilityState.NOT_IMPLEMENTED,
             "MediaPipe tracking is app-internal; XR_EXT_hand_tracking is not advertised by the runtime."),
@@ -56,7 +56,7 @@ object EndXrRuntimeReadiness {
 
     const val OPEN_XR_GAME_WARNING =
         "EndXR экспортирует базовый OpenXR Action / Input API, а ввод Sandbox уже отображается в Action states внутри QuestPhoneXR. " +
-            "Отдельный игровой процесс может прочитать снимок через IPC, но источник ввода пока останавливается и очищает данные при уходе Sandbox в фон. Для непрерывного управления нужна отдельная foreground-служба ввода. Controller poses и haptics также не поддерживаются, поэтому полноценная игра пока не подтверждена."
+            "Для передачи жестов во внешнюю игру можно вручную включить camera foreground service в Sandbox до переключения приложения; он продолжает публиковать MediaPipe pinch/grip через IPC. Android gamepad события не перехватываются глобально, controller poses и haptics не поддерживаются, поэтому полноценная игра пока не подтверждена."
 
     const val QUEST_GAME_WARNING =
         "Quest APK может зависеть от Meta/Oculus Runtime и системных сервисов гарнитуры. На обычном Android " +

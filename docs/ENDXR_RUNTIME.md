@@ -32,12 +32,16 @@ Monado is not a required dependency in the active architecture or build path.
   the game process (throttled to one query per 8 ms) and refreshes the runtime's
   local Action input cache. The separate client APK verifies that a different
   package can query the provider; Android CI now asserts this IPC checkpoint.
-- This is the transport layer, not yet a continuously running input source:
-  Sandbox publishes per frame but explicitly clears the provider snapshot in
-  onPause. When an external game takes foreground, the producer stops. A
-  dedicated foreground input service and camera lifecycle are still required
-  before hand input can remain live during an external game. Android gamepad
-  focus/input routing also needs its own integration.
+- A user-started camera foreground service now owns the CameraX lifecycle when
+  the user enables "Фоновое отслеживание рук для Quest-игр" in Sandbox.
+  It republishes MediaPipe pinch/grip snapshots while Sandbox is paused and
+  clears the IPC snapshot when stopped. It must be started while QuestPhoneXR
+  is visible and camera permission is granted; Android keeps a persistent
+  notification while the camera remains active.
+- This persistent producer is camera-hand input only. Android gamepad key and
+  motion events are not globally intercepted after another app receives focus;
+  controller poses and haptics are still unavailable. Physical-device camera
+  lifecycle and thermal impact remain to be verified on the Redmi.
 - Pose actions remain inactive: camera-relative hand landmarks are not yet
   calibrated into an OpenXR reference-space pose.
 - Haptic output entry points validate their inputs but return
@@ -74,12 +78,10 @@ xrCreateInstance result.
 EndXR is an early, minimal runtime implementation, not a conformant general
 purpose Quest runtime. It currently does not implement:
 
-- Continuous cross-process controller input for unrelated APKs. A read-only
-  ContentProvider transport now lets a separate runtime process read the latest
-  snapshot during xrSyncActions, but the only producer is still Sandbox and it
-  clears the snapshot when paused. A persistent foreground input/camera service
-  is not implemented, and Android does not let this app silently inject input
-  into another app's focused window.
+- Continuous cross-process hand input is partially implemented through the
+  user-started camera foreground service and ContentProvider polling at
+  xrSyncActions. Android gamepad events are not globally intercepted when
+  another app owns focus, and no input is injected into another app's window.
 - Haptic output transport.
 - 6DoF positional tracking.
 - The XR_EXT_hand_tracking runtime extension. MediaPipe hand tracking in
