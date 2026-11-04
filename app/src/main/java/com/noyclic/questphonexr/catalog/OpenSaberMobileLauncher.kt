@@ -23,6 +23,11 @@ object OpenSaberMobileLauncher {
                 val label = runCatching {
                     resolveInfo.loadLabel(packageManager).toString()
                 }.getOrDefault(packageName)
+                // The original Quest project uses this package id; never mistake it for
+                // the separately published Android/SBS mobile port.
+                if (packageName.equals("com.quest.opensabervr", ignoreCase = true)) {
+                    return@mapNotNull null
+                }
                 val searchable = "$label $packageName".lowercase()
                 if (!searchable.contains("open saber") && !searchable.contains("opensaber")) {
                     return@mapNotNull null
