@@ -27,7 +27,9 @@ constexpr const char* kSystemName = "EndXR Phone VR";
 
 std::mutex g_instanceMutex;
 std::unordered_map<XrInstance, XrInstance_T*> g_instances;
+#if XR_PTR_SIZE != 8
 std::uint64_t g_nextInstanceHandle = 1;
+#endif
 
 XrInstance makeInstanceHandle(XrInstance_T* object) {
 #if XR_PTR_SIZE == 8
