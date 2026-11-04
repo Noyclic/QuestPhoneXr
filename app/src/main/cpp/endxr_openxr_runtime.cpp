@@ -68,11 +68,11 @@ const XrInstanceCreateInfoAndroidKHR* findAndroidCreateInfo(const void* next) {
     return nullptr;
 }
 
-XRAPI_ATTR XrResult XRAPI_CALL endxrGetInstanceProcAddr(
+XRAPI_ATTR XRAPI_ATTR XrResult XRAPI_CALL endxrGetInstanceProcAddr(
     XrInstance instance, const char* name, PFN_xrVoidFunction* function
 );
 
-XrResult XRAPI_CALL endxrEnumerateApiLayerProperties(
+XRAPI_ATTR XrResult XRAPI_CALL endxrEnumerateApiLayerProperties(
     std::uint32_t capacity,
     std::uint32_t* count,
     XrApiLayerProperties*
@@ -83,7 +83,7 @@ XrResult XRAPI_CALL endxrEnumerateApiLayerProperties(
     return XR_SUCCESS;
 }
 
-XrResult XRAPI_CALL endxrEnumerateInstanceExtensionProperties(
+XRAPI_ATTR XrResult XRAPI_CALL endxrEnumerateInstanceExtensionProperties(
     const char* layerName,
     std::uint32_t capacity,
     std::uint32_t* count,
@@ -109,7 +109,7 @@ XrResult XRAPI_CALL endxrEnumerateInstanceExtensionProperties(
     return XR_SUCCESS;
 }
 
-XrResult XRAPI_CALL endxrCreateInstance(
+XRAPI_ATTR XrResult XRAPI_CALL endxrCreateInstance(
     const XrInstanceCreateInfo* createInfo,
     XrInstance* instance
 ) {
@@ -159,7 +159,7 @@ XrResult XRAPI_CALL endxrCreateInstance(
     return XR_SUCCESS;
 }
 
-XrResult XRAPI_CALL endxrDestroyInstance(XrInstance instance) {
+XRAPI_ATTR XrResult XRAPI_CALL endxrDestroyInstance(XrInstance instance) {
     XrInstance_T* object = nullptr;
     {
         std::lock_guard<std::mutex> lock(g_instanceMutex);
@@ -172,7 +172,7 @@ XrResult XRAPI_CALL endxrDestroyInstance(XrInstance instance) {
     return XR_SUCCESS;
 }
 
-XrResult XRAPI_CALL endxrGetInstanceProperties(
+XRAPI_ATTR XrResult XRAPI_CALL endxrGetInstanceProperties(
     XrInstance instance, XrInstanceProperties* properties
 ) {
     if (!isValidInstance(instance)) return XR_ERROR_HANDLE_INVALID;
@@ -184,7 +184,7 @@ XrResult XRAPI_CALL endxrGetInstanceProperties(
     return XR_SUCCESS;
 }
 
-XrResult XRAPI_CALL endxrGetSystem(
+XRAPI_ATTR XrResult XRAPI_CALL endxrGetSystem(
     XrInstance instance, const XrSystemGetInfo* getInfo, XrSystemId* systemId
 ) {
     if (!isValidInstance(instance)) return XR_ERROR_HANDLE_INVALID;
@@ -199,7 +199,7 @@ XrResult XRAPI_CALL endxrGetSystem(
     return XR_SUCCESS;
 }
 
-XrResult XRAPI_CALL endxrGetSystemProperties(
+XRAPI_ATTR XrResult XRAPI_CALL endxrGetSystemProperties(
     XrInstance instance, XrSystemId systemId, XrSystemProperties* properties
 ) {
     if (!isValidInstance(instance)) return XR_ERROR_HANDLE_INVALID;
@@ -218,7 +218,7 @@ XrResult XRAPI_CALL endxrGetSystemProperties(
     return XR_SUCCESS;
 }
 
-XrResult XRAPI_CALL endxrEnumerateViewConfigurations(
+XRAPI_ATTR XrResult XRAPI_CALL endxrEnumerateViewConfigurations(
     XrInstance instance, XrSystemId systemId, std::uint32_t capacity,
     std::uint32_t* count, XrViewConfigurationType* configurations
 ) {
@@ -232,7 +232,7 @@ XrResult XRAPI_CALL endxrEnumerateViewConfigurations(
     return XR_SUCCESS;
 }
 
-XrResult XRAPI_CALL endxrGetViewConfigurationProperties(
+XRAPI_ATTR XrResult XRAPI_CALL endxrGetViewConfigurationProperties(
     XrInstance instance, XrSystemId systemId,
     XrViewConfigurationType viewType,
     XrViewConfigurationProperties* properties
@@ -251,7 +251,7 @@ XrResult XRAPI_CALL endxrGetViewConfigurationProperties(
     return XR_SUCCESS;
 }
 
-XrResult XRAPI_CALL endxrEnumerateViewConfigurationViews(
+XRAPI_ATTR XrResult XRAPI_CALL endxrEnumerateViewConfigurationViews(
     XrInstance instance, XrSystemId systemId, XrViewConfigurationType viewType,
     std::uint32_t capacity, std::uint32_t* count, XrViewConfigurationView* views
 ) {
@@ -279,7 +279,7 @@ XrResult XRAPI_CALL endxrEnumerateViewConfigurationViews(
     return XR_SUCCESS;
 }
 
-XrResult XRAPI_CALL endxrEnumerateEnvironmentBlendModes(
+XRAPI_ATTR XrResult XRAPI_CALL endxrEnumerateEnvironmentBlendModes(
     XrInstance instance, XrSystemId systemId,
     XrViewConfigurationType viewType, std::uint32_t capacity,
     std::uint32_t* count, XrEnvironmentBlendMode* modes
@@ -297,12 +297,12 @@ XrResult XRAPI_CALL endxrEnumerateEnvironmentBlendModes(
     return XR_SUCCESS;
 }
 
-XrResult XRAPI_CALL endxrPollEvent(XrInstance instance, XrEventDataBuffer*) {
+XRAPI_ATTR XrResult XRAPI_CALL endxrPollEvent(XrInstance instance, XrEventDataBuffer*) {
     if (!isValidInstance(instance)) return XR_ERROR_HANDLE_INVALID;
     return XR_EVENT_UNAVAILABLE;
 }
 
-XrResult XRAPI_CALL endxrResultToString(
+XRAPI_ATTR XrResult XRAPI_CALL endxrResultToString(
     XrInstance instance, XrResult value, char buffer[XR_MAX_RESULT_STRING_SIZE]
 ) {
     if (!isValidInstance(instance)) return XR_ERROR_HANDLE_INVALID;
@@ -324,7 +324,7 @@ XrResult XRAPI_CALL endxrResultToString(
     return XR_SUCCESS;
 }
 
-XrResult XRAPI_CALL endxrStructureTypeToString(
+XRAPI_ATTR XrResult XRAPI_CALL endxrStructureTypeToString(
     XrInstance instance, XrStructureType value, char buffer[XR_MAX_STRUCTURE_NAME_SIZE]
 ) {
     if (!isValidInstance(instance)) return XR_ERROR_HANDLE_INVALID;
@@ -365,7 +365,7 @@ const std::array<ProcEntry, 13> kProcTable{{
 }};
 #undef ENDXR_PROC
 
-XrResult XRAPI_CALL endxrGetInstanceProcAddr(
+XRAPI_ATTR XrResult XRAPI_CALL endxrGetInstanceProcAddr(
     XrInstance instance, const char* name, PFN_xrVoidFunction* function
 ) {
     if (function == nullptr || name == nullptr) return XR_ERROR_VALIDATION_FAILURE;
@@ -391,7 +391,7 @@ XrResult XRAPI_CALL endxrGetInstanceProcAddr(
 }
 } // namespace
 
-extern "C" __attribute__((visibility("default"))) XrResult XRAPI_CALL
+extern "C" __attribute__((visibility("default"))) XRAPI_ATTR XrResult XRAPI_CALL
 xrNegotiateLoaderRuntimeInterface(
     const XrNegotiateLoaderInfo* loaderInfo,
     XrNegotiateRuntimeRequest* runtimeRequest
