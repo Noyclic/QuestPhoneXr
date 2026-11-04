@@ -57,11 +57,13 @@ A successful `xrCreateInstance` is a major interoperability checkpoint, but
 it is not proof of game compatibility. The probe now goes further and attempts
 an independent GLES session, swapchain and one frame lifecycle. It does not
 submit a projection layer or present a rendered image to a headset. EndXR's
-Action API is still partial: Sandbox input is currently visible only inside
-the QuestPhoneXR process, while external-game controller transport, controller
-poses, haptics, 6DoF tracking and Meta/Oculus-specific services remain
-incomplete. A real game may also require Vulkan, additional extensions or
-vendor APIs.
+Action API is still partial: the paired same-signed diagnostic client can read
+a snapshot in its separate process, but ordinary third-party game APKs are
+blocked by the signature permission until a user-controlled package-specific
+authorization flow exists. The current hand poses are estimates, not tracked
+controller poses; haptics, 6DoF tracking and Meta/Oculus-specific services
+remain incomplete. A real game may also require Vulkan, additional extensions
+or vendor APIs.
 
 ## CI and physical-device test
 
