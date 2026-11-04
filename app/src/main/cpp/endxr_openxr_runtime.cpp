@@ -191,6 +191,9 @@ struct XrAction_T {
 };
 
 namespace {
+#if defined(__ANDROID__)
+bool refreshExternalControllerInput(XrInstance_T* instance);
+#endif
 constexpr XrSystemId kEndXrSystemId = 1;
 constexpr std::uint32_t kRecommendedEyeWidth = 960;
 constexpr std::uint32_t kRecommendedEyeHeight = 1080;
@@ -1211,7 +1214,9 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrLocateSpace(
         hasOrientation = g_hasHeadOrientation;
     }
 #if defined(__ANDROID__)
-    refreshExternalControllerInput(getInstance(owner->owner));
+    if (XrSession_T* sessionOwner = getSession(object->owner)) {
+        refreshExternalControllerInput(getInstance(sessionOwner->owner));
+    }
     {
         std::lock_guard<std::mutex> lock(g_headPoseMutex);
         orientation = g_headOrientation;
