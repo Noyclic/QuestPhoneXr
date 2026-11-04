@@ -118,7 +118,6 @@ constexpr std::uint32_t kMaximumEyeHeight = 1200;
 constexpr std::uint32_t kEndXrVendorId = 0x454E4458; // "ENDX"
 constexpr XrVersion kEndXrApiVersion = XR_MAKE_VERSION(1, 0, 0);
 constexpr XrDuration kFramePeriod = 33333333;
-constexpr std::uint32_t kSwapchainImageCount = 3;
 constexpr float kHalfIpdMeters = 0.032f;
 constexpr const char* kRuntimeName = "EndXR Phone Runtime";
 constexpr const char* kSystemName = "EndXR Phone VR";
