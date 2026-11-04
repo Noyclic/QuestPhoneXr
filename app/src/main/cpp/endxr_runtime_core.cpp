@@ -92,7 +92,10 @@ bool RuntimeCore::markLost(const std::string& reason,std::string* error){
         return failLocked("markLost requires an initialized runtime that is not already Lost.",error);
     state_=RuntimeState::Lost; active_frame_index_=0; active_frame_deadline_ns_=0;
     last_error_=reason.empty()?"Runtime lost.":reason;
-    if(error!=nullptr)*error=last_error_; return true;
+    if (error != nullptr) {
+        *error = last_error_;
+    }
+    return true;
 }
 void RuntimeCore::shutdown(){
     std::lock_guard<std::mutex> lock(mutex_);
