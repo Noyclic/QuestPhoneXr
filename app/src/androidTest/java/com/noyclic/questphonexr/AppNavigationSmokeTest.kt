@@ -83,7 +83,7 @@ class AppNavigationSmokeTest {
             .scrollIntoView(UiSelector().text("Мои APK · импорт и анализ"))
         assertTrue(
             "APK import action is missing from the scrollable library",
-            importAction.exists()
+            importAction
         )
 
         device.pressBack()
