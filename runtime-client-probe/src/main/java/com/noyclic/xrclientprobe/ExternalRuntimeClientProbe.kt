@@ -57,6 +57,8 @@ object ExternalRuntimeClientProbe {
     private const val INSTALLABLE_AUTHORITY = "org.khronos.openxr.runtime_broker"
     private const val SYSTEM_AUTHORITY = "org.khronos.openxr.system_runtime_broker"
     private const val INPUT_AUTHORITY = "com.noyclic.questphonexr.endxrinput"
+    private const val INPUT_READ_PERMISSION =
+        "com.noyclic.questphonexr.permission.READ_INPUT_SNAPSHOT"
 
     fun inspect(context: Context): ExternalRuntimeProbeReport {
         val query = runCatching {
@@ -96,6 +98,16 @@ object ExternalRuntimeClientProbe {
             context.packageManager.resolveContentProvider(INPUT_AUTHORITY, 0)
         }.getOrNull() ?: return "provider not visible"
 
+        val granted = context.checkSelfPermission(INPUT_READ_PERMISSION) ==
+            PackageManager.PERMISSION_GRANTED
+        val declaredReadPermission = provider.readPermission.orEmpty()
+        if (declaredReadPermission != INPUT_READ_PERMISSION) {
+            return "provider_permission_mismatch; expected=$INPUT_READ_PERMISSION; actual=${declaredReadPermission.ifBlank { "none" }}"
+        }
+        if (!granted) {
+            return "provider_permission=DENIED; package is not signed with the EndXR app certificate"
+        }
+
         val uri = Uri.parse(
             "content://$INPUT_AUTHORITY/controller_state"
         )
@@ -132,7 +144,7 @@ object ExternalRuntimeClientProbe {
                 val leftPoseActive = it.getInt(it.getColumnIndexOrThrow("left_pose_active")) != 0
                 val rightPoseActive = it.getInt(it.getColumnIndexOrThrow("right_pose_active")) != 0
                 val sequence = it.getLong(it.getColumnIndexOrThrow("sequence"))
-                "provider_query=PASS; provider=${provider.packageName}; " +
+                "provider_permission=GRANTED; provider_query=PASS; provider=${provider.packageName}; " +
                     "sequence=$sequence; stale=$stale; head_active=$headActive; " +
                     "head_stale=$headStale; hand_pose_stale=$handPoseStale; " +
                     "left_pose=$leftPoseActive; right_pose=$rightPoseActive; columns=${expected.size}"
