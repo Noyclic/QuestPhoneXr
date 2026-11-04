@@ -116,6 +116,7 @@ class ApkRuntimeCompatibilityTest {
     fun metadataValuesAreIncludedInTheStaticAudit() {
         val result = ApkRuntimeCompatibility.assess(
             info = sample(
+                nativeAbis = listOf("armeabi-v7a"),
                 vrMetadataKeys = listOf("com.example.vr.mode"),
                 vrMetadataValues = mapOf("com.example.vr.mode" to "com.samsung.android.hmt.vrsvc")
             ),
