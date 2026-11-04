@@ -134,6 +134,44 @@ class EndXrInputSnapshotTest {
     }
 
     @Test
+    fun handPosesExpireIndependentlyAndClearToNeutral() {
+        val pose = EndXrHandPoseSample.fromCameraPose(
+            x = 0.2f, y = -0.1f, z = -2.4f,
+            qx = 0f, qy = 0f, qz = 0f, qw = 1f
+        )
+        assertTrue(pose.active)
+        EndXrInputSnapshotStore.publishHandPoses(
+            pose, EndXrHandPoseSample.EMPTY, nowElapsedRealtimeNanos = clock.now
+        )
+        val fresh = EndXrInputSnapshotStore.snapshotForIpc(clock.now)
+        assertTrue(fresh.leftHandPose.active)
+        assertFalse(fresh.handPoseStale)
+
+        clock.advance(EndXrInputSnapshotStore.MAX_SAMPLE_AGE_NANOS + 1L)
+        val stale = EndXrInputSnapshotStore.snapshotForIpc(clock.now)
+        assertTrue(stale.handPoseStale)
+        assertFalse(stale.leftHandPose.active)
+        EndXrInputSnapshotStore.clear(clock.now)
+        assertEquals(EndXrHandPoseSample.EMPTY, EndXrInputSnapshotStore.snapshotForIpc(clock.now).leftHandPose)
+    }
+
+    @Test
+    fun rejectsNonFiniteOrUnboundedEstimatedHandPose() {
+        assertEquals(
+            EndXrHandPoseSample.EMPTY,
+            EndXrHandPoseSample.fromCameraPose(
+                Float.NaN, 0f, -2f, 0f, 0f, 0f, 1f
+            )
+        )
+        assertEquals(
+            EndXrHandPoseSample.EMPTY,
+            EndXrHandPoseSample.fromCameraPose(
+                9f, 0f, -2f, 0f, 0f, 0f, 1f
+            )
+        )
+    }
+
+    @Test
     fun clearImmediatelyPublishesNeutralInput() {
         EndXrInputSnapshotStore.publish(
             floatArrayOf(1f, 1f, 1f, 1f, 1f, 31f),
