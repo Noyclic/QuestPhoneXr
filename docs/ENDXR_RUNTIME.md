@@ -24,7 +24,9 @@ Monado is not a required dependency in the active architecture or build path.
 - The Sandbox publishes independent left/right controller samples to an
   in-memory input snapshot store. A read-only exported Android ContentProvider
   exposes one row with trigger, grip, thumbstick, button mask, sequence and
-  timestamp. Inactive or stale samples are always neutral; the lease is 300 ms.
+  timestamp. When an imported OpenXR candidate is launched from ApkImportActivity,
+  QuestPhoneXR grants that exact read-only URI to the game package so the game
+  does not have to add a package-visibility query for the provider authority. Inactive or stale samples are always neutral; the lease is 300 ms.
 - The loader-facing runtime retains the Android VM and Activity supplied through
   XR_KHR_android_create_instance. At xrSyncActions it polls the provider from
   the game process (throttled to one query per 8 ms) and refreshes the runtime's

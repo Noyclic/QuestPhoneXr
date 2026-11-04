@@ -19,6 +19,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
+import com.noyclic.questphonexr.runtime.EndXrInputContentProvider
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -309,9 +310,23 @@ class ApkImportActivity : ComponentActivity() {
             return
         }
         if (assessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE) {
+            // Grant the exact read-only URI to the imported game package. This
+            // lets its process read EndXR snapshots even when it did not declare
+            // package-visibility queries for our provider authority.
+            val inputIpcGranted = runCatching {
+                grantUriPermission(
+                    info.packageName,
+                    Uri.parse(EndXrInputContentProvider.CONTENT_URI),
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }.isSuccess
             runCatching {
                 startActivity(launchIntent)
-                statusView.text = "Передано Android для экспериментальной проверки. EndXR пока не реализует OpenXR Action / Input API; управление и полноценная игра не гарантированы."
+                statusView.text = if (inputIpcGranted) {
+                    "Передано Android. Доступ к IPC-снимку EndXR выдан. Важно: источник ввода пока очищается при паузе Sandbox; непрерывное управление во внешней игре ещё не готово."
+                } else {
+                    "Передано Android, но не удалось выдать IPC-доступ EndXR. Управление и полноценная игра не гарантированы."
+                }
             }.onFailure { error ->
                 statusView.text = "Не удалось открыть приложение: ${error.message ?: "ошибка запуска"}"
             }
