@@ -24,7 +24,7 @@ extern "C" {
 #if defined(__GNUC__)
 __attribute__((visibility("default")))
 #endif
-XrResult XRAPI_CALL xrNegotiateLoaderRuntimeInterface(
+XRAPI_ATTR XrResult XRAPI_CALL xrNegotiateLoaderRuntimeInterface(
     const XrNegotiateLoaderInfo* loaderInfo,
     XrNegotiateRuntimeRequest* runtimeRequest
 );

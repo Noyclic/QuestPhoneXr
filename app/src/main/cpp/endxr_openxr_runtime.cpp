@@ -3,9 +3,10 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <cstdint>
 #include <mutex>
 #include <new>
-#include <unordered_set>
+#include <unordered_map>
 
 struct XrInstance_T {
     XrVersion requestedApiVersion = XR_MAKE_VERSION(1, 0, 0);
@@ -25,7 +26,17 @@ constexpr const char* kRuntimeName = "EndXR Phone Runtime";
 constexpr const char* kSystemName = "EndXR Phone VR";
 
 std::mutex g_instanceMutex;
-std::unordered_set<XrInstance> g_instances;
+std::unordered_map<XrInstance, XrInstance_T*> g_instances;
+std::uint64_t g_nextInstanceHandle = 1;
+
+XrInstance makeInstanceHandle(XrInstance_T* object) {
+#if XR_PTR_SIZE == 8
+    return object;
+#else
+    (void)object;
+    return g_nextInstanceHandle++;
+#endif
+}
 
 struct BaseInStructure {
     XrStructureType type;
@@ -57,7 +68,7 @@ const XrInstanceCreateInfoAndroidKHR* findAndroidCreateInfo(const void* next) {
     return nullptr;
 }
 
-XrResult XRAPI_CALL endxrGetInstanceProcAddr(
+XRAPI_ATTR XrResult XRAPI_CALL endxrGetInstanceProcAddr(
     XrInstance instance, const char* name, PFN_xrVoidFunction* function
 );
 
@@ -132,28 +143,32 @@ XrResult XRAPI_CALL endxrCreateInstance(
         return XR_ERROR_API_VERSION_UNSUPPORTED;
     }
 
-    XrInstance created = new (std::nothrow) XrInstance_T();
+    XrInstance_T* created = new (std::nothrow) XrInstance_T();
     if (created == nullptr) return XR_ERROR_OUT_OF_MEMORY;
     created->requestedApiVersion = requested;
     if (androidInfo != nullptr) {
         created->applicationVm = androidInfo->applicationVM;
         created->applicationActivity = androidInfo->applicationActivity;
     }
+    const XrInstance createdHandle = makeInstanceHandle(created);
     {
         std::lock_guard<std::mutex> lock(g_instanceMutex);
-        g_instances.insert(created);
+        g_instances.emplace(createdHandle, created);
     }
-    *instance = created;
+    *instance = createdHandle;
     return XR_SUCCESS;
 }
 
 XrResult XRAPI_CALL endxrDestroyInstance(XrInstance instance) {
-    if (!isValidInstance(instance)) return XR_ERROR_HANDLE_INVALID;
+    XrInstance_T* object = nullptr;
     {
         std::lock_guard<std::mutex> lock(g_instanceMutex);
-        g_instances.erase(instance);
+        const auto found = g_instances.find(instance);
+        if (found == g_instances.end()) return XR_ERROR_HANDLE_INVALID;
+        object = found->second;
+        g_instances.erase(found);
     }
-    delete instance;
+    delete object;
     return XR_SUCCESS;
 }
 
