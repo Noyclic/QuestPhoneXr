@@ -370,16 +370,326 @@ void testGlesSessionSwapchainAndFrameLifecycle() {
         resolve(request.getInstanceProcAddr, instance, "xrDestroyInstance"));
     expect(destroyInstance(instance) == XR_SUCCESS, "destroy XR instance");
 }
-void testUnsupportedCommandsAreNotAdvertised() {
+void testActionInputApiLifecycleAndNeutralState() {
     XrNegotiateLoaderInfo loader{};
     XrNegotiateRuntimeRequest request{};
     setup(loader, request);
     expect(xrNegotiateLoaderRuntimeInterface(&loader, &request) == XR_SUCCESS,
-           "negotiate before unsupported command check");
+           "negotiate before action API tests");
+    const XrInstance instance = createInstance(request.getInstanceProcAddr, true, true);
+
+    auto stringToPath = reinterpret_cast<PFN_xrStringToPath>(
+        resolve(request.getInstanceProcAddr, instance, "xrStringToPath"));
+    auto pathToString = reinterpret_cast<PFN_xrPathToString>(
+        resolve(request.getInstanceProcAddr, instance, "xrPathToString"));
+    XrPath leftHand = XR_NULL_PATH;
+    XrPath rightHand = XR_NULL_PATH;
+    XrPath profile = XR_NULL_PATH;
+    XrPath leftSelect = XR_NULL_PATH;
+    XrPath rightSelect = XR_NULL_PATH;
+    expect(stringToPath(instance, "/user/hand/left", &leftHand) == XR_SUCCESS &&
+               leftHand != XR_NULL_PATH,
+           "intern left hand subaction path");
+    expect(stringToPath(instance, "/user/hand/right", &rightHand) == XR_SUCCESS &&
+               rightHand != XR_NULL_PATH && rightHand != leftHand,
+           "intern right hand subaction path");
+    expect(stringToPath(instance, "/interaction_profiles/khr/simple_controller",
+                        &profile) == XR_SUCCESS,
+           "intern simple-controller interaction profile");
+    expect(stringToPath(instance, "/user/hand/left/input/select/click",
+                        &leftSelect) == XR_SUCCESS,
+           "intern left select binding path");
+    expect(stringToPath(instance, "/user/hand/right/input/select/click",
+                        &rightSelect) == XR_SUCCESS,
+           "intern right select binding path");
+    XrPath leftHandAgain = XR_NULL_PATH;
+    expect(stringToPath(instance, "/user/hand/left", &leftHandAgain) == XR_SUCCESS &&
+               leftHandAgain == leftHand,
+           "interning the same path returns the same handle");
+    expect(stringToPath(instance, "/User/hand/left", &leftHandAgain) ==
+               XR_ERROR_PATH_FORMAT_INVALID,
+           "reject non-lowercase OpenXR paths");
+    std::uint32_t pathLength = 0;
+    expect(pathToString(instance, leftHand, 0, &pathLength, nullptr) == XR_SUCCESS &&
+               pathLength == std::strlen("/user/hand/left") + 1,
+           "query required path string length");
+    char pathBuffer[XR_MAX_PATH_LENGTH]{};
+    expect(pathToString(instance, leftHand, sizeof(pathBuffer), &pathLength, pathBuffer) ==
+               XR_SUCCESS && std::strcmp(pathBuffer, "/user/hand/left") == 0,
+           "convert path handle back to its string");
+
+    auto createActionSet = reinterpret_cast<PFN_xrCreateActionSet>(
+        resolve(request.getInstanceProcAddr, instance, "xrCreateActionSet"));
+    auto destroyActionSet = reinterpret_cast<PFN_xrDestroyActionSet>(
+        resolve(request.getInstanceProcAddr, instance, "xrDestroyActionSet"));
+    auto createAction = reinterpret_cast<PFN_xrCreateAction>(
+        resolve(request.getInstanceProcAddr, instance, "xrCreateAction"));
+    auto destroyAction = reinterpret_cast<PFN_xrDestroyAction>(
+        resolve(request.getInstanceProcAddr, instance, "xrDestroyAction"));
+
+    XrActionSetCreateInfo setInfo{};
+    setInfo.type = XR_TYPE_ACTION_SET_CREATE_INFO;
+    std::strncpy(setInfo.actionSetName, "gameplay", sizeof(setInfo.actionSetName) - 1);
+    std::strncpy(setInfo.localizedActionSetName, "Gameplay", sizeof(setInfo.localizedActionSetName) - 1);
+    setInfo.priority = 0;
+    XrActionSet actionSet = XR_NULL_HANDLE;
+    expect(createActionSet(instance, &setInfo, &actionSet) == XR_SUCCESS &&
+               actionSet != XR_NULL_HANDLE,
+           "create gameplay action set");
+
+    const XrPath handPaths[] = {leftHand, rightHand};
+    XrActionCreateInfo triggerInfo{};
+    triggerInfo.type = XR_TYPE_ACTION_CREATE_INFO;
+    std::strncpy(triggerInfo.actionName, "select", sizeof(triggerInfo.actionName) - 1);
+    std::strncpy(triggerInfo.localizedActionName, "Select", sizeof(triggerInfo.localizedActionName) - 1);
+    triggerInfo.actionType = XR_ACTION_TYPE_BOOLEAN_INPUT;
+    triggerInfo.countSubactionPaths = 2;
+    triggerInfo.subactionPaths = handPaths;
+    XrAction triggerAction = XR_NULL_HANDLE;
+    expect(createAction(actionSet, &triggerInfo, &triggerAction) == XR_SUCCESS,
+           "create boolean trigger action");
+
+    XrActionCreateInfo poseInfo{};
+    poseInfo.type = XR_TYPE_ACTION_CREATE_INFO;
+    std::strncpy(poseInfo.actionName, "hand_pose", sizeof(poseInfo.actionName) - 1);
+    std::strncpy(poseInfo.localizedActionName, "Hand Pose", sizeof(poseInfo.localizedActionName) - 1);
+    poseInfo.actionType = XR_ACTION_TYPE_POSE_INPUT;
+    poseInfo.countSubactionPaths = 2;
+    poseInfo.subactionPaths = handPaths;
+    XrAction poseAction = XR_NULL_HANDLE;
+    expect(createAction(actionSet, &poseInfo, &poseAction) == XR_SUCCESS,
+           "create controller pose action");
+
+    XrActionCreateInfo hapticInfo{};
+    hapticInfo.type = XR_TYPE_ACTION_CREATE_INFO;
+    std::strncpy(hapticInfo.actionName, "haptic", sizeof(hapticInfo.actionName) - 1);
+    std::strncpy(hapticInfo.localizedActionName, "Haptic", sizeof(hapticInfo.localizedActionName) - 1);
+    hapticInfo.actionType = XR_ACTION_TYPE_VIBRATION_OUTPUT;
+    hapticInfo.countSubactionPaths = 2;
+    hapticInfo.subactionPaths = handPaths;
+    XrAction hapticAction = XR_NULL_HANDLE;
+    expect(createAction(actionSet, &hapticInfo, &hapticAction) == XR_SUCCESS,
+           "create haptic output action");
+
+    auto suggestBindings = reinterpret_cast<PFN_xrSuggestInteractionProfileBindings>(
+        resolve(request.getInstanceProcAddr, instance, "xrSuggestInteractionProfileBindings"));
+    const XrActionSuggestedBinding bindings[] = {
+        {triggerAction, leftSelect},
+        {triggerAction, rightSelect}
+    };
+    XrInteractionProfileSuggestedBinding suggested{};
+    suggested.type = XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING;
+    suggested.interactionProfile = profile;
+    suggested.countSuggestedBindings = 2;
+    suggested.suggestedBindings = bindings;
+    expect(suggestBindings(instance, &suggested) == XR_SUCCESS,
+           "accept validated interaction-profile binding suggestions");
+
+    auto getSystem = reinterpret_cast<PFN_xrGetSystem>(
+        resolve(request.getInstanceProcAddr, instance, "xrGetSystem"));
+    XrSystemGetInfo systemInfo{};
+    systemInfo.type = XR_TYPE_SYSTEM_GET_INFO;
+    systemInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
+    XrSystemId system = XR_NULL_SYSTEM_ID;
+    expect(getSystem(instance, &systemInfo, &system) == XR_SUCCESS,
+           "get HMD system for action session");
+
+    auto getRequirements = reinterpret_cast<PFN_xrGetOpenGLESGraphicsRequirementsKHR>(
+        resolve(request.getInstanceProcAddr, instance, "xrGetOpenGLESGraphicsRequirementsKHR"));
+    XrGraphicsRequirementsOpenGLESKHR requirements{};
+    requirements.type = XR_TYPE_GRAPHICS_REQUIREMENTS_OPENGL_ES_KHR;
+    expect(getRequirements(instance, system, &requirements) == XR_SUCCESS,
+           "query GLES requirements for action session");
+
+    auto createSession = reinterpret_cast<PFN_xrCreateSession>(
+        resolve(request.getInstanceProcAddr, instance, "xrCreateSession"));
+    XrGraphicsBindingOpenGLESAndroidKHR graphicsBinding{};
+    graphicsBinding.type = XR_TYPE_GRAPHICS_BINDING_OPENGL_ES_ANDROID_KHR;
+    graphicsBinding.display = reinterpret_cast<void*>(0x1000);
+    graphicsBinding.config = reinterpret_cast<void*>(0x2000);
+    graphicsBinding.context = reinterpret_cast<void*>(0x3000);
+    XrSessionCreateInfo sessionInfo{};
+    sessionInfo.type = XR_TYPE_SESSION_CREATE_INFO;
+    sessionInfo.next = &graphicsBinding;
+    sessionInfo.systemId = system;
+    XrSession session = XR_NULL_HANDLE;
+    expect(createSession(instance, &sessionInfo, &session) == XR_SUCCESS,
+           "create GLES session for action tests");
+
+    auto attachActionSets = reinterpret_cast<PFN_xrAttachSessionActionSets>(
+        resolve(request.getInstanceProcAddr, instance, "xrAttachSessionActionSets"));
+    XrSessionActionSetsAttachInfo attachInfo{};
+    attachInfo.type = XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO;
+    attachInfo.countActionSets = 1;
+    attachInfo.actionSets = &actionSet;
+    expect(attachActionSets(session, &attachInfo) == XR_SUCCESS,
+           "attach gameplay action set to session");
+    expect(attachActionSets(session, &attachInfo) == XR_ERROR_ACTIONSETS_ALREADY_ATTACHED,
+           "reject a second action-set attachment");
+
+    auto beginSession = reinterpret_cast<PFN_xrBeginSession>(
+        resolve(request.getInstanceProcAddr, instance, "xrBeginSession"));
+    XrSessionBeginInfo beginInfo{};
+    beginInfo.type = XR_TYPE_SESSION_BEGIN_INFO;
+    beginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+    expect(beginSession(session, &beginInfo) == XR_SUCCESS,
+           "begin session before synchronizing actions");
+
+    auto syncActions = reinterpret_cast<PFN_xrSyncActions>(
+        resolve(request.getInstanceProcAddr, instance, "xrSyncActions"));
+    XrActiveActionSet activeSet{actionSet, XR_NULL_PATH};
+    XrActionsSyncInfo syncInfo{};
+    syncInfo.type = XR_TYPE_ACTIONS_SYNC_INFO;
+    syncInfo.countActiveActionSets = 1;
+    syncInfo.activeActionSets = &activeSet;
+    expect(syncActions(session, &syncInfo) == XR_SUCCESS,
+           "synchronize attached action sets");
+
+    auto getBoolean = reinterpret_cast<PFN_xrGetActionStateBoolean>(
+        resolve(request.getInstanceProcAddr, instance, "xrGetActionStateBoolean"));
+    XrActionStateGetInfo stateInfo{};
+    stateInfo.type = XR_TYPE_ACTION_STATE_GET_INFO;
+    stateInfo.action = triggerAction;
+    stateInfo.subactionPath = leftHand;
+    XrActionStateBoolean booleanState{};
+    booleanState.type = XR_TYPE_ACTION_STATE_BOOLEAN;
+    expect(getBoolean(session, &stateInfo, &booleanState) == XR_SUCCESS &&
+               booleanState.currentState == XR_FALSE &&
+               booleanState.isActive == XR_FALSE,
+           "unfed physical input remains neutral and inactive");
+
+    auto getFloat = reinterpret_cast<PFN_xrGetActionStateFloat>(
+        resolve(request.getInstanceProcAddr, instance, "xrGetActionStateFloat"));
+    XrActionStateFloat floatState{};
+    floatState.type = XR_TYPE_ACTION_STATE_FLOAT;
+    expect(getFloat(session, &stateInfo, &floatState) == XR_ERROR_ACTION_TYPE_MISMATCH,
+           "reject reading a boolean action as float");
+
+    auto getPose = reinterpret_cast<PFN_xrGetActionStatePose>(
+        resolve(request.getInstanceProcAddr, instance, "xrGetActionStatePose"));
+    XrActionStateGetInfo poseStateInfo{};
+    poseStateInfo.type = XR_TYPE_ACTION_STATE_GET_INFO;
+    poseStateInfo.action = poseAction;
+    poseStateInfo.subactionPath = leftHand;
+    XrActionStatePose poseState{};
+    poseState.type = XR_TYPE_ACTION_STATE_POSE;
+    expect(getPose(session, &poseStateInfo, &poseState) == XR_SUCCESS &&
+               poseState.isActive == XR_FALSE,
+           "unfed controller pose action remains inactive");
+
+    auto currentProfile = reinterpret_cast<PFN_xrGetCurrentInteractionProfile>(
+        resolve(request.getInstanceProcAddr, instance, "xrGetCurrentInteractionProfile"));
+    XrInteractionProfileState profileState{};
+    profileState.type = XR_TYPE_INTERACTION_PROFILE_STATE;
+    expect(currentProfile(session, leftHand, &profileState) == XR_SUCCESS &&
+               profileState.interactionProfile == XR_NULL_PATH,
+           "report no active physical interaction profile");
+
+    auto enumerateBoundSources = reinterpret_cast<PFN_xrEnumerateBoundSourcesForAction>(
+        resolve(request.getInstanceProcAddr, instance, "xrEnumerateBoundSourcesForAction"));
+    XrBoundSourcesForActionEnumerateInfo boundInfo{};
+    boundInfo.type = XR_TYPE_BOUND_SOURCES_FOR_ACTION_ENUMERATE_INFO;
+    boundInfo.action = triggerAction;
+    std::uint32_t sourceCount = 99;
+    expect(enumerateBoundSources(session, &boundInfo, 0, &sourceCount, nullptr) == XR_SUCCESS &&
+               sourceCount == 0,
+           "report no active runtime sources until controller bridge is connected");
+
+    auto getLocalizedName = reinterpret_cast<PFN_xrGetInputSourceLocalizedName>(
+        resolve(request.getInstanceProcAddr, instance, "xrGetInputSourceLocalizedName"));
+    XrInputSourceLocalizedNameGetInfo localizedInfo{};
+    localizedInfo.type = XR_TYPE_INPUT_SOURCE_LOCALIZED_NAME_GET_INFO;
+    localizedInfo.sourcePath = leftHand;
+    localizedInfo.whichComponents = XR_INPUT_SOURCE_LOCALIZED_NAME_USER_PATH_BIT;
+    std::uint32_t localizedLength = 0;
+    expect(getLocalizedName(session, &localizedInfo, 0, &localizedLength, nullptr) == XR_SUCCESS &&
+               localizedLength == std::strlen("/user/hand/left") + 1,
+           "report localized input-source name length");
+
+    auto createActionSpace = reinterpret_cast<PFN_xrCreateActionSpace>(
+        resolve(request.getInstanceProcAddr, instance, "xrCreateActionSpace"));
+    XrActionSpaceCreateInfo actionSpaceInfo{};
+    actionSpaceInfo.type = XR_TYPE_ACTION_SPACE_CREATE_INFO;
+    actionSpaceInfo.action = poseAction;
+    actionSpaceInfo.subactionPath = leftHand;
+    actionSpaceInfo.poseInActionSpace.orientation.w = 1.0f;
+    XrSpace actionSpace = XR_NULL_HANDLE;
+    expect(createActionSpace(session, &actionSpaceInfo, &actionSpace) == XR_SUCCESS,
+           "create pose action space");
+
+    auto createReferenceSpace = reinterpret_cast<PFN_xrCreateReferenceSpace>(
+        resolve(request.getInstanceProcAddr, instance, "xrCreateReferenceSpace"));
+    XrReferenceSpaceCreateInfo referenceInfo{};
+    referenceInfo.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
+    referenceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+    referenceInfo.poseInReferenceSpace.orientation.w = 1.0f;
+    XrSpace localSpace = XR_NULL_HANDLE;
+    expect(createReferenceSpace(session, &referenceInfo, &localSpace) == XR_SUCCESS,
+           "create local reference space");
+    auto locateSpace = reinterpret_cast<PFN_xrLocateSpace>(
+        resolve(request.getInstanceProcAddr, instance, "xrLocateSpace"));
+    XrSpaceLocation location{};
+    location.type = XR_TYPE_SPACE_LOCATION;
+    expect(locateSpace(actionSpace, localSpace, 1, &location) == XR_SUCCESS &&
+               location.locationFlags == 0,
+           "do not invent a controller pose when no input source is available");
+
+    auto applyHaptic = reinterpret_cast<PFN_xrApplyHapticFeedback>(
+        resolve(request.getInstanceProcAddr, instance, "xrApplyHapticFeedback"));
+    XrHapticActionInfo hapticActionInfo{};
+    hapticActionInfo.type = XR_TYPE_HAPTIC_ACTION_INFO;
+    hapticActionInfo.action = hapticAction;
+    hapticActionInfo.subactionPath = leftHand;
+    XrHapticVibration vibration{};
+    vibration.type = XR_TYPE_HAPTIC_VIBRATION;
+    vibration.duration = XR_MIN_HAPTIC_DURATION;
+    vibration.frequency = XR_FREQUENCY_UNSPECIFIED;
+    vibration.amplitude = 1.0f;
+    expect(applyHaptic(session, &hapticActionInfo,
+                       reinterpret_cast<const XrHapticBaseHeader*>(&vibration)) ==
+               XR_ERROR_FEATURE_UNSUPPORTED,
+           "report unsupported hardware haptics honestly");
+
+    auto destroySpace = reinterpret_cast<PFN_xrDestroySpace>(
+        resolve(request.getInstanceProcAddr, instance, "xrDestroySpace"));
+    expect(destroySpace(actionSpace) == XR_SUCCESS, "destroy action space");
+    expect(destroySpace(localSpace) == XR_SUCCESS, "destroy local reference space");
+
+    auto requestExit = reinterpret_cast<PFN_xrRequestExitSession>(
+        resolve(request.getInstanceProcAddr, instance, "xrRequestExitSession"));
+    auto endSession = reinterpret_cast<PFN_xrEndSession>(
+        resolve(request.getInstanceProcAddr, instance, "xrEndSession"));
+    expect(requestExit(session) == XR_SUCCESS, "request action test session exit");
+    expect(endSession(session) == XR_SUCCESS, "end action test session");
+    auto destroySession = reinterpret_cast<PFN_xrDestroySession>(
+        resolve(request.getInstanceProcAddr, instance, "xrDestroySession"));
+    expect(destroySession(session) == XR_SUCCESS, "destroy action test session");
+
+    expect(destroyAction(triggerAction) == XR_SUCCESS, "destroy select action");
+    expect(destroyAction(poseAction) == XR_SUCCESS, "destroy pose action");
+    expect(destroyAction(hapticAction) == XR_SUCCESS, "destroy haptic action");
+    expect(destroyActionSet(actionSet) == XR_SUCCESS, "destroy gameplay action set");
+    auto destroyInstance = reinterpret_cast<PFN_xrDestroyInstance>(
+        resolve(request.getInstanceProcAddr, instance, "xrDestroyInstance"));
+    expect(destroyInstance(instance) == XR_SUCCESS, "destroy action test instance");
+}
+
+void testActionEntryPointsAreAdvertised() {
+    XrNegotiateLoaderInfo loader{};
+    XrNegotiateRuntimeRequest request{};
+    setup(loader, request);
+    expect(xrNegotiateLoaderRuntimeInterface(&loader, &request) == XR_SUCCESS,
+           "negotiate before action entry-point check");
     PFN_xrVoidFunction function = nullptr;
     expect(request.getInstanceProcAddr(XR_NULL_HANDLE, "xrCreateActionSet", &function) ==
-               XR_ERROR_FUNCTION_UNSUPPORTED && function == nullptr,
-           "do not claim input action support before implementation");
+               XR_SUCCESS && function != nullptr,
+           "advertise action-set creation");
+    expect(request.getInstanceProcAddr(XR_NULL_HANDLE, "xrSyncActions", &function) ==
+               XR_SUCCESS && function != nullptr,
+           "advertise action synchronization");
+    expect(request.getInstanceProcAddr(XR_NULL_HANDLE, "xrGetActionStatePose", &function) ==
+               XR_SUCCESS && function != nullptr,
+           "advertise pose action-state query");
 }
 }
 int main() {
@@ -387,7 +697,8 @@ int main() {
     testExtensionEnumerationAndInstance();
     testSystemDiscoveryAndGraphicsRequirements();
     testGlesSessionSwapchainAndFrameLifecycle();
-    testUnsupportedCommandsAreNotAdvertised();
+    testActionInputApiLifecycleAndNeutralState();
+    testActionEntryPointsAreAdvertised();
     std::cout << "EndXR OpenXR GLES session and swapchain tests: all passed.\n";
     return 0;
 }

@@ -12,6 +12,7 @@
 #include <limits>
 #include <mutex>
 #include <new>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -70,6 +71,10 @@ struct XrInstance_T {
     bool glesRequirementsQueried = false;
     std::mutex eventMutex;
     std::deque<XrEventDataSessionStateChanged> pendingSessionEvents;
+    std::unordered_map<std::string, XrPath> pathHandles;
+    std::unordered_map<XrPath, std::string> pathStrings;
+    std::unordered_map<XrPath, std::vector<XrActionSuggestedBinding>> suggestedBindings;
+    XrPath nextPath = 1;
 };
 
 struct XrSession_T {
@@ -88,6 +93,10 @@ struct XrSession_T {
     XrDuration predictedDisplayPeriod = 0;
     std::unordered_set<XrSwapchain> swapchains;
     std::unordered_set<XrSpace> spaces;
+    bool actionSetsAttached = false;
+    bool actionSyncCompleted = false;
+    std::unordered_set<XrActionSet> attachedActionSets;
+    std::vector<XrActiveActionSet> activeActionSets;
     GLuint compositorFramebuffer = 0;
 };
 
@@ -107,6 +116,27 @@ struct XrSpace_T {
     XrSession owner = XR_NULL_HANDLE;
     XrReferenceSpaceType type = XR_REFERENCE_SPACE_TYPE_LOCAL;
     XrPosef poseInReferenceSpace{};
+    bool isActionSpace = false;
+    XrAction action = XR_NULL_HANDLE;
+    XrPath actionSubactionPath = XR_NULL_PATH;
+};
+
+struct XrActionSet_T {
+    XrInstance owner = XR_NULL_HANDLE;
+    std::string name;
+    std::string localizedName;
+    std::uint32_t priority = 0;
+    XrSession attachedSession = XR_NULL_HANDLE;
+    std::unordered_set<XrAction> actions;
+};
+
+struct XrAction_T {
+    XrActionSet owner = XR_NULL_HANDLE;
+    std::string name;
+    std::string localizedName;
+    XrActionType type = XR_ACTION_TYPE_BOOLEAN_INPUT;
+    std::vector<XrPath> subactionPaths;
+    std::unordered_set<XrSpace> spaces;
 };
 
 namespace {
@@ -146,6 +176,10 @@ std::unordered_map<XrSpace, XrSpace_T*> g_spaces;
 std::uint64_t g_nextSpaceHandle = 1;
 #endif
 
+std::mutex g_actionMutex;
+std::unordered_map<XrActionSet, XrActionSet_T*> g_actionSets;
+std::unordered_map<XrAction, XrAction_T*> g_actions;
+
 std::mutex g_headPoseMutex;
 XrQuaternionf g_headOrientation{0.0f, 0.0f, 0.0f, 1.0f};
 bool g_hasHeadOrientation = false;
@@ -183,6 +217,12 @@ XrSpace makeSpaceHandle(XrSpace_T* object) {
     return g_nextSpaceHandle++;
 #endif
 }
+XrActionSet makeActionSetHandle(XrActionSet_T* object) {
+    return reinterpret_cast<XrActionSet>(object);
+}
+XrAction makeActionHandle(XrAction_T* object) {
+    return reinterpret_cast<XrAction>(object);
+}
 
 struct BaseInStructure {
     XrStructureType type;
@@ -218,6 +258,16 @@ XrSpace_T* getSpace(XrSpace space) {
     std::lock_guard<std::mutex> lock(g_spaceMutex);
     const auto found = g_spaces.find(space);
     return found == g_spaces.end() ? nullptr : found->second;
+}
+XrActionSet_T* getActionSet(XrActionSet actionSet) {
+    std::lock_guard<std::mutex> lock(g_actionMutex);
+    const auto found = g_actionSets.find(actionSet);
+    return found == g_actionSets.end() ? nullptr : found->second;
+}
+XrAction_T* getAction(XrAction action) {
+    std::lock_guard<std::mutex> lock(g_actionMutex);
+    const auto found = g_actions.find(action);
+    return found == g_actions.end() ? nullptr : found->second;
 }
 const XrInstanceCreateInfoAndroidKHR* findAndroidCreateInfo(const void* next) {
     auto* current = static_cast<const BaseInStructure*>(next);
@@ -582,6 +632,12 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrCreateInstance(
 XRAPI_ATTR XrResult XRAPI_CALL endxrDestroyInstance(XrInstance instance) {
     XrInstance_T* object = nullptr;
     {
+        std::lock_guard<std::mutex> actionLock(g_actionMutex);
+        for (const auto& entry : g_actionSets) {
+            if (entry.second->owner == instance) return XR_ERROR_CALL_ORDER_INVALID;
+        }
+    }
+    {
         std::lock_guard<std::mutex> sessionLock(g_sessionMutex);
         for (const auto& entry : g_sessions) {
             if (entry.second->owner == instance) return XR_ERROR_CALL_ORDER_INVALID;
@@ -803,6 +859,15 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrDestroySession(XrSession session) {
         }
         g_sessions.erase(found);
     }
+    {
+        std::lock_guard<std::mutex> actionLock(g_actionMutex);
+        for (XrActionSet actionSet : object->attachedActionSets) {
+            const auto found = g_actionSets.find(actionSet);
+            if (found != g_actionSets.end() && found->second->attachedSession == session) {
+                found->second->attachedSession = XR_NULL_HANDLE;
+            }
+        }
+    }
     destroySessionFramebuffer(object);
     delete object;
     return XR_SUCCESS;
@@ -1005,6 +1070,11 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrDestroySpace(XrSpace space) {
     }
     XrSession_T* owner = getSession(object->owner);
     if (owner != nullptr) owner->spaces.erase(space);
+    if (object->isActionSpace && object->action != XR_NULL_HANDLE) {
+        std::lock_guard<std::mutex> actionLock(g_actionMutex);
+        const auto action = g_actions.find(object->action);
+        if (action != g_actions.end()) action->second->spaces.erase(space);
+    }
     delete object;
     return XR_SUCCESS;
 }
@@ -1020,6 +1090,12 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrLocateSpace(
         return XR_ERROR_VALIDATION_FAILURE;
     }
     if (time <= 0) return XR_ERROR_TIME_INVALID;
+    if (object->isActionSpace || base->isActionSpace) {
+        location->pose.orientation = {0.0f, 0.0f, 0.0f, 1.0f};
+        location->pose.position = {0.0f, 0.0f, 0.0f};
+        location->locationFlags = 0;
+        return XR_SUCCESS;
+    }
     XrQuaternionf orientation{};
     bool hasOrientation = false;
     {
@@ -1281,9 +1357,635 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrStructureTypeToString(
     return XR_SUCCESS;
 }
 
+
+namespace {
+
+bool readFixedName(const char* value, std::size_t capacity, std::string* output) {
+    if (value == nullptr || output == nullptr || capacity == 0) return false;
+    const auto* terminator = static_cast<const char*>(std::memchr(value, '\0', capacity));
+    if (terminator == nullptr || terminator == value) return false;
+    output->assign(value, static_cast<std::size_t>(terminator - value));
+    return true;
+}
+
+bool validActionIdentifier(const std::string& value) {
+    if (value.empty()) return false;
+    for (const unsigned char character : value) {
+        const bool allowed =
+            (character >= 'a' && character <= 'z') ||
+            (character >= '0' && character <= '9') ||
+            character == '_';
+        if (!allowed) return false;
+    }
+    return true;
+}
+
+bool validOpenXrPath(const std::string& value) {
+    if (value.size() < 2 || value.size() >= XR_MAX_PATH_LENGTH ||
+        value.front() != '/' || value.back() == '/') return false;
+    bool previousSlash = false;
+    for (std::size_t index = 1; index < value.size(); ++index) {
+        const unsigned char character = static_cast<unsigned char>(value[index]);
+        if (character == '/') {
+            if (previousSlash) return false;
+            previousSlash = true;
+            continue;
+        }
+        previousSlash = false;
+        const bool allowed =
+            (character >= 'a' && character <= 'z') ||
+            (character >= '0' && character <= '9') ||
+            character == '_' || character == '-' || character == '.';
+        if (!allowed) return false;
+    }
+    return !previousSlash;
+}
+
+bool pathBelongsToInstance(XrInstance instance, XrPath path, std::string* value = nullptr) {
+    XrInstance_T* owner = getInstance(instance);
+    if (owner == nullptr || path == XR_NULL_PATH) return false;
+    const auto found = owner->pathStrings.find(path);
+    if (found == owner->pathStrings.end()) return false;
+    if (value != nullptr) *value = found->second;
+    return true;
+}
+
+bool validUserPath(XrInstance instance, XrPath path) {
+    std::string value;
+    return pathBelongsToInstance(instance, path, &value) &&
+        value.compare(0, 6, "/user/") == 0;
+}
+
+bool validActionSubactionPath(const XrAction_T* action, XrPath path) {
+    if (action == nullptr) return false;
+    if (path == XR_NULL_PATH) return true;
+    return std::find(action->subactionPaths.begin(), action->subactionPaths.end(), path) !=
+        action->subactionPaths.end();
+}
+
+XrResult validateActionForSession(
+    XrSession_T* session,
+    const XrActionStateGetInfo* info,
+    XrActionType expectedType,
+    XrAction_T** actionOutput
+) {
+    if (session == nullptr) return XR_ERROR_HANDLE_INVALID;
+    if (info == nullptr || info->type != XR_TYPE_ACTION_STATE_GET_INFO) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    XrAction_T* action = getAction(info->action);
+    if (action == nullptr) return XR_ERROR_HANDLE_INVALID;
+    if (action->type != expectedType) return XR_ERROR_ACTION_TYPE_MISMATCH;
+    XrActionSet_T* actionSet = getActionSet(action->owner);
+    if (actionSet == nullptr) return XR_ERROR_HANDLE_INVALID;
+    if (actionSet->owner != session->owner || actionSet->attachedSession !=
+            reinterpret_cast<XrSession>(session)) {
+#if XR_PTR_SIZE != 8
+        XrSession sessionHandle = XR_NULL_HANDLE;
+        {
+            std::lock_guard<std::mutex> lock(g_sessionMutex);
+            for (const auto& entry : g_sessions) {
+                if (entry.second == session) sessionHandle = entry.first;
+            }
+        }
+        if (actionSet->owner != session->owner || actionSet->attachedSession != sessionHandle) {
+            return XR_ERROR_ACTIONSET_NOT_ATTACHED;
+        }
+#else
+        return XR_ERROR_ACTIONSET_NOT_ATTACHED;
+#endif
+    }
+    if (!validActionSubactionPath(action, info->subactionPath)) return XR_ERROR_PATH_INVALID;
+    if (!session->actionSyncCompleted) return XR_ERROR_CALL_ORDER_INVALID;
+    if (!session->running || session->state != XR_SESSION_STATE_FOCUSED) {
+        return XR_SESSION_NOT_FOCUSED;
+    }
+    if (actionOutput != nullptr) *actionOutput = action;
+    return XR_SUCCESS;
+}
+
+} // namespace
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrStringToPath(
+    XrInstance instance, const char* pathString, XrPath* path
+) {
+    XrInstance_T* owner = getInstance(instance);
+    if (owner == nullptr) return XR_ERROR_HANDLE_INVALID;
+    if (pathString == nullptr || path == nullptr) return XR_ERROR_VALIDATION_FAILURE;
+    *path = XR_NULL_PATH;
+    const std::size_t length = ::strnlen(pathString, XR_MAX_PATH_LENGTH);
+    if (length >= XR_MAX_PATH_LENGTH) return XR_ERROR_PATH_FORMAT_INVALID;
+    const std::string value(pathString, length);
+    if (!validOpenXrPath(value)) return XR_ERROR_PATH_FORMAT_INVALID;
+    const auto existing = owner->pathHandles.find(value);
+    if (existing != owner->pathHandles.end()) {
+        *path = existing->second;
+        return XR_SUCCESS;
+    }
+    const XrPath created = owner->nextPath++;
+    if (created == XR_NULL_PATH) return XR_ERROR_LIMIT_REACHED;
+    owner->pathHandles.emplace(value, created);
+    owner->pathStrings.emplace(created, value);
+    *path = created;
+    return XR_SUCCESS;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrPathToString(
+    XrInstance instance, XrPath path, std::uint32_t capacity,
+    std::uint32_t* count, char* buffer
+) {
+    XrInstance_T* owner = getInstance(instance);
+    if (owner == nullptr) return XR_ERROR_HANDLE_INVALID;
+    if (count == nullptr) return XR_ERROR_VALIDATION_FAILURE;
+    const auto found = owner->pathStrings.find(path);
+    if (found == owner->pathStrings.end()) return XR_ERROR_PATH_INVALID;
+    const std::uint32_t required = static_cast<std::uint32_t>(found->second.size() + 1);
+    *count = required;
+    if (capacity == 0) return XR_SUCCESS;
+    if (buffer == nullptr) return XR_ERROR_VALIDATION_FAILURE;
+    if (capacity < required) return XR_ERROR_SIZE_INSUFFICIENT;
+    std::memcpy(buffer, found->second.c_str(), required);
+    return XR_SUCCESS;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrCreateActionSet(
+    XrInstance instance, const XrActionSetCreateInfo* createInfo, XrActionSet* actionSet
+) {
+    if (!isValidInstance(instance)) return XR_ERROR_HANDLE_INVALID;
+    if (createInfo == nullptr || actionSet == nullptr ||
+        createInfo->type != XR_TYPE_ACTION_SET_CREATE_INFO) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    *actionSet = XR_NULL_HANDLE;
+    std::string name;
+    std::string localizedName;
+    if (!readFixedName(createInfo->actionSetName, sizeof(createInfo->actionSetName), &name) ||
+        !readFixedName(createInfo->localizedActionSetName,
+                       sizeof(createInfo->localizedActionSetName), &localizedName)) {
+        return XR_ERROR_NAME_INVALID;
+    }
+    if (!validActionIdentifier(name)) return XR_ERROR_NAME_INVALID;
+
+    auto* created = new (std::nothrow) XrActionSet_T();
+    if (created == nullptr) return XR_ERROR_OUT_OF_MEMORY;
+    created->owner = instance;
+    created->name = name;
+    created->localizedName = localizedName;
+    created->priority = createInfo->priority;
+    {
+        std::lock_guard<std::mutex> lock(g_actionMutex);
+        for (const auto& entry : g_actionSets) {
+            if (entry.second->owner == instance && entry.second->name == name) {
+                delete created;
+                return XR_ERROR_NAME_DUPLICATED;
+            }
+        }
+        *actionSet = makeActionSetHandle(created);
+        g_actionSets.emplace(*actionSet, created);
+    }
+    return XR_SUCCESS;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrDestroyActionSet(XrActionSet actionSet) {
+    XrActionSet_T* object = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_actionMutex);
+        const auto found = g_actionSets.find(actionSet);
+        if (found == g_actionSets.end()) return XR_ERROR_HANDLE_INVALID;
+        object = found->second;
+        if (!object->actions.empty() || object->attachedSession != XR_NULL_HANDLE) {
+            return XR_ERROR_CALL_ORDER_INVALID;
+        }
+        g_actionSets.erase(found);
+    }
+    delete object;
+    return XR_SUCCESS;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrCreateAction(
+    XrActionSet actionSet, const XrActionCreateInfo* createInfo, XrAction* action
+) {
+    XrActionSet_T* owner = getActionSet(actionSet);
+    if (owner == nullptr) return XR_ERROR_HANDLE_INVALID;
+    if (createInfo == nullptr || action == nullptr ||
+        createInfo->type != XR_TYPE_ACTION_CREATE_INFO) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    *action = XR_NULL_HANDLE;
+    if (owner->attachedSession != XR_NULL_HANDLE) return XR_ERROR_ACTIONSETS_ALREADY_ATTACHED;
+
+    std::string name;
+    std::string localizedName;
+    if (!readFixedName(createInfo->actionName, sizeof(createInfo->actionName), &name) ||
+        !readFixedName(createInfo->localizedActionName,
+                       sizeof(createInfo->localizedActionName), &localizedName)) {
+        return XR_ERROR_NAME_INVALID;
+    }
+    if (!validActionIdentifier(name)) return XR_ERROR_NAME_INVALID;
+    switch (createInfo->actionType) {
+        case XR_ACTION_TYPE_BOOLEAN_INPUT:
+        case XR_ACTION_TYPE_FLOAT_INPUT:
+        case XR_ACTION_TYPE_VECTOR2F_INPUT:
+        case XR_ACTION_TYPE_POSE_INPUT:
+        case XR_ACTION_TYPE_VIBRATION_OUTPUT:
+            break;
+        default:
+            return XR_ERROR_ACTION_TYPE_MISMATCH;
+    }
+    if (createInfo->countSubactionPaths > 0 && createInfo->subactionPaths == nullptr) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+
+    auto* created = new (std::nothrow) XrAction_T();
+    if (created == nullptr) return XR_ERROR_OUT_OF_MEMORY;
+    created->owner = actionSet;
+    created->name = name;
+    created->localizedName = localizedName;
+    created->type = createInfo->actionType;
+    created->subactionPaths.reserve(createInfo->countSubactionPaths);
+    for (std::uint32_t index = 0; index < createInfo->countSubactionPaths; ++index) {
+        const XrPath path = createInfo->subactionPaths[index];
+        if (!validUserPath(owner->owner, path)) {
+            delete created;
+            return XR_ERROR_PATH_UNSUPPORTED;
+        }
+        if (std::find(created->subactionPaths.begin(), created->subactionPaths.end(), path) !=
+            created->subactionPaths.end()) {
+            delete created;
+            return XR_ERROR_PATH_UNSUPPORTED;
+        }
+        created->subactionPaths.push_back(path);
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(g_actionMutex);
+        const auto currentSet = g_actionSets.find(actionSet);
+        if (currentSet == g_actionSets.end()) {
+            delete created;
+            return XR_ERROR_HANDLE_INVALID;
+        }
+        if (currentSet->second->attachedSession != XR_NULL_HANDLE) {
+            delete created;
+            return XR_ERROR_ACTIONSETS_ALREADY_ATTACHED;
+        }
+        for (XrAction existing : currentSet->second->actions) {
+            const auto found = g_actions.find(existing);
+            if (found != g_actions.end() && found->second->name == name) {
+                delete created;
+                return XR_ERROR_NAME_DUPLICATED;
+            }
+        }
+        *action = makeActionHandle(created);
+        g_actions.emplace(*action, created);
+        currentSet->second->actions.insert(*action);
+    }
+    return XR_SUCCESS;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrDestroyAction(XrAction action) {
+    XrAction_T* object = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_actionMutex);
+        const auto found = g_actions.find(action);
+        if (found == g_actions.end()) return XR_ERROR_HANDLE_INVALID;
+        object = found->second;
+        if (!object->spaces.empty()) return XR_ERROR_CALL_ORDER_INVALID;
+        const auto owner = g_actionSets.find(object->owner);
+        if (owner != g_actionSets.end()) owner->second->actions.erase(action);
+        g_actions.erase(found);
+    }
+    delete object;
+    return XR_SUCCESS;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrSuggestInteractionProfileBindings(
+    XrInstance instance, const XrInteractionProfileSuggestedBinding* suggestedBindings
+) {
+    XrInstance_T* owner = getInstance(instance);
+    if (owner == nullptr) return XR_ERROR_HANDLE_INVALID;
+    if (suggestedBindings == nullptr ||
+        suggestedBindings->type != XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    std::string profile;
+    if (!pathBelongsToInstance(instance, suggestedBindings->interactionProfile, &profile)) {
+        return XR_ERROR_PATH_INVALID;
+    }
+    if (profile.compare(0, 22, "/interaction_profiles/") != 0) {
+        return XR_ERROR_PATH_UNSUPPORTED;
+    }
+    if (suggestedBindings->countSuggestedBindings > 0 &&
+        suggestedBindings->suggestedBindings == nullptr) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    std::vector<XrActionSuggestedBinding> bindings;
+    bindings.reserve(suggestedBindings->countSuggestedBindings);
+    for (std::uint32_t index = 0; index < suggestedBindings->countSuggestedBindings; ++index) {
+        const auto& binding = suggestedBindings->suggestedBindings[index];
+        XrAction_T* action = getAction(binding.action);
+        if (action == nullptr) return XR_ERROR_HANDLE_INVALID;
+        XrActionSet_T* actionSet = getActionSet(action->owner);
+        if (actionSet == nullptr || actionSet->owner != instance) return XR_ERROR_HANDLE_INVALID;
+        if (actionSet->attachedSession != XR_NULL_HANDLE) return XR_ERROR_ACTIONSETS_ALREADY_ATTACHED;
+        if (!pathBelongsToInstance(instance, binding.binding)) return XR_ERROR_PATH_INVALID;
+        if (std::any_of(bindings.begin(), bindings.end(), [&](const auto& item) {
+                return item.action == binding.action && item.binding == binding.binding;
+            })) {
+            return XR_ERROR_PATH_UNSUPPORTED;
+        }
+        bindings.push_back(binding);
+    }
+    owner->suggestedBindings[suggestedBindings->interactionProfile] = std::move(bindings);
+    return XR_SUCCESS;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrAttachSessionActionSets(
+    XrSession session, const XrSessionActionSetsAttachInfo* attachInfo
+) {
+    XrSession_T* owner = getSession(session);
+    if (owner == nullptr) return XR_ERROR_HANDLE_INVALID;
+    if (attachInfo == nullptr || attachInfo->type != XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    if (owner->actionSetsAttached) return XR_ERROR_ACTIONSETS_ALREADY_ATTACHED;
+    if (attachInfo->countActionSets == 0 || attachInfo->actionSets == nullptr) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    std::unordered_set<XrActionSet> unique;
+    std::lock_guard<std::mutex> lock(g_actionMutex);
+    for (std::uint32_t index = 0; index < attachInfo->countActionSets; ++index) {
+        const XrActionSet handle = attachInfo->actionSets[index];
+        const auto found = g_actionSets.find(handle);
+        if (found == g_actionSets.end()) return XR_ERROR_HANDLE_INVALID;
+        if (found->second->owner != owner->owner) return XR_ERROR_HANDLE_INVALID;
+        if (found->second->attachedSession != XR_NULL_HANDLE) {
+            return XR_ERROR_ACTIONSETS_ALREADY_ATTACHED;
+        }
+        if (!unique.insert(handle).second) return XR_ERROR_VALIDATION_FAILURE;
+    }
+    for (XrActionSet handle : unique) {
+        g_actionSets.at(handle)->attachedSession = session;
+        owner->attachedActionSets.insert(handle);
+    }
+    owner->actionSetsAttached = true;
+    owner->actionSyncCompleted = false;
+    return XR_SUCCESS;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrGetCurrentInteractionProfile(
+    XrSession session, XrPath topLevelUserPath, XrInteractionProfileState* interactionProfile
+) {
+    XrSession_T* owner = getSession(session);
+    if (owner == nullptr) return XR_ERROR_HANDLE_INVALID;
+    if (interactionProfile == nullptr ||
+        interactionProfile->type != XR_TYPE_INTERACTION_PROFILE_STATE) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    if (!validUserPath(owner->owner, topLevelUserPath)) return XR_ERROR_PATH_UNSUPPORTED;
+    // EndXR has no active physical interaction profile yet. XR_NULL_PATH is the
+    // defined "no profile active" result; do not pretend a controller is tracked.
+    interactionProfile->interactionProfile = XR_NULL_PATH;
+    return XR_SUCCESS;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrSyncActions(
+    XrSession session, const XrActionsSyncInfo* syncInfo
+) {
+    XrSession_T* owner = getSession(session);
+    if (owner == nullptr) return XR_ERROR_HANDLE_INVALID;
+    if (syncInfo == nullptr || syncInfo->type != XR_TYPE_ACTIONS_SYNC_INFO) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    if (!owner->running) return XR_ERROR_SESSION_NOT_RUNNING;
+    if (owner->state != XR_SESSION_STATE_FOCUSED) return XR_SESSION_NOT_FOCUSED;
+    if (!owner->actionSetsAttached) return XR_ERROR_ACTIONSET_NOT_ATTACHED;
+    if (syncInfo->countActiveActionSets > 0 && syncInfo->activeActionSets == nullptr) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+
+    std::vector<XrActiveActionSet> active;
+    active.reserve(syncInfo->countActiveActionSets);
+    std::unordered_set<XrActionSet> unique;
+    for (std::uint32_t index = 0; index < syncInfo->countActiveActionSets; ++index) {
+        const auto& item = syncInfo->activeActionSets[index];
+        XrActionSet_T* actionSet = getActionSet(item.actionSet);
+        if (actionSet == nullptr) return XR_ERROR_HANDLE_INVALID;
+        if (actionSet->attachedSession != session ||
+            owner->attachedActionSets.find(item.actionSet) == owner->attachedActionSets.end()) {
+            return XR_ERROR_ACTIONSET_NOT_ATTACHED;
+        }
+        if (!unique.insert(item.actionSet).second) return XR_ERROR_VALIDATION_FAILURE;
+        if (item.subactionPath != XR_NULL_PATH &&
+            !validUserPath(owner->owner, item.subactionPath)) return XR_ERROR_PATH_INVALID;
+        active.push_back(item);
+    }
+    owner->activeActionSets = std::move(active);
+    owner->actionSyncCompleted = true;
+    return XR_SUCCESS;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrGetActionStateBoolean(
+    XrSession session, const XrActionStateGetInfo* getInfo, XrActionStateBoolean* state
+) {
+    XrSession_T* owner = getSession(session);
+    if (state == nullptr || state->type != XR_TYPE_ACTION_STATE_BOOLEAN) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    XrResult result = validateActionForSession(
+        owner, getInfo, XR_ACTION_TYPE_BOOLEAN_INPUT, nullptr
+    );
+    if (XR_FAILED(result)) return result;
+    state->currentState = XR_FALSE;
+    state->changedSinceLastSync = XR_FALSE;
+    state->lastChangeTime = 0;
+    state->isActive = XR_FALSE;
+    return XR_SUCCESS;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrGetActionStateFloat(
+    XrSession session, const XrActionStateGetInfo* getInfo, XrActionStateFloat* state
+) {
+    XrSession_T* owner = getSession(session);
+    if (state == nullptr || state->type != XR_TYPE_ACTION_STATE_FLOAT) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    XrResult result = validateActionForSession(
+        owner, getInfo, XR_ACTION_TYPE_FLOAT_INPUT, nullptr
+    );
+    if (XR_FAILED(result)) return result;
+    state->currentState = 0.0f;
+    state->changedSinceLastSync = XR_FALSE;
+    state->lastChangeTime = 0;
+    state->isActive = XR_FALSE;
+    return XR_SUCCESS;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrGetActionStateVector2f(
+    XrSession session, const XrActionStateGetInfo* getInfo, XrActionStateVector2f* state
+) {
+    XrSession_T* owner = getSession(session);
+    if (state == nullptr || state->type != XR_TYPE_ACTION_STATE_VECTOR2F) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    XrResult result = validateActionForSession(
+        owner, getInfo, XR_ACTION_TYPE_VECTOR2F_INPUT, nullptr
+    );
+    if (XR_FAILED(result)) return result;
+    state->currentState = {0.0f, 0.0f};
+    state->changedSinceLastSync = XR_FALSE;
+    state->lastChangeTime = 0;
+    state->isActive = XR_FALSE;
+    return XR_SUCCESS;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrGetActionStatePose(
+    XrSession session, const XrActionStateGetInfo* getInfo, XrActionStatePose* state
+) {
+    XrSession_T* owner = getSession(session);
+    if (state == nullptr || state->type != XR_TYPE_ACTION_STATE_POSE) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    XrResult result = validateActionForSession(
+        owner, getInfo, XR_ACTION_TYPE_POSE_INPUT, nullptr
+    );
+    if (XR_FAILED(result)) return result;
+    state->isActive = XR_FALSE;
+    return XR_SUCCESS;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrCreateActionSpace(
+    XrSession session, const XrActionSpaceCreateInfo* createInfo, XrSpace* space
+) {
+    XrSession_T* owner = getSession(session);
+    if (owner == nullptr) return XR_ERROR_HANDLE_INVALID;
+    if (createInfo == nullptr || space == nullptr ||
+        createInfo->type != XR_TYPE_ACTION_SPACE_CREATE_INFO) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    *space = XR_NULL_HANDLE;
+    XrAction_T* action = getAction(createInfo->action);
+    if (action == nullptr) return XR_ERROR_HANDLE_INVALID;
+    if (action->type != XR_ACTION_TYPE_POSE_INPUT) return XR_ERROR_ACTION_TYPE_MISMATCH;
+    XrActionSet_T* actionSet = getActionSet(action->owner);
+    if (actionSet == nullptr || actionSet->attachedSession != session ||
+        owner->attachedActionSets.find(action->owner) == owner->attachedActionSets.end()) {
+        return XR_ERROR_ACTIONSET_NOT_ATTACHED;
+    }
+    if (!validActionSubactionPath(action, createInfo->subactionPath)) {
+        return XR_ERROR_PATH_INVALID;
+    }
+    auto* created = new (std::nothrow) XrSpace_T();
+    if (created == nullptr) return XR_ERROR_OUT_OF_MEMORY;
+    created->owner = session;
+    created->isActionSpace = true;
+    created->action = createInfo->action;
+    created->actionSubactionPath = createInfo->subactionPath;
+    created->poseInReferenceSpace = createInfo->poseInActionSpace;
+    const XrSpace handle = makeSpaceHandle(created);
+    {
+        std::lock_guard<std::mutex> lock(g_spaceMutex);
+        g_spaces.emplace(handle, created);
+    }
+    owner->spaces.insert(handle);
+    {
+        std::lock_guard<std::mutex> lock(g_actionMutex);
+        const auto found = g_actions.find(createInfo->action);
+        if (found != g_actions.end()) found->second->spaces.insert(handle);
+    }
+    *space = handle;
+    return XR_SUCCESS;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrEnumerateBoundSourcesForAction(
+    XrSession session, const XrBoundSourcesForActionEnumerateInfo* enumerateInfo,
+    std::uint32_t capacity, std::uint32_t* count, XrPath* sources
+) {
+    XrSession_T* owner = getSession(session);
+    if (owner == nullptr) return XR_ERROR_HANDLE_INVALID;
+    if (enumerateInfo == nullptr ||
+        enumerateInfo->type != XR_TYPE_BOUND_SOURCES_FOR_ACTION_ENUMERATE_INFO ||
+        count == nullptr) return XR_ERROR_VALIDATION_FAILURE;
+    XrAction_T* action = getAction(enumerateInfo->action);
+    if (action == nullptr) return XR_ERROR_HANDLE_INVALID;
+    XrActionSet_T* actionSet = getActionSet(action->owner);
+    if (actionSet == nullptr || actionSet->attachedSession != session) {
+        return XR_ERROR_ACTIONSET_NOT_ATTACHED;
+    }
+    *count = 0;
+    if (capacity > 0 && sources == nullptr) return XR_ERROR_VALIDATION_FAILURE;
+    return XR_SUCCESS;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrGetInputSourceLocalizedName(
+    XrSession session, const XrInputSourceLocalizedNameGetInfo* getInfo,
+    std::uint32_t capacity, std::uint32_t* count, char* buffer
+) {
+    XrSession_T* owner = getSession(session);
+    if (owner == nullptr) return XR_ERROR_HANDLE_INVALID;
+    if (getInfo == nullptr ||
+        getInfo->type != XR_TYPE_INPUT_SOURCE_LOCALIZED_NAME_GET_INFO ||
+        count == nullptr || getInfo->whichComponents == 0 ||
+        (getInfo->whichComponents & ~(XR_INPUT_SOURCE_LOCALIZED_NAME_USER_PATH_BIT |
+                                     XR_INPUT_SOURCE_LOCALIZED_NAME_INTERACTION_PROFILE_BIT |
+                                     XR_INPUT_SOURCE_LOCALIZED_NAME_COMPONENT_BIT)) != 0) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    std::string path;
+    if (!pathBelongsToInstance(owner->owner, getInfo->sourcePath, &path)) {
+        return XR_ERROR_PATH_INVALID;
+    }
+    const std::uint32_t required = static_cast<std::uint32_t>(path.size() + 1);
+    *count = required;
+    if (capacity == 0) return XR_SUCCESS;
+    if (buffer == nullptr) return XR_ERROR_VALIDATION_FAILURE;
+    if (capacity < required) return XR_ERROR_SIZE_INSUFFICIENT;
+    std::memcpy(buffer, path.c_str(), required);
+    return XR_SUCCESS;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrApplyHapticFeedback(
+    XrSession session, const XrHapticActionInfo* actionInfo,
+    const XrHapticBaseHeader* feedback
+) {
+    XrSession_T* owner = getSession(session);
+    if (owner == nullptr) return XR_ERROR_HANDLE_INVALID;
+    if (actionInfo == nullptr || actionInfo->type != XR_TYPE_HAPTIC_ACTION_INFO ||
+        feedback == nullptr || feedback->type != XR_TYPE_HAPTIC_VIBRATION) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    XrAction_T* action = getAction(actionInfo->action);
+    if (action == nullptr) return XR_ERROR_HANDLE_INVALID;
+    if (action->type != XR_ACTION_TYPE_VIBRATION_OUTPUT) return XR_ERROR_ACTION_TYPE_MISMATCH;
+    XrActionSet_T* actionSet = getActionSet(action->owner);
+    if (actionSet == nullptr || actionSet->attachedSession != session) {
+        return XR_ERROR_ACTIONSET_NOT_ATTACHED;
+    }
+    if (!validActionSubactionPath(action, actionInfo->subactionPath)) return XR_ERROR_PATH_INVALID;
+    return XR_ERROR_FEATURE_UNSUPPORTED;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrStopHapticFeedback(
+    XrSession session, const XrHapticActionInfo* actionInfo
+) {
+    XrSession_T* owner = getSession(session);
+    if (owner == nullptr) return XR_ERROR_HANDLE_INVALID;
+    if (actionInfo == nullptr || actionInfo->type != XR_TYPE_HAPTIC_ACTION_INFO) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    XrAction_T* action = getAction(actionInfo->action);
+    if (action == nullptr) return XR_ERROR_HANDLE_INVALID;
+    if (action->type != XR_ACTION_TYPE_VIBRATION_OUTPUT) return XR_ERROR_ACTION_TYPE_MISMATCH;
+    XrActionSet_T* actionSet = getActionSet(action->owner);
+    if (actionSet == nullptr || actionSet->attachedSession != session) {
+        return XR_ERROR_ACTIONSET_NOT_ATTACHED;
+    }
+    if (!validActionSubactionPath(action, actionInfo->subactionPath)) return XR_ERROR_PATH_INVALID;
+    return XR_ERROR_FEATURE_UNSUPPORTED;
+}
+
 #define ENDXR_PROC(name, fn) {name, reinterpret_cast<PFN_xrVoidFunction>(fn)}
 struct ProcEntry { const char* name; PFN_xrVoidFunction function; };
-const std::array<ProcEntry, 35> kProcTable{{
+const std::array<ProcEntry, 54> kProcTable{{
     ENDXR_PROC("xrGetInstanceProcAddr", endxrGetInstanceProcAddr),
     ENDXR_PROC("xrEnumerateApiLayerProperties", endxrEnumerateApiLayerProperties),
     ENDXR_PROC("xrEnumerateInstanceExtensionProperties", endxrEnumerateInstanceExtensionProperties),
@@ -1318,7 +2020,26 @@ const std::array<ProcEntry, 35> kProcTable{{
     ENDXR_PROC("xrDestroySwapchain", endxrDestroySwapchain),
     ENDXR_PROC("xrEnumerateSwapchainImages", endxrEnumerateSwapchainImages),
     ENDXR_PROC("xrAcquireSwapchainImage", endxrAcquireSwapchainImage),
-    ENDXR_PROC("xrWaitSwapchainImage", endxrWaitSwapchainImage)
+    ENDXR_PROC("xrWaitSwapchainImage", endxrWaitSwapchainImage),
+    ENDXR_PROC("xrStringToPath", endxrStringToPath),
+    ENDXR_PROC("xrPathToString", endxrPathToString),
+    ENDXR_PROC("xrCreateActionSet", endxrCreateActionSet),
+    ENDXR_PROC("xrDestroyActionSet", endxrDestroyActionSet),
+    ENDXR_PROC("xrCreateAction", endxrCreateAction),
+    ENDXR_PROC("xrDestroyAction", endxrDestroyAction),
+    ENDXR_PROC("xrSuggestInteractionProfileBindings", endxrSuggestInteractionProfileBindings),
+    ENDXR_PROC("xrAttachSessionActionSets", endxrAttachSessionActionSets),
+    ENDXR_PROC("xrGetCurrentInteractionProfile", endxrGetCurrentInteractionProfile),
+    ENDXR_PROC("xrGetActionStateBoolean", endxrGetActionStateBoolean),
+    ENDXR_PROC("xrGetActionStateFloat", endxrGetActionStateFloat),
+    ENDXR_PROC("xrGetActionStateVector2f", endxrGetActionStateVector2f),
+    ENDXR_PROC("xrGetActionStatePose", endxrGetActionStatePose),
+    ENDXR_PROC("xrSyncActions", endxrSyncActions),
+    ENDXR_PROC("xrEnumerateBoundSourcesForAction", endxrEnumerateBoundSourcesForAction),
+    ENDXR_PROC("xrGetInputSourceLocalizedName", endxrGetInputSourceLocalizedName),
+    ENDXR_PROC("xrCreateActionSpace", endxrCreateActionSpace),
+    ENDXR_PROC("xrApplyHapticFeedback", endxrApplyHapticFeedback),
+    ENDXR_PROC("xrStopHapticFeedback", endxrStopHapticFeedback)
 }};
 #undef ENDXR_PROC
 

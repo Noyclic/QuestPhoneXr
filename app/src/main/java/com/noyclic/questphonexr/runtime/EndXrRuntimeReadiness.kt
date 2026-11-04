@@ -36,8 +36,8 @@ object EndXrRuntimeReadiness {
             RuntimeCapabilityState.NOT_IMPLEMENTED,
             "The current OpenXR system properties explicitly advertise positionTracking=false."),
         RuntimeCapability("openxr-actions", "OpenXR Action / Input API",
-            RuntimeCapabilityState.NOT_IMPLEMENTED,
-            "Action sets, actions, interaction-profile bindings, xrSyncActions and xrGetActionState* entry points are not exported."),
+            RuntimeCapabilityState.PARTIAL,
+            "Action sets, action lifecycle, paths, binding suggestions, action spaces and xrSyncActions are implemented. State queries deliberately stay inactive until a separate-process controller input source is connected."),
         RuntimeCapability("controller-input", "Controller poses, buttons and haptics",
             RuntimeCapabilityState.NOT_IMPLEMENTED,
             "Phone-side gamepad adapters exist, but their state is not exposed through OpenXR action and controller-pose APIs."),
@@ -51,13 +51,12 @@ object EndXrRuntimeReadiness {
 
     val librarySummary: String =
         "Внутри Sandbox проверены loader negotiation, Android/GLES session и stereo projection layer. " +
-            "Для сторонних Quest-игр пока не хватает OpenXR Actions, controller input, 6DoF position и XR hand tracking; " +
-            "обнаружение RuntimeBroker из отдельного процесса ещё не проверено."
+            "OpenXR Actions API частично реализован, но реальные состояния кнопок, стиков, позы контроллеров и haptics пока не поступают в сторонние процессы. " +
+            "Также не хватает 6DoF position и XR hand tracking; выбор runtime через RuntimeBroker ещё не подтверждён на физическом телефоне."
 
     const val OPEN_XR_GAME_WARNING =
-        "EndXR пока не экспортирует OpenXR Action / Input API (включая xrCreateActionSet, xrCreateAction, " +
-            "xrSyncActions и xrGetActionState*). Игры, которым нужны стики, триггеры или позы контроллеров, " +
-            "сейчас нельзя считать готовыми к полноценной игре даже при успешном обнаружении OpenXR."
+        "EndXR экспортирует базовый OpenXR Action / Input API, однако реальные состояния кнопок, триггеров, стиков и контроллерных поз пока не подключены к процессу игры. " +
+            "Action queries сейчас возвращают neutral/inactive, а haptics не поддерживаются. Игры, требующие физический ввод или позы контроллеров, ещё не готовы к полноценной игре."
 
     const val QUEST_GAME_WARNING =
         "Quest APK может зависеть от Meta/Oculus Runtime и системных сервисов гарнитуры. На обычном Android " +

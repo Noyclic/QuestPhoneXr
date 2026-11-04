@@ -44,9 +44,15 @@ and queries the documented providers; it does not impersonate or ship a
 replacement for those brokers.
 
 A successful `xrCreateInstance` is a major interoperability checkpoint, but
-it is not proof of game compatibility. A real application may still require
-OpenXR Actions, controller poses, haptics, extensions, a graphics session,
-swapchain images, frame submission, tracking, or Meta/Oculus-specific services.
+it is not proof of game compatibility. EndXR now exports the core OpenXR
+Action API, including action-set and action creation, path conversion,
+interaction-profile binding suggestions, session attachment, synchronization,
+state queries and pose action spaces. Until physical Android input is wired
+into the game process, queries intentionally remain neutral/inactive and
+haptic requests return `XR_ERROR_FEATURE_UNSUPPORTED`. A real application
+may still require live controller poses, buttons, triggers, haptics,
+extensions, a graphics session, swapchain images, frame submission, tracking,
+or Meta/Oculus-specific services.
 
 ## CI and physical-device test
 

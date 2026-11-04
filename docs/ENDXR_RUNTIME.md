@@ -8,25 +8,34 @@ Monado is not a required dependency in the active architecture or build path.
 ## What exists now
 
 - Native C++ runtime and frame lifecycle code.
-- A loader-facing native library, `libendxr_openxr.so`, built separately from
+- A loader-facing native library, libendxr_openxr.so, built separately from
   the app JNI library.
-- OpenXR loader negotiation through `xrNegotiateLoaderRuntimeInterface`.
+- OpenXR loader negotiation through xrNegotiateLoaderRuntimeInterface.
 - Android runtime service metadata for
-  `org.khronos.openxr.OpenXRRuntimeService`, including the library filename
-  and OpenXR major version.
-- A minimal OpenXR entry-point table covering loader bootstrap, instance,
-  system, GLES session, stereo views, swapchain, frame lifecycle, spaces and
-  projection-layer composition.
-- In-process Sandbox diagnostics that have exercised 30 consecutive stereo
+  org.khronos.openxr.OpenXRRuntimeService, including the library filename and
+  OpenXR major version.
+- An OpenXR entry-point table covering loader bootstrap, instance, system,
+  GLES session, stereo views, swapchain, frame lifecycle, spaces,
+  projection-layer composition and the core Action / Input API command family.
+- Action-set/action creation and destruction, per-instance path interning,
+  suggested interaction-profile bindings, session attachment, xrSyncActions,
+  boolean/float/vector/pose state queries, action spaces and localized source
+  name queries are implemented and covered by native host tests.
+- Action state is deliberately neutral/inactive because no physical input
+  provider has yet been connected to a third-party app process. The runtime
+  does not fabricate trigger presses, stick positions or controller poses.
+- Haptic output entry points validate their inputs but return
+  XR_ERROR_FEATURE_UNSUPPORTED until a device haptic transport exists.
+- In-process Sandbox diagnostics have exercised 30 consecutive stereo
   projection frames and read back the expected left/right colors on the
   Sandbox EGL surface.
-- A separate Android client APK that runs in another package/process and can
+- A separate Android client APK runs in another package/process and can
   discover the exported EndXR service and read the runtime library path.
-- A separate client path using the official Khronos Android OpenXR Loader.
+- A separate client path uses the official Khronos Android OpenXR Loader.
   It records loader initialization, runtime extension enumeration,
-  `xrCreateInstance`, HMD system discovery and stereo view configuration.
-- Runtime readiness reporting that explicitly identifies unsupported Actions,
-  controller input, 6DoF position tracking and OpenXR hand-tracking APIs.
+  xrCreateInstance, HMD system discovery and stereo view configuration.
+- Runtime readiness reporting distinguishes partial Action API coverage from
+  live controller input, 6DoF position tracking and OpenXR hand tracking.
 
 The Sandbox result is scoped to the Sandbox EGL context. It does not establish
 that an unrelated game process has created an instance, session or frame.
@@ -38,28 +47,29 @@ Android package in CI. That is not the same as selecting EndXR as the active
 runtime. The Khronos Android loader obtains active-runtime information from an
 Android RuntimeBroker content provider or a vendor system broker. The
 CI emulator currently has neither provider installed, so the external-loader
-test is designed to report that condition rather than invent a successful
-selection.
+test correctly reports XR_ERROR_RUNTIME_UNAVAILABLE rather than inventing a
+successful selection.
 
-See [OPENXR_LOADER_VALIDATION.md](OPENXR_LOADER_VALIDATION.md) for the client
-probe and for interpreting `xrCreateInstance` results.
+See OPENXR_LOADER_VALIDATION.md for the client probe and for interpreting the
+xrCreateInstance result.
 
 ## Important limitations
 
 EndXR is an early, minimal runtime implementation, not a conformant general
 purpose Quest runtime. It currently does not implement:
 
-- OpenXR Action Sets, Actions, interaction profiles or the
-  `xrSyncActions` / `xrGetActionState*` API family.
-- OpenXR controller pose, button, trigger and haptic state.
+- Live OpenXR controller pose, button, trigger and stick state. The core
+  Action API exists, but action queries remain neutral/inactive until a
+  cross-process Android input source is connected.
+- Haptic output transport.
 - 6DoF positional tracking.
-- The `XR_EXT_hand_tracking` runtime extension. MediaPipe hand tracking in
+- The XR_EXT_hand_tracking runtime extension. MediaPipe hand tracking in
   QuestPhoneXR is app-internal until it is connected to the OpenXR API.
 - Meta/Oculus Android runtime services required by many Quest-only APKs.
 - A tested third-party graphics session and rendered frame on the Redmi.
 
-A successful Khronos-loader `xrCreateInstance` will still not mean that
-Open Saber, Granny VR or Baldi's Basics VR can be played. Those titles must be
+A successful Khronos-loader xrCreateInstance will still not mean that Open
+Saber, Granny VR or Baldi's Basics VR can be played. Those titles must be
 checked individually for required runtime extensions, input APIs, native ABI,
 graphics backend and vendor services.
 
@@ -71,13 +81,18 @@ graphics backend and vendor services.
    30 consecutive projection frames.
 3. **Android discovery** — exported service and library visibility from a
    separate package are covered by emulator instrumentation.
-4. **Official Khronos loader integration** — separate-package loader probe is
-   being added; actual active-runtime selection must be confirmed on a device
-   with an appropriate RuntimeBroker.
-5. **OpenXR Actions and controller input** — not implemented.
-6. **6DoF tracking and OpenXR hand tracking** — not implemented.
-7. **Third-party session/frame interoperability** — not yet verified.
-8. **Game-by-game APK support** — not yet verified.
+4. **Official Khronos loader integration** — separate-package Khronos loader
+   initializes successfully in CI. xrCreateInstance correctly returns
+   XR_ERROR_RUNTIME_UNAVAILABLE on the emulator because it has no RuntimeBroker.
+   Actual active-runtime selection must be confirmed on the Redmi.
+5. **OpenXR Action API surface** — initial core action/path/attach/sync/state
+   entry points are implemented and host-tested. This is an API milestone,
+   not live controller input.
+6. **Cross-process controller input and haptics** — not implemented. The
+   Android gamepad adapter currently receives input only inside QuestPhoneXR.
+7. **6DoF tracking and OpenXR hand tracking** — not implemented.
+8. **Third-party session/frame interoperability** — not yet verified.
+9. **Game-by-game APK support** — not yet verified.
 
 ## Performance target
 
@@ -91,6 +106,7 @@ performance claim.
 - Do not reintroduce Monado as a required dependency.
 - Do not call the current minimal implementation a complete or conformant
   OpenXR runtime.
+- Do not call neutral/inactive Action API results real controller input.
 - Keep the working Sandbox and MediaPipe paths intact.
 - Separate service discovery, active-runtime selection, instance creation,
   session creation and frame rendering in diagnostics.

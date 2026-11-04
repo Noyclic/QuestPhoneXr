@@ -6,9 +6,9 @@ import org.junit.Test
 
 class EndXrRuntimeReadinessTest {
     @Test
-    fun inventoryDoesNotClaimUnimplementedGameInputOr6Dof() {
+    fun inventoryMarksActionApiPartialButDoesNotClaimLiveGameInputOr6Dof() {
         val byId = EndXrRuntimeReadiness.capabilities.associateBy { it.id }
-        assertEquals(RuntimeCapabilityState.NOT_IMPLEMENTED, byId.getValue("openxr-actions").state)
+        assertEquals(RuntimeCapabilityState.PARTIAL, byId.getValue("openxr-actions").state)
         assertEquals(RuntimeCapabilityState.NOT_IMPLEMENTED, byId.getValue("controller-input").state)
         assertEquals(RuntimeCapabilityState.NOT_IMPLEMENTED, byId.getValue("position-tracking").state)
         assertEquals(RuntimeCapabilityState.NOT_IMPLEMENTED, byId.getValue("openxr-hand-tracking").state)
@@ -24,9 +24,10 @@ class EndXrRuntimeReadinessTest {
     }
 
     @Test
-    fun openXrApkWarningNamesTheMissingActionApi() {
+    fun openXrApkWarningExplainsThatLiveControllerInputIsStillMissing() {
         val warnings = EndXrRuntimeReadiness.warningsFor(listOf("OpenXR"))
         assertEquals(1, warnings.size)
-        assertTrue(warnings.single().contains("xrCreateActionSet"))
+        assertTrue(warnings.single().contains("neutral/inactive"))
+        assertTrue(warnings.single().contains("haptics"))
     }
 }

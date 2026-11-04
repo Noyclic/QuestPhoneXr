@@ -90,6 +90,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private var endXrLastAttemptMs = 0L
     private lateinit var sensorManager: SensorManager
     private lateinit var statusView: TextView
+    private lateinit var endXrProbeStatusView: TextView
     private lateinit var viewerProfileStore: ViewerProfileStore
     private lateinit var handCalibrationStore: SandboxHandCalibrationStore
     private lateinit var adaptivePerformance: AdaptivePerformanceController
@@ -377,6 +378,17 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         endXrOpenXrDiagnosticPath = externalFile?.absolutePath ?: internalFile.absolutePath
         endXrOpenXrTestLabel = nativeReport.lineSequence().firstOrNull()
             ?: "OpenXR probe: FAIL · empty diagnostic result"
+        val conciseProbeState = when {
+            nativeReport.startsWith("OpenXR probe: PASS") -> "OpenXR probe: PASS"
+            nativeReport.startsWith("OpenXR probe: FAIL") -> "OpenXR probe: FAIL"
+            else -> "OpenXR probe: NOT READY"
+        }
+        runOnUiThread {
+            if (::endXrProbeStatusView.isInitialized) {
+                endXrProbeStatusView.text = conciseProbeState
+            }
+            updateStatus()
+        }
         Log.i("EndXR-DIAG", "OpenXR report saved: " + endXrOpenXrDiagnosticPath)
         if (errors.isNotEmpty()) Log.e("EndXR-DIAG", errors.joinToString(" | "))
     }
@@ -568,6 +580,28 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 panelMaxHeight,
                 Gravity.TOP
             )
+        )
+
+        // Keep the probe result in a short, dedicated accessibility node. The
+        // full status panel is intentionally verbose and can be clipped by UiAutomator.
+        endXrProbeStatusView = TextView(this).apply {
+            text = "OpenXR probe: waiting"
+            textSize = 12f
+            setTextColor(Color.WHITE)
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            setBackgroundColor(0xCC101923.toInt())
+            contentDescription = "EndXR OpenXR probe result"
+        }
+        root.addView(
+            endXrProbeStatusView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.START
+            ).apply {
+                bottomMargin = dp(66)
+                marginStart = dp(12)
+            }
         )
 
         // This action stays available even when the settings panel is hidden.

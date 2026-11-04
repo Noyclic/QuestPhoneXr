@@ -42,16 +42,21 @@ class AppNavigationSmokeTest {
         launchIntent!!.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         context.startActivity(launchIntent)
 
+        device.waitForIdle()
+        // A pending crash-report dialog from an earlier emulator test can appear
+        // before the mode selector. Dismiss it, then wait for the real mode action.
+        if (device.wait(Until.hasObject(By.text("Предыдущий запуск завершился с ошибкой")), 1_000)) {
+            device.findObject(By.text("Закрыть"))?.click()
+        }
         assertTrue(
-            "Mode selection screen did not appear",
-            device.wait(Until.hasObject(By.text("Выбери режим")), 15_000)
+            "Mode selection screen did not expose its library action",
+            device.wait(Until.hasObject(By.text("Открыть библиотеку")), 20_000)
         )
         assertTrue(
             "APK / Quest mode card is missing",
-            device.wait(Until.hasObject(By.text("APK / Quest")), 5_000)
+            device.wait(Until.hasObject(By.textContains("APK / Quest")), 5_000)
         )
         saveScreenshot(context, device, "mode-selection.png")
-
         assertTrue(
             "Open library button did not appear",
             device.wait(Until.hasObject(By.text("Открыть библиотеку")), 5_000)
@@ -98,9 +103,10 @@ class AppNavigationSmokeTest {
         )
 
         device.pressBack()
+        device.waitForIdle()
         assertTrue(
-            "Back navigation did not return to mode selection",
-            device.wait(Until.hasObject(By.text("Выбери режим")), 10_000)
+            "Back navigation did not return to the mode-selection library action",
+            device.wait(Until.hasObject(By.text("Открыть библиотеку")), 10_000)
         )
     }
 
@@ -156,7 +162,7 @@ class AppNavigationSmokeTest {
         context.startActivity(sandboxIntent)
 
         val probePassed = device.wait(
-            Until.hasObject(By.textContains("OpenXR probe: PASS")),
+            Until.hasObject(By.text("OpenXR probe: PASS")),
             45_000
         )
         val diagnosticFile = File(
