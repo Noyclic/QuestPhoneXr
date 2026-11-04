@@ -32,6 +32,39 @@ data class ImportedApkInfo(
     val vrMetadataValues: Map<String, String> = emptyMap()
 )
 
+/**
+ * Keeps VR-related manifest metadata while also catching explicit Gear VR
+ * component markers stored as values under otherwise generic keys.
+ */
+internal object VrManifestMetadataFilter {
+    private val keyMarkers = listOf(
+        "oculus", "quest", "meta", "samsung", "gearvr", "gear_vr", "gear-vr",
+        "vr", "xr", "hmd", "headset"
+    )
+    private val explicitGearVrValueMarkers = listOf(
+        "com.samsung.android.hmt.vr",
+        "com.samsung.android.vr",
+        "gearvr",
+        "gear_vr",
+        "gear-vr"
+    )
+
+    fun collect(entries: Map<String, Any?>): Map<String, String> = entries.entries
+        .asSequence()
+        .filter { (key, rawValue) ->
+            val normalizedKey = key.lowercase()
+            val normalizedValue = rawValue?.toString()?.lowercase().orEmpty()
+            keyMarkers.any(normalizedKey::contains) ||
+                explicitGearVrValueMarkers.any(normalizedValue::contains)
+        }
+        .sortedBy { it.key }
+        .take(MAX_ENTRIES)
+        .associate { (key, rawValue) -> key to rawValue?.toString().orEmpty().take(MAX_VALUE_LENGTH) }
+
+    private const val MAX_ENTRIES = 64
+    private const val MAX_VALUE_LENGTH = 512
+}
+
 /** Streaming APK fingerprint. The file is never loaded fully into memory. */
 internal object ApkArchiveFingerprint {
     fun sha256(file: File): String {
@@ -72,22 +105,11 @@ internal object ApkArchiveInspector {
             ?.distinct()
             ?.sorted()
             .orEmpty()
-        val vrMetadataKeys = appInfo.metaData?.keySet()
-            ?.filter { key ->
-                val normalized = key.lowercase()
-                normalized.contains("oculus") ||
-                    normalized.contains("quest") ||
-                    normalized.contains("meta") ||
-                    normalized.contains("samsung.android.vr") ||
-                    normalized.contains("samsung.android.hmt") ||
-                    normalized.contains("gearvr") ||
-                    normalized.contains("gear_vr")
-            }
-            ?.sorted()
+        val allMetadata = appInfo.metaData?.keySet()
+            ?.associateWith { key -> appInfo.metaData?.get(key) }
             .orEmpty()
-        val vrMetadataValues = vrMetadataKeys.associateWith { key ->
-            appInfo.metaData?.get(key)?.toString()?.take(512).orEmpty()
-        }
+        val vrMetadataValues = VrManifestMetadataFilter.collect(allMetadata)
+        val vrMetadataKeys = vrMetadataValues.keys.sorted()
         val requestedPermissions = packageInfo.requestedPermissions
             ?.filter(String::isNotBlank)?.distinct()?.sorted().orEmpty()
         val activityNames = packageInfo.activities
