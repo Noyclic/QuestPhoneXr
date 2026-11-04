@@ -35,7 +35,8 @@ class HandLandmarkerController(
     private val maxHands: Int = MAX_HANDS,
     minimumInferenceIntervalMs: Long = 0L,
     private val outputWidthPx: Int = DEFAULT_OUTPUT_WIDTH_PX,
-    private val outputHeightPx: Int = DEFAULT_OUTPUT_HEIGHT_PX
+    private val outputHeightPx: Int = DEFAULT_OUTPUT_HEIGHT_PX,
+    private val onMetrics: ((HandTrackingMetricsSnapshot) -> Unit)? = null
 ) : AutoCloseable {
 
     private val closed = AtomicBoolean(false)
@@ -119,8 +120,14 @@ class HandLandmarkerController(
         )
     }
 
+    private fun publishMetrics() {
+        val callback = onMetrics ?: return
+        runCatching { callback(metricsSnapshot()) }
+    }
+
     fun analyze(imageProxy: ImageProxy) {
         receivedFrames.incrementAndGet()
+        publishMetrics()
         if (closed.get()) {
             imageProxy.close()
             return
@@ -133,11 +140,13 @@ class HandLandmarkerController(
             nowMs - lastAcceptedMs < minimumIntervalMs
         ) {
             droppedIntervalFrames.incrementAndGet()
+            publishMetrics()
             imageProxy.close()
             return
         }
         if (!processing.compareAndSet(false, true)) {
             droppedBusyFrames.incrementAndGet()
+            publishMetrics()
             imageProxy.close()
             return
         }
@@ -171,6 +180,7 @@ class HandLandmarkerController(
 
             val timestampMs = nextMonotonicTimestamp()
             submittedFrames.incrementAndGet()
+            publishMetrics()
             landmarker.detectAsync(mpImage, timestampMs)
         } catch (error: Exception) {
             mpImage?.let {
@@ -178,6 +188,7 @@ class HandLandmarkerController(
                 runCatching { it.close() }
             }
             resetInFlightState()
+            publishMetrics()
             Log.e(TAG, "Could not process camera frame", error)
             onError(error.message ?: "MediaPipe could not process the camera frame.")
         } finally {
@@ -362,6 +373,7 @@ class HandLandmarkerController(
             val preprocessingMs = inFlightPreprocessingMs.getAndSet(0L)
 
             completedFrames.incrementAndGet()
+            publishMetrics()
             onFrame(
                 HandTrackingFrame(
                     timestampMs = result.timestampMs(),
@@ -389,6 +401,7 @@ class HandLandmarkerController(
         inFlightImage.getAndSet(null)?.close()
         pinchEstimators.forEach { it.reset() }
         resetInFlightState()
+        publishMetrics()
         if (!closed.get()) {
             Log.e(TAG, "MediaPipe task error", error)
             onError(error.message ?: "MediaPipe reported an unknown error.")

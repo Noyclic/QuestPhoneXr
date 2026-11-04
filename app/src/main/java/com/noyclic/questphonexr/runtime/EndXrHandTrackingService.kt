@@ -25,7 +25,119 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import com.noyclic.questphonexr.tracking.HandLandmarkerController
+import com.noyclic.questphonexr.tracking.HandTrackingFrame
+import com.noyclic.questphonexr.tracking.HandTrackingMetricsSnapshot
 import java.util.concurrent.Executors
+
+
+/**
+ * Process-local diagnostics for the persistent camera pipeline.
+ * The Sandbox Activity can read this while the foreground service owns CameraX.
+ */
+internal object EndXrHandTrackingDiagnostics {
+    @Volatile private var cameraState = "stopped"
+    @Volatile private var cameraLens = "unknown"
+    @Volatile private var cameraWidthPx = 0
+    @Volatile private var cameraHeightPx = 0
+    @Volatile private var metrics = HandTrackingMetricsSnapshot(
+        receivedFrames = 0L,
+        submittedFrames = 0L,
+        completedFrames = 0L,
+        droppedBusyFrames = 0L,
+        droppedIntervalFrames = 0L,
+        lastPreprocessingMs = 0L,
+        averagePreprocessingMs = 0f
+    )
+    @Volatile private var resultCount = 0L
+    @Volatile private var lastResultTimestampMs = 0L
+    @Volatile private var lastResultHands = -1
+    @Volatile private var resultFps = 0f
+    @Volatile private var lastError = ""
+
+    fun begin(widthPx: Int, heightPx: Int) {
+        cameraState = "starting"
+        cameraLens = "unknown"
+        cameraWidthPx = widthPx
+        cameraHeightPx = heightPx
+        metrics = metrics.copy(
+            receivedFrames = 0L,
+            submittedFrames = 0L,
+            completedFrames = 0L,
+            droppedBusyFrames = 0L,
+            droppedIntervalFrames = 0L,
+            lastPreprocessingMs = 0L,
+            averagePreprocessingMs = 0f
+        )
+        resultCount = 0L
+        lastResultTimestampMs = 0L
+        lastResultHands = -1
+        resultFps = 0f
+        lastError = ""
+    }
+
+    fun cameraSelected(frontCamera: Boolean) {
+        cameraLens = if (frontCamera) "front" else "back"
+        cameraState = "binding"
+    }
+
+    fun markRunning() {
+        cameraState = "running"
+    }
+
+    fun markError(message: String) {
+        cameraState = "error"
+        lastError = message.replace('\n', ' ').replace('\r', ' ')
+    }
+
+    fun markStopped() {
+        cameraState = "stopped"
+    }
+
+    fun updateMetrics(snapshot: HandTrackingMetricsSnapshot) {
+        metrics = snapshot
+    }
+
+    fun onFrame(frame: HandTrackingFrame) {
+        val previous = lastResultTimestampMs
+        if (previous > 0L && frame.timestampMs > previous) {
+            resultFps = (1000f / (frame.timestampMs - previous)).coerceAtMost(240f)
+        }
+        lastResultTimestampMs = frame.timestampMs
+        lastResultHands = frame.handCount
+        resultCount += 1L
+    }
+
+    fun latestFps(): Float = resultFps
+
+    fun latestHands(): Int = lastResultHands.coerceAtLeast(0)
+
+    fun report(): String {
+        val snapshot = metrics
+        val timestamp = lastResultTimestampMs
+        val resultAgeMs = if (timestamp > 0L) {
+            (android.os.SystemClock.uptimeMillis() - timestamp).coerceAtLeast(0L)
+        } else {
+            -1L
+        }
+        return buildString {
+            append("service_hand_tracking_state=").append(cameraState).append('\n')
+            append("service_camera_lens=").append(cameraLens).append('\n')
+            append("service_camera_width_px=").append(cameraWidthPx).append('\n')
+            append("service_camera_height_px=").append(cameraHeightPx).append('\n')
+            append("service_camera_frames_received=").append(snapshot.receivedFrames).append('\n')
+            append("service_mediapipe_frames_submitted=").append(snapshot.submittedFrames).append('\n')
+            append("service_mediapipe_results_completed=").append(snapshot.completedFrames).append('\n')
+            append("service_mediapipe_frames_dropped_busy=").append(snapshot.droppedBusyFrames).append('\n')
+            append("service_mediapipe_frames_dropped_interval=").append(snapshot.droppedIntervalFrames).append('\n')
+            append("service_hand_result_count=").append(resultCount).append('\n')
+            append("service_hand_result_fps=").append(resultFps).append('\n')
+            append("service_last_result_hands=").append(lastResultHands).append('\n')
+            append("service_last_result_age_ms=").append(resultAgeMs).append('\n')
+            append("service_last_preprocessing_ms=").append(snapshot.lastPreprocessingMs).append('\n')
+            append("service_last_error=").append(lastError).append('\n')
+        }
+    }
+}
 
 /**
  * User-started CameraX foreground service. It keeps MediaPipe pinch/grip
@@ -67,6 +179,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
         }
 
         readConfiguration(intent)
+        EndXrHandTrackingDiagnostics.begin(cameraWidthPx, cameraHeightPx)
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
@@ -83,6 +196,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
             activeOrPending = true
         } catch (error: Exception) {
             activeOrPending = false
+            EndXrHandTrackingDiagnostics.markError(error.message ?: "Could not enter foreground service state.")
             Log.e(TAG, "Could not enter camera foreground-service state", error)
             stopSelf(startId)
             return START_NOT_STICKY
@@ -116,6 +230,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
         ) {
             Log.e(TAG, "Camera permission is not granted")
             activeOrPending = false
+            EndXrHandTrackingDiagnostics.markError("Camera permission is not granted")
             stopSelf()
             return
         }
@@ -135,6 +250,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                 } else {
                     CameraSelector.DEFAULT_BACK_CAMERA
                 }
+                EndXrHandTrackingDiagnostics.cameraSelected(useFrontCamera)
                 check(provider.hasCamera(selector)) {
                     "Android did not expose a usable front or back camera to the foreground service."
                 }
@@ -150,18 +266,21 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                     context = applicationContext,
                     mirrorFrontCamera = useFrontCamera,
                     onFrame = { frame ->
+                        EndXrHandTrackingDiagnostics.onFrame(frame)
                         val encoded = EndXrHandInputEncoder.encode(frame)
                         EndXrInputSnapshotStore.publish(encoded.leftRow, encoded.rightRow)
                         EndXrInputSnapshotStore.publishHandPoses(encoded.leftPose, encoded.rightPose)
                     },
                     onError = { message ->
+                        EndXrHandTrackingDiagnostics.markError(message)
                         Log.e(TAG, "MediaPipe foreground tracking error: $message")
                         EndXrInputSnapshotStore.clear()
                     },
                     maxHands = maxHands,
                     minimumInferenceIntervalMs = minimumInferenceIntervalMs,
                     outputWidthPx = cameraWidthPx,
-                    outputHeightPx = cameraHeightPx
+                    outputHeightPx = cameraHeightPx,
+                    onMetrics = EndXrHandTrackingDiagnostics::updateMetrics
                 )
 
                 val analysis = ImageAnalysis.Builder()
@@ -183,12 +302,13 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                 newTracker = null
                 analysisUseCase = analysis
                 provider.bindToLifecycle(this, selector, analysis)
+                EndXrHandTrackingDiagnostics.markRunning()
 
                 Log.i(
                     TAG,
                     "Persistent hand tracking active: " + cameraWidthPx + "x" +
                         cameraHeightPx + ", hands=" + maxHands +
-                        ", lens=" + if (useFrontCamera) "front" else "back" +
+                        ", lens=" + (if (useFrontCamera) "front" else "back") +
                         ", interval=" + minimumInferenceIntervalMs + "ms"
                 )
                 updateNotification("MediaPipe работает · руки передаются в EndXR")
@@ -198,6 +318,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                 handTracker = null
                 analysisUseCase?.clearAnalyzer()
                 analysisUseCase = null
+                EndXrHandTrackingDiagnostics.markError(error.message ?: "Could not bind CameraX.")
                 Log.e(TAG, "Could not bind CameraX to EndXR foreground service", error)
                 activeOrPending = false
                 EndXrInputSnapshotStore.clear()
@@ -280,6 +401,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
 
     override fun onDestroy() {
         activeOrPending = false
+        EndXrHandTrackingDiagnostics.markStopped()
         sensorManager.unregisterListener(this)
         cameraGeneration += 1L
         analysisUseCase?.clearAnalyzer()
@@ -323,6 +445,12 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
         @Volatile private var activeOrPending = false
 
         fun isRunning(): Boolean = activeOrPending
+
+        fun diagnosticReport(): String = EndXrHandTrackingDiagnostics.report()
+
+        fun diagnosticFps(): Float = EndXrHandTrackingDiagnostics.latestFps()
+
+        fun diagnosticHandCount(): Int = EndXrHandTrackingDiagnostics.latestHands()
 
         fun markStartFailed() {
             activeOrPending = false

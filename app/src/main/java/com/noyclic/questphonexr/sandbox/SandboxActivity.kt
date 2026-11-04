@@ -362,9 +362,24 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 ContextCompat.checkSelfPermission(this@SandboxActivity, Manifest.permission.CAMERA) ==
                     PackageManager.PERMISSION_GRANTED
             ).append('\n')
+            val persistentTrackingActive = EndXrHandTrackingService.isRunning()
             append("app_camera_status=").append(cameraStatusMessage).append('\n')
-            append("app_hand_tracking_fps=").append(measuredHandTrackingFps).append('\n')
-            append("app_tracked_hands=").append(latestHandFrame.handCount).append('\n')
+            append("app_hand_tracking_source=").append(
+                when {
+                    persistentTrackingActive -> "foreground_service"
+                    handTracker != null -> "sandbox_activity"
+                    else -> "inactive"
+                }
+            ).append('\n')
+            append("app_hand_tracking_fps=").append(
+                if (persistentTrackingActive) EndXrHandTrackingService.diagnosticFps()
+                else measuredHandTrackingFps
+            ).append('\n')
+            append("app_tracked_hands=").append(
+                if (persistentTrackingActive) EndXrHandTrackingService.diagnosticHandCount()
+                else latestHandFrame.handCount
+            ).append('\n')
+            append(EndXrHandTrackingService.diagnosticReport())
             append("app_connected_gamepads=").append(controllerSnapshots.size).append('\n')
             append("app_endxr_core_status=").append(endXrRuntimeLabel).append('\n')
         }
