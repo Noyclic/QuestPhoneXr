@@ -67,9 +67,11 @@ class AppNavigationSmokeTest {
         // The readiness panel is near the top; the APK import button is intentionally
         // lower in the scrollable library. Exercise both locations instead of assuming
         // every action is visible on the first screen.
+        val readinessAction = UiScrollable(UiSelector().scrollable(true))
+            .scrollIntoView(UiSelector().text("Показать возможности EndXR"))
         assertTrue(
-            "EndXR readiness details button is missing from the game library",
-            device.wait(Until.hasObject(By.text("Показать возможности EndXR")), 5_000)
+            "EndXR readiness details button is missing from the scrollable game library",
+            readinessAction
         )
         device.findObject(By.text("Показать возможности EndXR")).click()
         assertTrue(
