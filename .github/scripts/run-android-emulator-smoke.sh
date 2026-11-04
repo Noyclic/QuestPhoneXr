@@ -44,6 +44,19 @@ if [[ -s app/build/outputs/apk/debug/app-debug.apk ]]; then
     echo "Could not reinstall QuestPhoneXR before the external client probe."
     client_test_exit=1
   else
+    # The adb shell UID is not signed with QuestPhoneXR's certificate.
+    # It must not be able to read the exported snapshot provider.
+    mkdir -p ci-results/diagnostics
+    unauthorized_output="$(adb shell content query --uri content://com.noyclic.questphonexr.endxrinput/controller_state 2>&1 || true)"
+    printf '%s\n' "$unauthorized_output" > ci-results/diagnostics/ipc-unauthorized-shell.txt
+    if grep -Eq 'Permission Denial|SecurityException|READ_INPUT_SNAPSHOT' <<< "$unauthorized_output"; then
+      echo "PASS: untrusted adb shell is denied access to EndXR input IPC." | tee ci-results/diagnostics/ipc-access-control.txt
+    else
+      echo "FAIL: untrusted adb shell was not denied by the EndXR input provider."
+      cat ci-results/diagnostics/ipc-unauthorized-shell.txt
+      exit 1
+    fi
+
     gradle --no-daemon :runtime-client-probe:connectedDebugAndroidTest || client_test_exit=$?
   fi
 else
