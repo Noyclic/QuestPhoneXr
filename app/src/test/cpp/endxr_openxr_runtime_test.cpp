@@ -737,6 +737,63 @@ void testActionInputApiLifecycleAndNeutralState() {
                localizedLength == std::strlen("/user/hand/left") + 1,
            "report localized input-source name length");
 
+    // Exercise a full press -> hold -> release -> press cycle. The Action API
+    // must only publish transitions at xrSyncActions, and a release must not
+    // leave a stale pressed button in the next snapshot.
+    endxrSetControllerInput(0, 1, 0.0f, 0.0f, 0.0f, 0.0f, 0);
+    expect(syncActions(session, &syncInfo) == XR_SUCCESS,
+           "synchronize trigger release sample");
+    expect(getBoolean(session, &stateInfo, &booleanState) == XR_SUCCESS &&
+               booleanState.currentState == XR_FALSE &&
+               booleanState.isActive == XR_TRUE &&
+               booleanState.changedSinceLastSync == XR_TRUE &&
+               booleanState.lastChangeTime >= selectChangeTime,
+           "trigger release produces one boolean transition");
+    expect(getFloat(session, &triggerValueStateInfo, &floatState) == XR_SUCCESS &&
+               floatState.currentState == 0.0f &&
+               floatState.isActive == XR_TRUE &&
+               floatState.changedSinceLastSync == XR_TRUE &&
+               floatState.lastChangeTime >= triggerValueChangeTime,
+           "analog trigger release produces a float transition to zero");
+    expect(getVector(session, &stickStateInfo, &stickState) == XR_SUCCESS &&
+               stickState.currentState.x == 0.0f &&
+               stickState.currentState.y == 0.0f &&
+               stickState.changedSinceLastSync == XR_TRUE &&
+               stickState.lastChangeTime >= stickChangeTime,
+           "thumbstick recenter produces a Vector2 transition to zero");
+
+    expect(syncActions(session, &syncInfo) == XR_SUCCESS,
+           "synchronize unchanged released trigger a second time");
+    expect(getBoolean(session, &stateInfo, &booleanState) == XR_SUCCESS &&
+               booleanState.changedSinceLastSync == XR_FALSE,
+           "held released trigger does not report a duplicate transition");
+    expect(getFloat(session, &triggerValueStateInfo, &floatState) == XR_SUCCESS &&
+               floatState.changedSinceLastSync == XR_FALSE,
+           "unchanged released analog value does not report a duplicate transition");
+
+    endxrClearControllerInput();
+    expect(syncActions(session, &syncInfo) == XR_SUCCESS,
+           "synchronize controller disconnect");
+    expect(getBoolean(session, &stateInfo, &booleanState) == XR_SUCCESS &&
+               booleanState.currentState == XR_FALSE &&
+               booleanState.isActive == XR_FALSE &&
+               booleanState.changedSinceLastSync == XR_TRUE,
+           "controller disconnect changes an active action to inactive");
+    expect(getFloat(session, &triggerValueStateInfo, &floatState) == XR_SUCCESS &&
+               floatState.currentState == 0.0f &&
+               floatState.isActive == XR_FALSE &&
+               floatState.changedSinceLastSync == XR_TRUE,
+           "controller disconnect deactivates analog input");
+
+    endxrSetControllerInput(0, 1, 0.91f, 0.2f, -0.35f, 0.6f, 0);
+    expect(syncActions(session, &syncInfo) == XR_SUCCESS,
+           "synchronize controller reconnect and press");
+    expect(getBoolean(session, &stateInfo, &booleanState) == XR_SUCCESS &&
+               booleanState.currentState == XR_TRUE &&
+               booleanState.isActive == XR_TRUE &&
+               booleanState.changedSinceLastSync == XR_TRUE,
+           "controller reconnect reports a fresh press transition");
+
     auto createActionSpace = reinterpret_cast<PFN_xrCreateActionSpace>(
         resolve(request.getInstanceProcAddr, instance, "xrCreateActionSpace"));
     XrActionSpaceCreateInfo actionSpaceInfo{};

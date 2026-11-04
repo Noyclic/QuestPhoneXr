@@ -184,7 +184,11 @@ class EndXrHandTrackingService : Service(), LifecycleOwner {
                 analysisUseCase?.clearAnalyzer()
                 analysisUseCase = null
                 Log.e(TAG, "Could not bind CameraX to EndXR foreground service", error)
+                activeOrPending = false
                 EndXrInputSnapshotStore.clear()
+                // Do not leave a foreground notification and a dead camera service
+                // running after CameraX could not attach to this LifecycleOwner.
+                stopSelf()
                 updateNotification("Камера недоступна · проверь разрешение и устройство")
             }
         }, ContextCompat.getMainExecutor(this))

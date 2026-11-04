@@ -115,7 +115,7 @@ graphics backend and vendor services.
    selection and bound-source enumeration.
 7. **Cross-process input IPC** — snapshot provider and native runtime polling
    are implemented; separate-package Android CI verifies the endpoint.
-   Persistent foreground publication during an external game, Android-wide
+   User-started foreground camera publication is implemented; Android-wide
    gamepad capture and haptics remain incomplete.
 8. **6DoF tracking and OpenXR hand tracking** — not implemented.
 9. **Third-party session/frame interoperability** — not yet verified.
