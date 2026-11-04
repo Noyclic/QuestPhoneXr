@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Process
 import android.os.Bundle
 import java.io.File
 
@@ -100,9 +101,10 @@ object ExternalRuntimeClientProbe {
             context.packageManager.resolveContentProvider(authority, 0)
         }.getOrNull() ?: return "provider not installed or not visible"
 
-        val abi = Build.SUPPORTED_ABIS.firstOrNull()
-            ?: return "provider found (${provider.packageName}); device ABI unknown"
-        val uri = Uri.parse("content://$authority/openxr/1/abi/$abi/runtimes/active/0")
+        val processAbis = if (Process.is64Bit()) Build.SUPPORTED_64_BIT_ABIS else Build.SUPPORTED_32_BIT_ABIS
+        val abi = processAbis.firstOrNull() ?: Build.SUPPORTED_ABIS.firstOrNull()
+            ?: return "provider found (${provider.packageName}); process ABI unknown"
+        val uri = Uri.parse("content://$authority/openxr/1/abi/$abi/runtimes/active")
 
         return runCatching {
             val projection = arrayOf("package_name", "native_lib_dir", "so_filename", "has_functions")
@@ -116,10 +118,49 @@ object ExternalRuntimeClientProbe {
                 val libraryDirectory = it.getString(it.getColumnIndexOrThrow("native_lib_dir"))
                 val libraryName = it.getString(it.getColumnIndexOrThrow("so_filename"))
                 val library = File(libraryDirectory, libraryName)
-                "active package=$packageName; library=$library; exists=${library.isFile}"
+                val hasFunctions = it.getInt(it.getColumnIndexOrThrow("has_functions")) != 0
+                val functionStatus = if (hasFunctions) {
+                    queryFunctionMappings(context, authority, abi, packageName)
+                } else {
+                    "not required"
+                }
+                "active package=$packageName; library=$library; exists=${library.isFile}; " +
+                    "has_functions=$hasFunctions; function_mappings=$functionStatus"
             }
         }.getOrElse {
             "provider found (${provider.packageName}); query failed: ${it.message ?: it.javaClass.simpleName}"
+        }
+    }
+
+    private fun queryFunctionMappings(
+        context: Context,
+        authority: String,
+        abi: String,
+        packageName: String
+    ): String {
+        val uri = Uri.Builder()
+            .scheme("content")
+            .authority(authority)
+            .appendPath("openxr")
+            .appendPath("1")
+            .appendPath("abi")
+            .appendPath(abi)
+            .appendPath("runtimes")
+            .appendPath(packageName)
+            .appendPath("functions")
+            .build()
+        val cursor = context.contentResolver.query(
+            uri,
+            arrayOf("function_name", "symbol_name"),
+            null,
+            null,
+            null
+        ) ?: return "query returned null"
+        return cursor.use {
+            if (!it.moveToFirst()) return@use "no mappings returned"
+            var count = 0
+            do { count += 1 } while (it.moveToNext())
+            "$count mapping(s)"
         }
     }
 }

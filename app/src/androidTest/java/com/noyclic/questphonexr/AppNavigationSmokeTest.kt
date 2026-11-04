@@ -74,8 +74,17 @@ class AppNavigationSmokeTest {
             readinessAction
         )
         device.findObject(By.text("Показать возможности EndXR")).click()
+
+        // The capability list is longer than the dialog viewport on a phone-sized
+        // display. Scroll inside the active dialog before asserting the Actions row.
+        val actionCapability = UiScrollable(UiSelector().scrollable(true))
+            .scrollIntoView(UiSelector().textContains("OpenXR Action / Input API"))
         assertTrue(
             "OpenXR Action API limitation is missing from the readiness report",
+            actionCapability
+        )
+        assertTrue(
+            "OpenXR Action / Input API capability did not become visible",
             device.wait(Until.hasObject(By.textContains("OpenXR Action / Input API")), 5_000)
         )
         saveScreenshot(context, device, "runtime-readiness.png")
