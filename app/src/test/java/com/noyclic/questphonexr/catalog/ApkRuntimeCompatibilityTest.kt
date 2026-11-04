@@ -33,6 +33,36 @@ class ApkRuntimeCompatibilityTest {
     )
 
     @Test
+    fun capturesGearVrMarkerStoredAsValueUnderGenericMetadataKey() {
+        val collected = VrManifestMetadataFilter.collect(
+            mapOf(
+                "mode" to "com.samsung.android.hmt.vrsvc",
+                "com.oculus.vr.application.mode" to "quest",
+                "analytics.enabled" to true
+            )
+        )
+
+        assertEquals("com.samsung.android.hmt.vrsvc", collected["mode"])
+        assertEquals("quest", collected["com.oculus.vr.application.mode"])
+        assertEquals(setOf("mode", "com.oculus.vr.application.mode"), collected.keys)
+    }
+
+    @Test
+    fun preservesVrMetadataKeyValuesAndIgnoresUnrelatedEntries() {
+        val collected = VrManifestMetadataFilter.collect(
+            mapOf(
+                "com.example.vr.mode" to "immersive",
+                "ordinary.setting" to "enabled",
+                "com.example.xr.runtime" to "openxr"
+            )
+        )
+
+        assertEquals("immersive", collected["com.example.vr.mode"])
+        assertEquals("openxr", collected["com.example.xr.runtime"])
+        assertTrue("ordinary.setting" !in collected)
+    }
+
+    @Test
     fun apkFingerprintIsStableAndChangesWhenBytesChange() {
         val first = File.createTempFile("endgvr-first-", ".apk")
         val second = File.createTempFile("endgvr-second-", ".apk")
