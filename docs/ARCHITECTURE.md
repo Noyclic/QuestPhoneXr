@@ -1,60 +1,110 @@
 # QuestPhoneXR architecture
 
-## Product direction
+## Project direction
 
-The primary target is standalone VR on an Android phone inside a smartphone viewer such as VR Shinecon. The phone owns the camera, hand tracking, gyroscope, controller input, rendering and game execution. A Meta Quest headset is optional and is not a required host.
+QuestPhoneXR explores phone-based XR on Android. The phone provides the display, sensors, camera, input and application runtime; a smartphone viewer such as VR Shinecon can be used for stereoscopic viewing.
 
-## Current implementation
+The Android runtime work is named **EndXR**. PC-to-phone VR streaming is a separate planned direction named **EndVR**. The two projects may share a tracking protocol, but they have different responsibilities and should not be coupled into one runtime.
 
-### Phone tracking
+## Main components
 
-- Kotlin Android application.
-- CameraX provides phone-camera preview and RGBA analysis frames.
-- Google MediaPipe Tasks Vision Hand Landmarker runs in LIVE_STREAM mode.
-- The initial delegate is CPU for predictable startup across a wider range of Android devices.
-- CameraX uses KEEP_ONLY_LATEST; inference is limited to one in-flight frame.
-- Camera frames are copied into owned bitmap memory before the CameraX frame is released.
+### Android application
 
-### Controller abstraction
+The Kotlin application contains the game library, APK import and static analysis, Sandbox, device diagnostics, camera lifecycle and user-facing controls.
 
-Phone hand tracking and Android gamepad input are combined into a device-independent VirtualControllerFrame. Camera-relative hand pose is not yet an absolute room-space pose. A calibration and tracking stage is required before using hand position for world-space grabbing or saber swings.
+### Camera and hand tracking
 
-### Game library and test evidence
+- CameraX supplies camera frames for analysis.
+- MediaPipe Tasks Vision Hand Landmarker detects up to two hands and their landmarks.
+- Camera analysis uses a latest-frame strategy to avoid building a queue of stale frames.
+- A user-started foreground service can keep camera-based hand tracking active while another application is in the foreground, subject to Android camera permissions and foreground-service rules.
+- Pinch/grip values and approximate palm poses are published as input snapshots.
 
-GameCatalog holds project metadata and known adaptation paths. GameTestReportStore stores manually entered test results locally. GameCompatibilityEvaluator marks a game as tested only when the report manufacturer and model match the current device. Android version, app version, FPS and notes remain attached to each report.
+The estimated palm position is camera-relative and uses monocular depth heuristics. It is not calibrated room-space tracking and must not be described as true 6DoF.
 
-A manually entered report is not independently verified and is not uploaded. Shared/community reports and automatic benchmark capture are future work.
+### Input and IPC
 
-### Game input adapters
+The app has a normalized controller/action model for Sandbox and supported integrations.
 
-GameInputAdapter converts VirtualControllerFrame into a stable GameActionFrame. GameAdapterRegistry resolves adapters only for explicitly registered game IDs. This prevents the project from implying that a separate Android app can inject controls into arbitrary third-party APKs.
+The EndXR runtime can read a snapshot from the app's exported read-only ContentProvider in a separate Android process. The producer publishes controller values, hand-pose estimates and phone head orientation with freshness limits; stale input is neutralized.
 
-### Phone stereo preview
+This is an early cross-process bridge, not Android-wide input injection. Android does not allow this app to globally capture another foreground application's gamepad events through the ordinary activity input path. Haptic output is not implemented.
 
-PhoneVrPreviewActivity opens a native OpenGL ES 2.0 scene with two horizontally split eye views. The phone's game rotation vector (or rotation vector fallback) updates a 3DoF head orientation matrix. The preview is useful for checking stereo separation and basic head response in a smartphone viewer.
+The exported provider's access policy must remain tightly scoped. Before relying on it outside controlled tests, verify that only explicitly authorized packages can read live input snapshots.
 
-This is not yet the final Shinecon renderer. It has no lens distortion correction, viewer QR/profile database, IPD calibration or 6DoF positional tracking. Those values must be calibrated against the exact Shinecon model.
+### EndXR native OpenXR runtime
 
-## Target phone-native VR pipeline
+EndXR is an app-owned native Android OpenXR runtime implementation. The native runtime library is built separately from the app's JNI library and exposes the Android runtime service metadata expected by the Khronos loader.
 
-Phone sensors + camera
-  -> head orientation and hand tracking
-  -> calibration into phone-VR play space
-  -> controller/action abstraction
-  -> phone-native stereo renderer
-  -> per-game integration/port
-  -> display through the VR viewer lenses
+The current implementation includes:
 
-## OpenXR and Quest boundary
+- OpenXR loader negotiation.
+- Instance and system entry points.
+- Android GLES session and stereo view setup.
+- Swapchain and frame-lifecycle entry points.
+- Projection-layer composition in the in-process Sandbox path.
+- An initial OpenXR Action / Input API surface.
+- Estimated hand-pose input exposed through `POSE_INPUT` and `xrLocateSpace`, without OpenXR `TRACKED` flags.
 
-The project currently includes the Khronos Android OpenXR loader dependency, but it does not create an OpenXR instance/session, provide an OpenXR runtime, or render an OpenXR frame. A loader library alone is not an OpenXR runtime.
+The Sandbox has exercised its own stereo projection path. That proves the in-process diagnostic path, not that a separate game can render through EndXR.
 
-The old phone-to-Quest UDP sender and Unity sample remain optional experiments under integrations/bbvr. They are not part of the primary phone-only architecture and do not enable universal controller injection into Quest or Android games.
+### External OpenXR client probe
+
+The `runtime-client-probe` module is a separate Android package. It uses the official Khronos Android OpenXR loader to test the boundary between an external app and EndXR.
+
+The probe records runtime service discovery, loader initialization, active-runtime availability, instance creation and—if the runtime is selected—HMD system discovery, GLES session creation, swapchain operations and a frame lifecycle.
+
+Android RuntimeBroker selection is a separate step. Seeing the EndXR service does not mean Android has selected it as the active runtime. The emulator currently has no RuntimeBroker provider, so `XR_ERROR_RUNTIME_UNAVAILABLE` can be the expected result there.
+
+### PC tracking bridge and future EndVR
+
+The experimental PC bridge sends head-orientation and MediaPipe hand telemetry over UDP. The current tracking packet is a latest-state snapshot, not a reliable video transport.
+
+It is not:
+- a PC VR video streamer;
+- a SteamVR driver;
+- a calibrated room-space tracking system;
+- proof that the PC can use the phone as a complete VR headset.
+
+EndVR is planned as a separate system with a PC host, Android client, video encoding/decoding, tracking transport and SteamVR integration. Linux is a first-class target; Windows support is also planned. None of those streaming components should be described as complete until implemented and tested.
+
+## Runtime boundaries and compatibility
+
+QuestPhoneXR does not emulate Meta/Oculus services. Quest-only APKs may require vendor APIs, extensions, input paths, graphics features or system services that EndXR does not currently implement.
+
+The APK analyzer performs static triage only. It can identify likely engines, XR markers, ABI and declared device requirements, but it cannot determine with certainty whether a game will run.
+
+Each title must be evaluated separately. A successful loader probe or OpenXR instance creation is only one interoperability checkpoint, not proof of full game compatibility.
 
 ## Performance principles
 
-- Keep the phone-native base runtime small.
-- Make advanced hand tracking optional so simple head tracking and controller input can run on weaker phones.
-- Use scalable render resolution, frame pacing and conservative defaults.
-- Keep expected game load as an estimate until real device measurements exist.
-- Never label a game as tested on a phone without a matching test report.
+- Keep the Android runtime and the basic phone-VR path lightweight.
+- Make camera hand tracking optional when it is not needed.
+- Use conservative render resolution and frame pacing on weaker phones.
+- Measure sustained performance and thermal behaviour on real hardware.
+- Treat 20–30 FPS as an initial target, not a measured result.
+- For future EndVR work, account for both game rendering and video encoding load on the PC.
+
+## Testing strategy
+
+Use separate checkpoints so a passing test cannot be mistaken for a later stage:
+
+1. Native C++ unit tests.
+2. Kotlin/JVM unit tests.
+3. Android APK build and package validation.
+4. Android emulator navigation and OpenXR diagnostic tests.
+5. Physical-device camera, sensor and thermal tests.
+6. RuntimeBroker selection and external Khronos-loader tests on the phone.
+7. External GLES session, swapchain and frame-lifecycle validation.
+8. Individual game compatibility tests.
+
+## Rules for future changes
+
+- Keep EndXR (Android runtime) separate from EndVR (PC streaming).
+- Do not reintroduce Monado as a required dependency.
+- Do not call the current implementation a complete or fully conformant general-purpose Quest runtime.
+- Do not label estimated palm poses as tracked 6DoF controllers.
+- Do not describe static APK analysis as a compatibility guarantee.
+- Preserve the working Sandbox, MediaPipe and CI paths.
+- Report runtime discovery, active-runtime selection, instance creation, session creation and frame rendering as distinct milestones.
+- Prefer test evidence over percentage-based completion estimates.
