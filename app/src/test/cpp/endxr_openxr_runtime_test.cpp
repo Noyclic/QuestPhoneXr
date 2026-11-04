@@ -153,8 +153,8 @@ void testSystemDiscoveryAndGraphicsRequirements() {
     expect(getRequirements(instance, systemId, &requirements) == XR_SUCCESS,
            "query GLES requirements");
     expect(requirements.minApiVersionSupported == XR_MAKE_VERSION(3, 0, 0) &&
-               requirements.maxApiVersionSupported == XR_MAKE_VERSION(3, 2, 0),
-           "publish GLES 3.0 through 3.2 support");
+               requirements.maxApiVersionSupported == XR_MAKE_VERSION(3, 0, 0),
+           "publish the GLES 3.0 implementation level");
     auto enumerateViews = reinterpret_cast<PFN_xrEnumerateViewConfigurationViews>(
         resolve(request.getInstanceProcAddr, instance,
                 "xrEnumerateViewConfigurationViews"));
@@ -190,6 +190,12 @@ void testGlesSessionSwapchainAndFrameLifecycle() {
     expect(getSystem(instance, &systemInfo, &system) == XR_SUCCESS,
            "get EndXR system for session");
 
+    auto getRequirements = reinterpret_cast<PFN_xrGetOpenGLESGraphicsRequirementsKHR>(
+        resolve(request.getInstanceProcAddr, instance, "xrGetOpenGLESGraphicsRequirementsKHR"));
+    XrGraphicsRequirementsOpenGLESKHR requirements{};
+    requirements.type = XR_TYPE_GRAPHICS_REQUIREMENTS_OPENGL_ES_KHR;
+    expect(getRequirements(instance, system, &requirements) == XR_SUCCESS,
+           "query graphics requirements before creating session");
     auto createSession = reinterpret_cast<PFN_xrCreateSession>(
         resolve(request.getInstanceProcAddr, instance, "xrCreateSession"));
     XrGraphicsBindingOpenGLESAndroidKHR binding{};

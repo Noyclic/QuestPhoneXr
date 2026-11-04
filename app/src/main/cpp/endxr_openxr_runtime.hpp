@@ -38,6 +38,12 @@ typedef struct XrGraphicsRequirementsOpenGLESKHR {
     XrVersion maxApiVersionSupported;
 } XrGraphicsRequirementsOpenGLESKHR;
 
+typedef XrResult (XRAPI_PTR *PFN_xrGetOpenGLESGraphicsRequirementsKHR)(
+    XrInstance instance,
+    XrSystemId systemId,
+    XrGraphicsRequirementsOpenGLESKHR* graphicsRequirements
+);
+
 #if defined(__cplusplus)
 extern "C" {
 #endif

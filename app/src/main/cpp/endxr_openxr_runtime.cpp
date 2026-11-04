@@ -218,13 +218,6 @@ XrSpace_T* getSpace(XrSpace space) {
     const auto found = g_spaces.find(space);
     return found == g_spaces.end() ? nullptr : found->second;
 }
-bool hasEnabledExtension(const XrInstanceCreateInfo* info, const char* extensionName) {
-    for (std::uint32_t i = 0; i < info->enabledExtensionCount; ++i) {
-        const char* candidate = info->enabledExtensionNames[i];
-        if (candidate != nullptr && std::strcmp(candidate, extensionName) == 0) return true;
-    }
-    return false;
-}
 const XrInstanceCreateInfoAndroidKHR* findAndroidCreateInfo(const void* next) {
     auto* current = static_cast<const BaseInStructure*>(next);
     while (current != nullptr) {
@@ -473,7 +466,7 @@ bool compositeProjectionLayer(XrSession_T* session,
     return true;
 }
 
-XrResult XRAPI_CALL endxrGetInstanceProcAddr(
+XRAPI_ATTR XrResult XRAPI_CALL endxrGetInstanceProcAddr(
     XrInstance instance, const char* name, PFN_xrVoidFunction* function
 );
 
@@ -734,7 +727,8 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrGetOpenGLESGraphicsRequirementsKHR(
         return XR_ERROR_VALIDATION_FAILURE;
     }
     requirements->minApiVersionSupported = XR_MAKE_VERSION(3, 0, 0);
-    requirements->maxApiVersionSupported = XR_MAKE_VERSION(3, 2, 0);
+    requirements->maxApiVersionSupported = XR_MAKE_VERSION(3, 0, 0);
+    owner->glesRequirementsQueried = true;
     return XR_SUCCESS;
 }
 
@@ -749,7 +743,8 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrCreateSession(
     }
     *session = XR_NULL_HANDLE;
     if (createInfo->systemId != kEndXrSystemId) return XR_ERROR_SYSTEM_INVALID;
-    if (!owner->glesExtensionEnabled) return XR_ERROR_GRAPHICS_REQUIREMENTS_CALL_MISSING;
+    if (!owner->glesExtensionEnabled) return XR_ERROR_EXTENSION_NOT_PRESENT;
+    if (!owner->glesRequirementsQueried) return XR_ERROR_GRAPHICS_REQUIREMENTS_CALL_MISSING;
     const auto* binding = findGlesBinding(createInfo->next);
     if (binding == nullptr ||
         binding->type != XR_TYPE_GRAPHICS_BINDING_OPENGL_ES_ANDROID_KHR ||
@@ -1043,7 +1038,7 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrLocateViews(
         count == nullptr) {
         return XR_ERROR_VALIDATION_FAILURE;
     }
-    if (!object->running) return XR_ERROR_SESSION_NOT_RUNNING;
+    if (!owner->running) return XR_ERROR_SESSION_NOT_RUNNING;
     if (locateInfo->viewConfigurationType != XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO) {
         return XR_ERROR_VIEW_CONFIGURATION_TYPE_UNSUPPORTED;
     }
@@ -1108,13 +1103,13 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrCreateSwapchain(
     if ((createInfo->usageFlags & XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT) == 0 ||
         (createInfo->usageFlags & ~(XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT |
                                    XR_SWAPCHAIN_USAGE_SAMPLED_BIT)) != 0) {
-        return XR_ERROR_SWAPCHAIN_USAGE_UNSUPPORTED;
+        return XR_ERROR_VALIDATION_FAILURE;
     }
     if (createInfo->width == 0 || createInfo->height == 0 ||
         createInfo->width > kMaximumEyeWidth || createInfo->height > kMaximumEyeHeight ||
         createInfo->sampleCount != 1 || createInfo->faceCount != 1 ||
         createInfo->arraySize != 1 || createInfo->mipCount != 1) {
-        return XR_ERROR_SWAPCHAIN_CREATE_SIZE;
+        return XR_ERROR_VALIDATION_FAILURE;
     }
     XrSwapchain_T* created = new (std::nothrow) XrSwapchain_T();
     if (created == nullptr) return XR_ERROR_OUT_OF_MEMORY;
