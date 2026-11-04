@@ -47,3 +47,17 @@ Reports created in the current prototype are stored in the app's local SharedPre
 The generic input contract preserves tracked hands, sticks, trigger/grip values and raw Android key codes. A game-specific provider must explicitly register the game IDs it supports. This is an SDK-side boundary for a port, source integration or supported plugin; it is not a global input injector.
 
 A Quest-only APK may depend on Meta-specific services, Quest runtime extensions, controller profiles, native libraries or performance assumptions. Such games need a real Android port or a compatible runtime implementation; changing the APK name or manifest is not enough.
+## Planned separate ecosystem: Gear VR classics
+
+QuestPhoneXR will also have a separate **Gear VR Ecosystem** window in the game library. It is intended for a curated collection of classic / legendary Samsung Gear VR titles and must remain visually and functionally separate from the main Quest APK library.
+
+This is a planned compatibility track, not a claim that Gear VR titles already run. The initial hypothesis is that some Gear VR titles may be easier to support than modern Quest APKs because their target hardware and runtime stack are older and more constrained. That must be validated title by title: Gear VR applications may still depend on the legacy Oculus Mobile SDK, Gear VR services, device-specific assumptions, native ABI requirements or proprietary runtime behavior.
+
+Planned work for this window:
+
+- A dedicated Gear VR classics catalogue, separate from Quest APKs and ordinary Android/SBS apps.
+- Per-title compatibility notes identifying required legacy runtime/services, architecture and input expectations.
+- A staged test path: inspect APK and dependencies, determine whether the title needs a compatibility layer or port, then attempt launch and record physical-device results.
+- Separate status badges and test reports so Gear VR support is never confused with Quest APK compatibility.
+
+The Gear VR window should be developed as its own ecosystem after the current EndXR IPC and physical external-client validation work. Do not let it destabilize the existing Sandbox, Quest library or OpenXR path.
