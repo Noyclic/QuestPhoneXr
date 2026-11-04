@@ -58,15 +58,19 @@ internal object EndXrInputSnapshotStore {
     private val state = AtomicReference(
         EndXrInputSnapshot(
             sequence = 0L,
-            updatedAtElapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos(),
+            updatedAtElapsedRealtimeNanos = 0L,
             left = EndXrControllerSample.EMPTY,
             right = EndXrControllerSample.EMPTY,
             stale = false
         )
     )
 
-    fun publish(leftRow: FloatArray, rightRow: FloatArray) {
-        val timestamp = SystemClock.elapsedRealtimeNanos()
+    fun publish(
+        leftRow: FloatArray,
+        rightRow: FloatArray,
+        nowElapsedRealtimeNanos: Long = SystemClock.elapsedRealtimeNanos()
+    ) {
+        val timestamp = nowElapsedRealtimeNanos.coerceAtLeast(0L)
         val nextSequence = sequence.incrementAndGet()
         state.set(
             EndXrInputSnapshot(
@@ -79,8 +83,8 @@ internal object EndXrInputSnapshotStore {
         )
     }
 
-    fun clear() {
-        val timestamp = SystemClock.elapsedRealtimeNanos()
+    fun clear(nowElapsedRealtimeNanos: Long = SystemClock.elapsedRealtimeNanos()) {
+        val timestamp = nowElapsedRealtimeNanos.coerceAtLeast(0L)
         val nextSequence = sequence.incrementAndGet()
         state.set(
             EndXrInputSnapshot(
