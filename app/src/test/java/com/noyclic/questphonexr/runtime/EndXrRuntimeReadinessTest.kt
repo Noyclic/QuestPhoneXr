@@ -31,10 +31,11 @@ class EndXrRuntimeReadinessTest {
     fun openXrApkWarningExplainsThatLiveControllerInputIsStillMissing() {
         val warnings = EndXrRuntimeReadiness.warningsFor(listOf("OpenXR"))
         assertEquals(1, warnings.size)
-        assertTrue(warnings.single().contains("ввод Sandbox уже отображается"))
-        assertTrue(warnings.single().contains("во внешнюю игру"))
+        assertTrue(warnings.single().contains("Перед запуском внешней игры"))
         assertTrue(warnings.single().contains("camera foreground service"))
-        assertTrue(warnings.single().contains("haptics"))
         assertTrue(warnings.single().contains("ориентацию головы"))
+        assertTrue(warnings.single().contains("Android gamepad capture"))
+        assertTrue(warnings.single().contains("controller poses"))
+        assertTrue(warnings.single().contains("haptics"))
     }
 }
