@@ -844,11 +844,14 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             try {
                 val provider = providerFuture.get()
                 cameraProvider = provider
-                val useBackCamera = provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
-                val selector = if (useBackCamera) {
-                    CameraSelector.DEFAULT_BACK_CAMERA
-                } else {
+                // Prefer the selfie camera so the user can see the screen and
+                // present both hands naturally in front of it. Fall back to rear camera
+                // only on devices without a front-facing camera.
+                val useFrontCamera = provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)
+                val selector = if (useFrontCamera) {
                     CameraSelector.DEFAULT_FRONT_CAMERA
+                } else {
+                    CameraSelector.DEFAULT_BACK_CAMERA
                 }
                 if (!provider.hasCamera(selector)) {
                     handTrackingStartPending = false
@@ -859,7 +862,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
                 val tracker = HandLandmarkerController(
                     context = applicationContext,
-                    mirrorFrontCamera = !useBackCamera,
+                    mirrorFrontCamera = useFrontCamera,
                     onFrame = ::onHandFrame,
                     onError = { message ->
                         runOnUiThread {
@@ -889,10 +892,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 provider.unbindAll()
                 provider.bindToLifecycle(this, selector, analysis)
                 handTrackingStartPending = false
-                cameraStatusMessage = if (useBackCamera) {
-                    "MediaPipe: задняя камера · жест pinch включён"
-                } else {
+                cameraStatusMessage = if (useFrontCamera) {
                     "MediaPipe: фронтальная камера · жест pinch включён"
+                } else {
+                    "MediaPipe: задняя камера · фронтальная отсутствует · жест pinch включён"
                 }
                 updateStatus()
             } catch (error: Exception) {
