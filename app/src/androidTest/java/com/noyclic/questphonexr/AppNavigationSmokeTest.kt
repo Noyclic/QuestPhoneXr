@@ -128,10 +128,24 @@ class AppNavigationSmokeTest {
             device.wait(Until.hasObject(diagnosticsButton), 5_000)
         )
         saveScreenshot(context.getExternalFilesDir(null), device, "sandbox-diagnostics-button.png")
+        // Android 15 may suppress or expose toast overlays inconsistently to UiAutomator.
+        // Verify the app's own post-setPrimaryClip log instead of reading another process's clipboard.
+        device.executeShellCommand("logcat -c")
         device.findObject(diagnosticsButton).click()
+        val copyDeadline = android.os.SystemClock.uptimeMillis() + 5_000
+        var copyLog = ""
+        while (
+            android.os.SystemClock.uptimeMillis() < copyDeadline &&
+            !copyLog.contains("Clipboard setPrimaryClip completed")
+        ) {
+            copyLog = device.executeShellCommand("logcat -d -s EndXR-DIAG:I")
+            if (!copyLog.contains("Clipboard setPrimaryClip completed")) {
+                android.os.SystemClock.sleep(100)
+            }
+        }
         assertTrue(
-            "EndXR diagnostics copy action did not complete",
-            device.wait(Until.hasObject(By.textContains("Отчёт скопирован")), 5_000)
+            "EndXR diagnostics action did not complete setPrimaryClip. Log:\\n" + copyLog,
+            copyLog.contains("Clipboard setPrimaryClip completed")
         )
     }
 
