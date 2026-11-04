@@ -6,9 +6,18 @@ import org.junit.Test
 
 class HandTrackingPresetTest {
     @Test
-    fun economyPresetReducesHandsResolutionAndInferenceRate() {
-        val preset = HandTrackingPreset.POWER_SAVER
+    fun superEconomyUsesOneHandAndLowestWorkload() {
+        val preset = HandTrackingPreset.SUPER_ECONOMY
         assertEquals(1, preset.maxTrackedHands)
+        assertEquals(256, preset.cameraWidthPx)
+        assertEquals(192, preset.cameraHeightPx)
+        assertEquals(150L, preset.minimumInferenceIntervalMs)
+    }
+
+    @Test
+    fun economyPresetKeepsTwoHandsAtLowWorkload() {
+        val preset = HandTrackingPreset.POWER_SAVER
+        assertEquals(2, preset.maxTrackedHands)
         assertEquals(320, preset.cameraWidthPx)
         assertEquals(240, preset.cameraHeightPx)
         assertEquals(100L, preset.minimumInferenceIntervalMs)
@@ -24,7 +33,7 @@ class HandTrackingPresetTest {
 
     @Test
     fun hardwareTierSelectsConservativeDefault() {
-        assertEquals(HandTrackingPreset.POWER_SAVER,
+        assertEquals(HandTrackingPreset.SUPER_ECONOMY,
             HandTrackingPreset.recommend(DevicePerformanceTier.ECONOMY))
         assertEquals(HandTrackingPreset.BALANCED,
             HandTrackingPreset.recommend(DevicePerformanceTier.BALANCED))

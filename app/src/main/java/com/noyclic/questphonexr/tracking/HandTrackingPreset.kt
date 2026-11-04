@@ -15,10 +15,18 @@ enum class HandTrackingPreset(
     val cameraHeightPx: Int,
     val minimumInferenceIntervalMs: Long
 ) {
+    SUPER_ECONOMY(
+        label = "Суперэкономия",
+        description = "1 рука · 256×192 · около 6 кадров/с",
+        maxTrackedHands = 1,
+        cameraWidthPx = 256,
+        cameraHeightPx = 192,
+        minimumInferenceIntervalMs = 150L
+    ),
     POWER_SAVER(
         label = "Экономия",
-        description = "1 рука · 320×240 · около 10 кадров/с",
-        maxTrackedHands = 1,
+        description = "2 руки · 320×240 · около 10 кадров/с",
+        maxTrackedHands = 2,
         cameraWidthPx = 320,
         cameraHeightPx = 240,
         minimumInferenceIntervalMs = 100L
@@ -42,7 +50,7 @@ enum class HandTrackingPreset(
 
     companion object {
         fun recommend(tier: DevicePerformanceTier): HandTrackingPreset = when (tier) {
-            DevicePerformanceTier.ECONOMY -> POWER_SAVER
+            DevicePerformanceTier.ECONOMY -> SUPER_ECONOMY
             DevicePerformanceTier.BALANCED -> BALANCED
             DevicePerformanceTier.CAPABLE -> RESPONSIVE
         }
