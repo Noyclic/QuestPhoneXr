@@ -42,7 +42,8 @@ class EndXrHandTrackingService : Service(), LifecycleOwner {
     private var maxHands = DEFAULT_MAX_HANDS
     private var minimumInferenceIntervalMs = DEFAULT_INFERENCE_INTERVAL_MS
 
-    override fun getLifecycle(): Lifecycle = lifecycleRegistry
+    override val lifecycle: Lifecycle
+        get() = lifecycleRegistry
 
     override fun onCreate() {
         super.onCreate()
