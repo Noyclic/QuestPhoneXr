@@ -3,6 +3,7 @@
     <!-- Match the standard OpenXR Android loader's broker permissions and visibility. -->
     <uses-permission android:name="org.khronos.openxr.permission.OPENXR" />
     <uses-permission android:name="org.khronos.openxr.permission.OPENXR_SYSTEM" />
+    <uses-permission android:name="com.noyclic.questphonexr.permission.READ_INPUT_SNAPSHOT" />
 
     <queries>
         <intent>
