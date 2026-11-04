@@ -37,6 +37,7 @@
         android:name=".QuestPhoneXRApplication"
         android:allowBackup="false"
         android:extractNativeLibs="true"
+        android:icon="@drawable/ic_endxr_runtime"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
@@ -47,7 +48,8 @@
         <service
             android:name=".runtime.EndXrRuntimeService"
             android:exported="true"
-            android:label="EndXR OpenXR Runtime">
+            android:icon="@drawable/ic_endxr_runtime"
+            android:label="@string/openxr_runtime_name">
             <meta-data
                 android:name="org.khronos.openxr.OpenXRRuntime.SoFilename"
                 android:value="libendxr_openxr.so" />
