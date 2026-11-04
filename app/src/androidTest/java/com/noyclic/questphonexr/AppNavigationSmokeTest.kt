@@ -9,6 +9,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.UiScrollable
+import androidx.test.uiautomator.UiSelector
 import androidx.test.uiautomator.Until
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -59,11 +61,11 @@ class AppNavigationSmokeTest {
             "Game library did not open; check the emulator logcat artifact",
             device.wait(Until.hasObject(By.text("VR-игры")), 20_000)
         )
-        assertTrue(
-            "APK import action is missing from the library",
-            device.wait(Until.hasObject(By.text("Мои APK · импорт и анализ")), 5_000)
-        )
         saveScreenshot(context, device, "game-library.png")
+
+        // The readiness panel is near the top; the APK import button is intentionally
+        // lower in the scrollable library. Exercise both locations instead of assuming
+        // every action is visible on the first screen.
         assertTrue(
             "EndXR readiness details button is missing from the game library",
             device.wait(Until.hasObject(By.text("Показать возможности EndXR")), 5_000)
@@ -75,6 +77,13 @@ class AppNavigationSmokeTest {
         )
         saveScreenshot(context, device, "runtime-readiness.png")
         device.pressBack()
+
+        val importAction = UiScrollable(UiSelector().scrollable(true))
+            .scrollIntoView(UiSelector().text("Мои APK · импорт и анализ"))
+        assertTrue(
+            "APK import action is missing from the scrollable library",
+            importAction.exists()
+        )
 
         device.pressBack()
         assertTrue(
