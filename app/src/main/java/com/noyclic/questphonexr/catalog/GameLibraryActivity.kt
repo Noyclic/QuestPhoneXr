@@ -119,6 +119,16 @@ class GameLibraryActivity : ComponentActivity() {
             ).apply { setPadding(0, dp(8), 0, dp(3)) })
             body.addView(text(capability.details, 11f, 0xFFD0D7E2.toInt()))
         }
+        body.addView(text(
+            "Для выбора EndXR как активного runtime нужен официальный Khronos OpenXR Runtime Broker. " +
+                "Если он не установлен, кнопка откроет его страницу в Google Play.",
+            10f,
+            0xFFB8C2D0.toInt()
+        ).apply { setPadding(0, dp(12), 0, dp(6)) })
+        body.addView(button("Открыть / установить OpenXR Runtime Broker").apply {
+            setOnClickListener { openRuntimeBroker() }
+        })
+
         val scroll = ScrollView(this).apply {
             addView(body)
             isFillViewport = true
@@ -128,6 +138,24 @@ class GameLibraryActivity : ComponentActivity() {
             .setView(scroll)
             .setPositiveButton("Закрыть", null)
             .show()
+    }
+
+    private fun openRuntimeBroker() {
+        val brokerPackage = "org.khronos.openxr.runtime_broker"
+        val installedBrokerIntent = packageManager.getLaunchIntentForPackage(brokerPackage)
+        val targetIntent = installedBrokerIntent ?: Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse("https://play.google.com/store/apps/details?id=$brokerPackage")
+        )
+        runCatching {
+            startActivity(targetIntent)
+        }.onFailure { error ->
+            Toast.makeText(
+                this,
+                "Не удалось открыть OpenXR Runtime Broker: ${error.message ?: "приложение недоступно"}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     private fun showDeviceCompatibilityDetails(report: DeviceCompatibilityReport) {
