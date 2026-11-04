@@ -9,6 +9,8 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -66,7 +68,7 @@ struct RuntimeApi {
 
 } // namespace
 
-std::string runEndXrOpenXrAndroidSelfTest(JavaVM* vm, jobject activity) {
+static std::string runEndXrOpenXrAndroidSelfTestImpl(JavaVM* vm, jobject activity) {
     if (vm == nullptr || activity == nullptr) {
         return "OpenXR probe: FAIL · Android VM/activity missing";
     }
@@ -504,4 +506,127 @@ std::string runEndXrOpenXrAndroidSelfTest(JavaVM* vm, jobject activity) {
 
     return "OpenXR probe: PASS · runtime negotiation · GLES session · 2 stereo views · "
            "3 swapchain images · acquire/wait/release · locate pose · frame + teardown";
+}
+
+
+namespace {
+std::string endxrDiagnosticResultName(std::uint32_t code) {
+    switch (static_cast<XrResult>(code)) {
+        case XR_SUCCESS: return "XR_SUCCESS";
+        case XR_ERROR_VALIDATION_FAILURE: return "XR_ERROR_VALIDATION_FAILURE";
+        case XR_ERROR_RUNTIME_FAILURE: return "XR_ERROR_RUNTIME_FAILURE";
+        case XR_ERROR_OUT_OF_MEMORY: return "XR_ERROR_OUT_OF_MEMORY";
+        case XR_ERROR_INITIALIZATION_FAILED: return "XR_ERROR_INITIALIZATION_FAILED";
+        case XR_ERROR_FUNCTION_UNSUPPORTED: return "XR_ERROR_FUNCTION_UNSUPPORTED";
+        case XR_ERROR_EXTENSION_NOT_PRESENT: return "XR_ERROR_EXTENSION_NOT_PRESENT";
+        case XR_ERROR_FORM_FACTOR_UNSUPPORTED: return "XR_ERROR_FORM_FACTOR_UNSUPPORTED";
+        case XR_ERROR_SYSTEM_INVALID: return "XR_ERROR_SYSTEM_INVALID";
+        case XR_ERROR_HANDLE_INVALID: return "XR_ERROR_HANDLE_INVALID";
+        case XR_ERROR_SESSION_NOT_READY: return "XR_ERROR_SESSION_NOT_READY";
+        case XR_ERROR_SESSION_NOT_RUNNING: return "XR_ERROR_SESSION_NOT_RUNNING";
+        case XR_ERROR_CALL_ORDER_INVALID: return "XR_ERROR_CALL_ORDER_INVALID";
+        case XR_ERROR_GRAPHICS_DEVICE_INVALID: return "XR_ERROR_GRAPHICS_DEVICE_INVALID";
+        case XR_ERROR_GRAPHICS_REQUIREMENTS_CALL_MISSING: return "XR_ERROR_GRAPHICS_REQUIREMENTS_CALL_MISSING";
+        case XR_ERROR_SWAPCHAIN_FORMAT_UNSUPPORTED: return "XR_ERROR_SWAPCHAIN_FORMAT_UNSUPPORTED";
+        case XR_ERROR_SIZE_INSUFFICIENT: return "XR_ERROR_SIZE_INSUFFICIENT";
+        default: return "XR_RESULT_UNKNOWN";
+    }
+}
+std::string endxrDiagnosticGlString(GLenum key) {
+    const GLubyte* value = glGetString(key);
+    return value == nullptr ? "unavailable" : reinterpret_cast<const char*>(value);
+}
+} // namespace
+
+std::string runEndXrOpenXrAndroidSelfTest(JavaVM* vm, jobject activity) {
+    const EGLDisplay display = eglGetCurrentDisplay();
+    const EGLContext context = eglGetCurrentContext();
+    const EGLSurface surface = eglGetCurrentSurface(EGL_DRAW);
+    std::ostringstream out;
+    const std::string nativeResult = runEndXrOpenXrAndroidSelfTestImpl(vm, activity);
+    out << nativeResult << '\n';
+    out << "diagnostic_schema=2\n";
+    out << "probe_scope=direct bundled runtime call on Sandbox GLSurfaceView EGL context\n";
+    out << "runtime_broker_discovery=NOT_TESTED\n";
+    out << "third_party_game_process=NOT_TESTED\n";
+    out << "projection_layer_composition=NOT_TESTED (probe sends empty frame)\n";
+    out << "android_vm=" << (vm == nullptr ? "missing" : "present") << '\n';
+    out << "android_activity=" << (activity == nullptr ? "missing" : "present") << '\n';
+    out << "egl_display=" << (display == EGL_NO_DISPLAY ? "missing" : "present") << '\n';
+    out << "egl_context=" << (context == EGL_NO_CONTEXT ? "missing" : "present") << '\n';
+    out << "egl_draw_surface=" << (surface == EGL_NO_SURFACE ? "missing" : "present") << '\n';
+
+    if (display != EGL_NO_DISPLAY) {
+        const char* vendor = eglQueryString(display, EGL_VENDOR);
+        const char* version = eglQueryString(display, EGL_VERSION);
+        const char* extensions = eglQueryString(display, EGL_EXTENSIONS);
+        out << "egl_vendor=" << (vendor == nullptr ? "unavailable" : vendor) << '\n';
+        out << "egl_version=" << (version == nullptr ? "unavailable" : version) << '\n';
+        out << "egl_extensions=" << (extensions == nullptr ? "unavailable" : std::string(extensions).substr(0, 1800)) << '\n';
+    }
+    if (display != EGL_NO_DISPLAY && surface != EGL_NO_SURFACE) {
+        EGLint width = 0;
+        EGLint height = 0;
+        if (eglQuerySurface(display, surface, EGL_WIDTH, &width) == EGL_TRUE)
+            out << "egl_surface_width=" << width << '\n';
+        else out << "egl_surface_width_error=" << formatResult(static_cast<XrResult>(eglGetError())) << '\n';
+        if (eglQuerySurface(display, surface, EGL_HEIGHT, &height) == EGL_TRUE)
+            out << "egl_surface_height=" << height << '\n';
+        else out << "egl_surface_height_error=" << formatResult(static_cast<XrResult>(eglGetError())) << '\n';
+    }
+    if (display != EGL_NO_DISPLAY && context != EGL_NO_CONTEXT) {
+        EGLint configId = 0;
+        EGLint clientVersion = 0;
+        out << "egl_config_id_result=" << (eglQueryContext(display, context, EGL_CONFIG_ID, &configId) == EGL_TRUE ? "ok" : "fail") << '\n';
+        out << "egl_config_id=" << configId << '\n';
+        out << "egl_context_client_version_result=" << (eglQueryContext(display, context, EGL_CONTEXT_CLIENT_VERSION, &clientVersion) == EGL_TRUE ? "ok" : "fail") << '\n';
+        out << "egl_context_client_version=" << clientVersion << '\n';
+        GLint major = 0;
+        GLint minor = 0;
+        GLint maxTexture = 0;
+        GLint maxRenderbuffer = 0;
+        glGetIntegerv(GL_MAJOR_VERSION, &major);
+        glGetIntegerv(GL_MINOR_VERSION, &minor);
+        glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTexture);
+        glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &maxRenderbuffer);
+        out << "gl_vendor=" << endxrDiagnosticGlString(GL_VENDOR) << '\n';
+        out << "gl_renderer=" << endxrDiagnosticGlString(GL_RENDERER) << '\n';
+        out << "gl_version=" << endxrDiagnosticGlString(GL_VERSION) << '\n';
+        out << "glsl_version=" << endxrDiagnosticGlString(GL_SHADING_LANGUAGE_VERSION) << '\n';
+        out << "gl_context_major=" << major << '\n';
+        out << "gl_context_minor=" << minor << '\n';
+        out << "gl_max_texture_size=" << maxTexture << '\n';
+        out << "gl_max_renderbuffer_size=" << maxRenderbuffer << '\n';
+        out << "gl_error_after_probe=" << formatResult(static_cast<XrResult>(glGetError())) << '\n';
+    }
+    out << "gles_last_texture_allocation_error=" << formatResult(static_cast<XrResult>(endxrGetLastGlesError())) << '\n';
+
+    const std::string failPrefix = "OpenXR probe: FAIL · ";
+    if (nativeResult.rfind(failPrefix, 0) == 0) {
+        const std::string detail = nativeResult.substr(failPrefix.size());
+        const std::size_t separator = detail.find(" · ");
+        const std::string stage = separator == std::string::npos ? detail : detail.substr(0, separator);
+        out << "failure_stage=" << stage << '\n';
+        out << "failure_api_call=" << stage << '\n';
+        const std::size_t codePosition = detail.find("0x");
+        if (codePosition != std::string::npos) {
+            const std::uint32_t code = static_cast<std::uint32_t>(
+                std::strtoul(detail.c_str() + codePosition, nullptr, 16));
+            out << "failure_result_hex=" << formatResult(static_cast<XrResult>(code)) << '\n';
+            out << "failure_result_name=" << endxrDiagnosticResultName(code) << '\n';
+        } else {
+            out << "failure_result_name=not_provided_by_early_bootstrap\n";
+        }
+        const std::size_t cleanupPosition = detail.find("cleanup:");
+        if (cleanupPosition != std::string::npos)
+            out << "failure_cleanup_detail=" << detail.substr(cleanupPosition + 8) << '\n';
+    } else {
+        out << "check_1=runtime negotiation | PASS\n";
+        out << "check_2=OpenXR instance + system | PASS\n";
+        out << "check_3=GLES session + stereo view configuration | PASS\n";
+        out << "check_4=triple-buffered swapchain + acquire/wait/release | PASS\n";
+        out << "check_5=space pose + frame lifecycle | PASS\n";
+        out << "check_6=resource teardown | PASS\n";
+    }
+    return out.str();
 }

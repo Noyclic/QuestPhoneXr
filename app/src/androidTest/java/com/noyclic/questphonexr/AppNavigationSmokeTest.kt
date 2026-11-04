@@ -75,18 +75,34 @@ class AppNavigationSmokeTest {
 
         // Avoid the camera permission prompt obscuring the in-scene diagnostic label.
         device.executeShellCommand(
-            "pm grant \${context.packageName} android.permission.CAMERA"
+            "pm grant ${context.packageName} android.permission.CAMERA"
         )
 
         val sandboxIntent = Intent().setClassName(
             context.packageName,
-            "\${context.packageName}.sandbox.SandboxActivity"
+            "${context.packageName}.sandbox.SandboxActivity"
         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         context.startActivity(sandboxIntent)
 
+        val probePassed = device.wait(
+            Until.hasObject(By.textContains("OpenXR probe: PASS")),
+            45_000
+        )
+        val diagnosticFile = File(
+            requireNotNull(context.getExternalFilesDir(null)),
+            "ci-diagnostics/endxr-openxr-latest.log"
+        )
+        val report = if (diagnosticFile.isFile) diagnosticFile.readText() else
+            "Diagnostic report file was not written: " + diagnosticFile.absolutePath
         assertTrue(
-            "Sandbox did not complete the OpenXR runtime probe on its GLES context",
-            device.wait(Until.hasObject(By.textContains("OpenXR probe: PASS")), 30_000)
+            "Sandbox did not pass the OpenXR runtime probe. Full diagnostic:\n" + report,
+            probePassed
+        )
+        assertTrue(
+            "OpenXR probe did not persist a schema-v2 diagnostic report:\n" + report,
+            report.contains("diagnostic_schema=2") &&
+                report.contains("gl_renderer=") &&
+                report.contains("gles_last_texture_allocation_error=")
         )
     }
 

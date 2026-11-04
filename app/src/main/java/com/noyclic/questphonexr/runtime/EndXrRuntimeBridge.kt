@@ -1,6 +1,7 @@
 package com.noyclic.questphonexr.runtime
 
 import android.app.Activity
+import android.os.Build
 
 data class EndXrFrameTiming(
     val frameIndex: Long,
@@ -65,6 +66,31 @@ class EndXrRuntimeBridge {
             "OpenXR probe: FAIL · ${error.message ?: error.javaClass.simpleName}"
         }
     }
+    fun buildOpenXrAppDiagnosticContext(activity: Activity): String {
+        val snapshot = snapshot()
+        val packageInfo = runCatching {
+            activity.packageManager.getPackageInfo(activity.packageName, 0)
+        }.getOrNull()
+        return buildString {
+            append("app_timestamp_utc=").append(java.time.Instant.now()).append('\n')
+            append("app_package=").append(activity.packageName).append('\n')
+            append("app_version=").append(packageInfo?.versionName ?: "unknown").append('\n')
+            append("app_device_manufacturer=").append(Build.MANUFACTURER).append('\n')
+            append("app_device_model=").append(Build.MODEL).append('\n')
+            append("app_device_name=").append(Build.DEVICE).append('\n')
+            append("app_android_release=").append(Build.VERSION.RELEASE).append('\n')
+            append("app_android_sdk=").append(Build.VERSION.SDK_INT).append('\n')
+            append("app_process_id=").append(android.os.Process.myPid()).append('\n')
+            append("app_gl_thread=").append(Thread.currentThread().name).append('\n')
+            append("app_native_library_loaded=").append(isAvailable).append('\n')
+            append("app_endxr_core_state=").append(snapshot?.state ?: "unavailable").append('\n')
+            append("app_endxr_core_frames_started=").append(snapshot?.framesStarted ?: -1).append('\n')
+            append("app_endxr_core_frames_submitted=").append(snapshot?.submittedFrames ?: -1).append('\n')
+            append("app_endxr_core_frames_dropped=").append(snapshot?.droppedFrames ?: -1).append('\n')
+            append("app_endxr_core_frames_late=").append(snapshot?.lateFrames ?: -1).append('\n')
+        }
+    }
+
     fun createSession(): String? = invokeNative { nativeCreateSession() }
     fun beginSession(): String? = invokeNative { nativeBeginSession() }
     fun setHeadOrientation(x: Float, y: Float, z: Float, w: Float) {

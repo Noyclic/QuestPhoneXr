@@ -2,6 +2,8 @@
 
 #include "third_party/openxr/include/openxr/openxr_loader_negotiation.h"
 
+#include <cstdint>
+
 #define ENDXR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME "XR_KHR_android_create_instance"
 #define ENDXR_KHR_ANDROID_CREATE_INSTANCE_SPEC_VERSION 3
 #define ENDXR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME "XR_KHR_opengl_es_enable"
@@ -60,6 +62,7 @@ XRAPI_ATTR XrResult XRAPI_CALL xrNegotiateLoaderRuntimeInterface(
 __attribute__((visibility("default")))
 #endif
 void endxrSetHeadOrientation(float x, float y, float z, float w);
+std::uint32_t endxrGetLastGlesError();
 
 #if defined(__cplusplus)
 }

@@ -149,6 +149,7 @@ std::uint64_t g_nextSpaceHandle = 1;
 std::mutex g_headPoseMutex;
 XrQuaternionf g_headOrientation{0.0f, 0.0f, 0.0f, 1.0f};
 bool g_hasHeadOrientation = false;
+thread_local std::uint32_t g_lastGlesError = 0;
 
 XrInstance makeInstanceHandle(XrInstance_T* object) {
 #if XR_PTR_SIZE == 8
@@ -278,20 +279,28 @@ bool graphicsContextIsCurrent(const XrSession_T* session) {
 bool createGlesTexture(std::uint32_t width, std::uint32_t height, GLuint* output) {
     if (output == nullptr || width == 0 || height == 0) return false;
 #if defined(__ANDROID__)
+    g_lastGlesError = 0;
+    auto captureError = []() {
+        const GLenum error = glGetError();
+        if (error != GL_NO_ERROR && g_lastGlesError == 0) g_lastGlesError = error;
+        return error;
+    };
     GLuint texture = 0;
     glGenTextures(1, &texture);
-    if (texture == 0) return false;
+    if (captureError() != GL_NO_ERROR || texture == 0) return false;
     glBindTexture(GL_TEXTURE_2D, texture);
+    if (captureError() != GL_NO_ERROR) { glDeleteTextures(1, &texture); return false; }
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    if (captureError() != GL_NO_ERROR) { glDeleteTextures(1, &texture); return false; }
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    if (captureError() != GL_NO_ERROR) { glDeleteTextures(1, &texture); return false; }
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    if (captureError() != GL_NO_ERROR) { glDeleteTextures(1, &texture); return false; }
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    if (captureError() != GL_NO_ERROR) { glDeleteTextures(1, &texture); return false; }
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, static_cast<GLsizei>(width),
                    static_cast<GLsizei>(height));
-    if (glGetError() != GL_NO_ERROR) {
-        glDeleteTextures(1, &texture);
-        return false;
-    }
+    if (captureError() != GL_NO_ERROR) { glDeleteTextures(1, &texture); return false; }
     *output = texture;
 #else
     static std::uint32_t nextTexture = 1;
@@ -1386,3 +1395,6 @@ extern "C" __attribute__((visibility("default"))) void endxrSetHeadOrientation(
     };
     g_hasHeadOrientation = true;
 }
+
+extern "C" __attribute__((visibility("default"))) std::uint32_t
+endxrGetLastGlesError() { return g_lastGlesError; }

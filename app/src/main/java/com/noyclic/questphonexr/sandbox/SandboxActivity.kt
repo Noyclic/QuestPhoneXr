@@ -3,6 +3,8 @@ package com.noyclic.questphonexr.sandbox
 import android.Manifest
 import android.app.AlertDialog
 import android.content.pm.PackageManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.graphics.Color
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -17,6 +19,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import android.opengl.GLSurfaceView
 import android.os.Bundle
+import android.util.Log
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -36,6 +39,7 @@ import android.widget.TextView
 import android.widget.Toast
 import android.text.InputType
 import java.util.Locale
+import java.io.File
 import com.noyclic.questphonexr.input.AndroidGamepadInputAdapter
 import com.noyclic.questphonexr.tracking.HandLandmarkerController
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
@@ -77,6 +81,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private val endXrRuntime = EndXrRuntimeBridge()
     @Volatile private var endXrRuntimeLabel = "ожидает GLES surface"
     @Volatile private var endXrOpenXrTestLabel = "OpenXR probe: ждёт GLES-контекст"
+    @Volatile private var endXrOpenXrDiagnosticReport = ""
+    @Volatile private var endXrOpenXrDiagnosticPath = ""
     private var endXrOpenXrTestGeneration = -1L
     @Volatile private var endXrCompletedPhoneFrames = 0L
     private var endXrAttemptedSurfaceGeneration = -1L
@@ -322,8 +328,68 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         val generation = xrSurfaceLifecycle.surfaceGeneration
         if (endXrOpenXrTestGeneration == generation) return
         endXrOpenXrTestGeneration = generation
-        endXrOpenXrTestLabel = endXrRuntime.runOpenXrSelfTest(this)
+        val nativeReport = endXrRuntime.runOpenXrSelfTest(this)
+        persistEndXrOpenXrDiagnostic(nativeReport)
         runOnUiThread { updateStatus() }
+    }
+
+    private fun persistEndXrOpenXrDiagnostic(nativeReport: String) {
+        val report = buildString {
+            append(nativeReport.trimEnd()).append('\n')
+            append("---- APP CONTEXT ----\n")
+            append(endXrRuntime.buildOpenXrAppDiagnosticContext(this@SandboxActivity))
+            append("app_surface_generation=").append(xrSurfaceLifecycle.surfaceGeneration).append('\n')
+            append("app_surface_state=").append(xrSurfaceLifecycle.state.name).append('\n')
+            append("app_surface_width=").append(xrSurfaceLifecycle.surfaceWidth).append('\n')
+            append("app_surface_height=").append(xrSurfaceLifecycle.surfaceHeight).append('\n')
+            append("app_rotation_sensor_available=").append(sensorAvailable).append('\n')
+            append("app_camera_permission_granted=").append(
+                ContextCompat.checkSelfPermission(this@SandboxActivity, Manifest.permission.CAMERA) ==
+                    PackageManager.PERMISSION_GRANTED
+            ).append('\n')
+            append("app_camera_status=").append(cameraStatusMessage).append('\n')
+            append("app_hand_tracking_fps=").append(measuredHandTrackingFps).append('\n')
+            append("app_tracked_hands=").append(latestHandFrame.handCount).append('\n')
+            append("app_connected_gamepads=").append(controllerSnapshots.size).append('\n')
+            append("app_endxr_core_status=").append(endXrRuntimeLabel).append('\n')
+        }
+        val internalFile = File(filesDir, "diagnostics/endxr-openxr-latest.log")
+        val externalFile = getExternalFilesDir(null)?.let {
+            File(it, "ci-diagnostics/endxr-openxr-latest.log")
+        }
+        val paths = "app_internal_report_path=" + internalFile.absolutePath + '\n' +
+            "app_external_report_path=" + (externalFile?.absolutePath ?: "unavailable") + '\n'
+        val completeReport = report + paths
+        val errors = mutableListOf<String>()
+        runCatching {
+            internalFile.parentFile?.mkdirs()
+            internalFile.writeText(completeReport)
+        }.onFailure { errors += "internal: " + it.javaClass.simpleName + ": " + it.message }
+        if (externalFile != null) {
+            runCatching {
+                externalFile.parentFile?.mkdirs()
+                externalFile.writeText(completeReport)
+            }.onFailure { errors += "external: " + it.javaClass.simpleName + ": " + it.message }
+        }
+        endXrOpenXrDiagnosticReport = if (errors.isEmpty()) completeReport else {
+            completeReport + "app_report_save_error=" + errors.joinToString(" | ") + '\n'
+        }
+        endXrOpenXrDiagnosticPath = externalFile?.absolutePath ?: internalFile.absolutePath
+        endXrOpenXrTestLabel = nativeReport.lineSequence().firstOrNull()
+            ?: "OpenXR probe: FAIL · empty diagnostic result"
+        Log.i("EndXR-DIAG", "OpenXR report saved: " + endXrOpenXrDiagnosticPath)
+        if (errors.isNotEmpty()) Log.e("EndXR-DIAG", errors.joinToString(" | "))
+    }
+
+    private fun copyEndXrOpenXrDiagnostic() {
+        val report = endXrOpenXrDiagnosticReport
+        if (report.isBlank()) {
+            Toast.makeText(this, "Диагностика ещё не запускалась", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("EndXR runtime diagnostics", report))
+        Toast.makeText(this, "Отчёт скопирован · " + endXrOpenXrDiagnosticPath, Toast.LENGTH_LONG).show()
     }
 
     private fun renderFrameThroughEndXr(gl: javax.microedition.khronos.opengles.GL10?) {
@@ -455,6 +521,15 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             )
             addView(
                 controlButton("Профиль MediaPipe") { showHandTrackingPresetDialog() },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+            addView(
+                controlButton("Скопировать полную диагностику EndXR") {
+                    copyEndXrOpenXrDiagnostic()
+                },
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT

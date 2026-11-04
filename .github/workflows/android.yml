@@ -114,6 +114,8 @@ jobs:
 
 
             adb pull /sdcard/Android/data/com.noyclic.questphonexr/files/ci-screenshots/. ci-results/screenshots/ || true
+            mkdir -p ci-results/diagnostics
+            adb pull /sdcard/Android/data/com.noyclic.questphonexr/files/ci-diagnostics/. ci-results/diagnostics/ || true
 
             if [ -d app/build/reports/androidTests/connected ]; then
               cp -R app/build/reports/androidTests/connected ci-results/
