@@ -26,7 +26,7 @@ add_library(openxr_loader_probe SHARED
 )
 
 target_compile_features(openxr_loader_probe PRIVATE cxx_std_17)
-target_compile_definitions(openxr_loader_probe PRIVATE XR_USE_PLATFORM_ANDROID=1)
+target_compile_definitions(openxr_loader_probe PRIVATE XR_USE_PLATFORM_ANDROID=1 XR_USE_GRAPHICS_API_OPENGL_ES=1)
 target_compile_options(openxr_loader_probe PRIVATE -Wall -Wextra -Werror)
 
 target_link_libraries(
