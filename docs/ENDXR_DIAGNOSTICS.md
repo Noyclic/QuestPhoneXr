@@ -1,51 +1,71 @@
 # EndXR runtime diagnostics
 
-Every Sandbox GLES surface generation runs the bundled OpenXR probe once. The report is saved in app-private storage at `files/diagnostics/endxr-openxr-latest.log` and in app external-files storage at `Android/data/com.noyclic.questphonexr/files/ci-diagnostics/endxr-openxr-latest.log`.
+## Sandbox diagnostics
 
-The Sandbox includes an always-visible **Диагностика EndXR** button in the bottom-left corner. It remains available when the settings panel is hidden and copies the complete report to the clipboard.
+Every new Sandbox GLES surface generation runs the bundled OpenXR self-test once. The test runs on the Sandbox GL thread, saves its report to app-private storage at `files/diagnostics/endxr-openxr-latest.log` and to app external-files storage at `Android/data/com.noyclic.questphonexr/files/ci-diagnostics/endxr-openxr-latest.log`.
 
-On failure, inspect `failure_stage`, `failure_api_call`, `failure_result_name`, `failure_result_hex`, and any cleanup details. EGL and GLES information includes current surface/config/context, vendor/version/extensions, GPU renderer, GL/GLSL version, texture limits and the last GLES error captured during texture allocation. Schema 4 submits 30 consecutive frames through one running OpenXR session, records how many of the three swapchain images were used, and records the RGBA pixel values read back from the left and right halves of the Sandbox EGL surface.
+The Sandbox has two separate buttons in the lower-left corner:
 
-The probe calls the bundled EndXR runtime directly on the Sandbox GL thread. It renders a deterministic red/blue stereo test pattern into a GLES swapchain image, submits a two-view `XrCompositionLayerProjection`, and verifies that the runtime compositor copied each eye into the matching half of the active EGL window backbuffer. This proves repeated in-process projection-layer composition and frame lifecycle on the tested graphics context; it does not prove Android RuntimeBroker discovery, third-party game process startup, OpenXR Actions/controller interaction, physical headset presentation, or full Quest APK compatibility.
+- **Диагностика EndXR** copies the complete OpenXR diagnostic report to the clipboard. It remains visible when the settings panel is hidden. If the test has not finished yet, the app shows **«Диагностика ещё не запускалась»**.
+- **Проверить OpenXR ввод** opens a small report showing the current left/right mapped input values. This checks the app's in-process JNI path only; it does not prove that a third-party game can read input.
+
+There is also a small **OpenXR probe** status label above the diagnostics button. The full Sandbox status panel reports GLES surface state, EndXR core state, frame counters, phone sensor state, camera state, hand tracking rate and connected controllers.
+
+The self-test creates a deterministic red/blue stereo pattern, submits a two-view projection layer through the bundled runtime and reads back pixels from the Sandbox EGL surface. The current diagnostic schema checks 30 consecutive frames. This verifies the in-process graphics path on that EGL context; it does not prove active Android RuntimeBroker selection, third-party game rendering, physical headset presentation or Quest APK compatibility.
+
+## Interpreting the separate checkpoints
+
+Do not combine these stages into one pass/fail result:
+
+1. **Sandbox self-test** — the bundled runtime and EGL path work inside QuestPhoneXR.
+2. **Service discovery** — another package can see EndXR's exported Android runtime service and its metadata/library.
+3. **Input IPC permission** — the separate diagnostic client has the required signature-level permission and can read the provider snapshot.
+4. **Official loader initialization** — the Khronos Android loader initializes in the separate client package.
+5. **Active-runtime selection / instance** — the Android RuntimeBroker selects EndXR and `xrCreateInstance` succeeds.
+6. **External GLES session** — the separate process creates an HMD system/session, swapchain and frame lifecycle.
+7. **Game compatibility** — an actual title renders and accepts useful input. This has not yet been demonstrated on the Redmi Note 13 4G.
+
+A service can be discoverable while no active runtime is selected. A successful `xrCreateInstance` still does not prove that an actual game will render or receive controls.
+
+## Protected input IPC
+
+The read-only provider exposes controller values, phone head orientation and approximate MediaPipe palm-pose values at:
+
+`content://com.noyclic.questphonexr.endxrinput/controller_state`
+
+It now requires the signature permission `com.noyclic.questphonexr.permission.READ_INPUT_SNAPSHOT`. The paired `runtime-client-probe` APK can read it because the main APK and probe APK are built and signed in the same CI run. Install both artifacts from the **same Actions run**; do not mix debug APKs from different runs.
+
+Arbitrary third-party game APKs are deliberately not authorized yet. A future user-controlled package-specific authorization flow is required before game clients can read live controller snapshots. Do not remove the permission to make a test game work.
+
+The Android emulator smoke test also queries the provider as the untrusted `adb shell` UID and requires Android to deny access. The CI artifact includes `diagnostics/ipc-access-control.txt` and the raw denial output in `diagnostics/ipc-unauthorized-shell.txt`.
 
 ## CI artifact export
 
-Android instrumentation tests export the diagnostic report and UI screenshots through `MediaStore.Downloads` into `Downloads/QuestPhoneXR-CI/` before the emulator test task finishes. The shared Downloads copy survives the test runner uninstalling both APK packages. The emulator smoke script pulls those files into the `QuestPhoneXR-CI-diagnostics` Actions artifact:
+Android instrumentation tests export the diagnostic report and UI screenshots through `MediaStore.Downloads` into `Downloads/QuestPhoneXR-CI/` before the emulator test task finishes. The emulator smoke script pulls these files into the `QuestPhoneXR-CI-diagnostics` Actions artifact. It includes:
 
-- `diagnostics/endxr-openxr-latest.log` — full schema 4 diagnostic report.
+- `diagnostics/endxr-openxr-latest.log` — full Sandbox OpenXR report.
+- `diagnostics/runtime-broker-probe.txt` — installable/system broker discovery.
+- `diagnostics/external-client-probe.txt` — separate-package service and input IPC report.
+- `diagnostics/openxr-loader-client-probe.txt` — official Khronos loader report.
+- `diagnostics/ipc-access-control.txt` — negative authorization check for an untrusted shell client.
 - `screenshots/mode-selection.png` — launcher mode selector.
 - `screenshots/game-library.png` — VR game library.
 - `screenshots/sandbox-diagnostics-button.png` — visible diagnostics control.
+- `screenshots/runtime-readiness.png` — runtime capability screen.
 - `screenshots/emulator-final.png` — final emulator screen capture.
 
-The smoke script treats missing report or UI screenshot exports as a CI failure when the instrumentation tests otherwise pass. This prevents a green run from silently omitting the diagnostic evidence.
+The workflow treats missing diagnostic reports or required UI screenshot exports as a CI failure when the instrumentation tests otherwise pass.
 
+## Physical-device validation on the Redmi Note 13 4G
 
-## Current third-party game boundary
+1. Open the latest successful **Android CI** run and download both `QuestPhoneXR-debug-apk` and `QuestPhoneXR-external-client-probe-apk` from that same run.
+2. Install both APKs on the Redmi. The matching signing certificate is required for the probe's signature permission.
+3. Open QuestPhoneXR, enter **Sandbox**, and wait for the **OpenXR probe** status to appear. Tap **Диагностика EndXR** to copy the full in-process report. The button is in the lower-left corner; it stays visible when settings are hidden.
+4. To test camera input publication, enable **Фоновое отслеживание рук для Quest-игр** in the Sandbox settings, grant camera permission, and leave the persistent notification running while switching to another app.
+5. If the phone has a compatible Khronos or vendor Android RuntimeBroker, use it to select **EndXR OpenXR Runtime**. If no RuntimeBroker provider exists, record that fact; service visibility alone cannot prove runtime selection.
+6. Open **EndXR External Client Probe** and copy the entire report. The important stages are signature permission / provider query, `xrInitializeLoaderKHR`, `xrCreateInstance`, `xrGetSystem(HMD)`, `external_xrCreateSession`, swapchain image operations and `external_xrEndFrame`.
+7. Send both reports and note whether camera tracking stayed active in the background, whether the phone became hot, and any visible errors.
 
-The game library shows the current runtime capability inventory:
+The probe is a diagnostic client, not a real game. Its successful session/frame test is a stronger interoperability checkpoint than service discovery, but it still submits no projection layer to a headset and does not establish Quest game compatibility. A phone without an installable or system RuntimeBroker cannot prove active-runtime selection through the broker route.
 
-- Verified in-process: loader negotiation, Android/GLES session setup, stereo views, swapchain lifecycle and projection-layer composition.
-- Partial: head orientation only; the system reports `positionTracking=false`.
-- Not implemented: OpenXR Action/Input functions (`xrCreateActionSet`, `xrCreateAction`, `xrSyncActions`, `xrGetActionState*`), controller poses/buttons/haptics, and `XR_EXT_hand_tracking`.
-- Not verified: Android RuntimeBroker discovery and loading from a separate third-party application process.
-
-An APK can contain OpenXR or Meta/Oculus markers and still be unplayable on the phone. Apps expecting joystick, trigger, grip, tracked controller poses or hand joints are not ready until those APIs are implemented and tested from an external client process.
-
-The first game targets are kept distinct by build type. Open Saber has a separate phone-oriented Android Mobile Port page that advertises VR/SBS; this is the first build to inspect on the Redmi. Granny and Baldi entries point to Quest-specific builds and retain the Meta/Quest compatibility caveat.
-
-
-## Android RuntimeBroker discovery probe
-
-The diagnostics dialog now performs a read-only check of the Android OpenXR runtime service, its exported flag, the Khronos metadata keys, and the actual `libendxr_openxr.so` file under the service package's native library directory. It also checks whether the installable and system RuntimeBroker content providers are visible and whether either provider reports an active runtime for the device ABI.
-
-The instrumentation suite saves this as `diagnostics/runtime-broker-probe.txt`. A passing service-discovery check is still not an external-game test: the separate client process must independently select/load EndXR, create its own OpenXR instance/session and submit a frame before third-party RuntimeBroker compatibility can be marked verified.
-
-
-## Separate-package runtime discovery test
-
-A second Android application module, `runtime-client-probe`, uses its own application ID and manifest queries for the Khronos OpenXR runtime service and broker authorities. CI first tests QuestPhoneXR, reinstalls its APK, then installs/runs this independent client test package. It checks whether another Android package can discover the exported EndXR service, read its Khronos metadata, and see the runtime shared library in the provider package's native library directory.
-
-The client also queries the installable and system RuntimeBroker active-runtime endpoints. If the Khronos installable broker is not installed or no runtime is selected, the report says so; the test does not pretend that package visibility alone means a loader has selected EndXR. The `external-client-probe.txt` report is preserved in the CI diagnostics artifact.
-
-This is a separate-process service-discovery test, not yet a native OpenXR-loader test: it does not call `dlopen`, `xrCreateInstance`, create an EGL session, or submit a frame from the external package.
+See [External OpenXR Loader validation](OPENXR_LOADER_VALIDATION.md), [IPC security](IPC_SECURITY.md) and [EndXR runtime status](ENDXR_RUNTIME.md) for details.
