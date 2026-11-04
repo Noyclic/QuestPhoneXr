@@ -48,6 +48,11 @@
             </intent-filter>
         </service>
         <provider
+            android:name=".runtime.EndXrInputContentProvider"
+            android:authorities="com.noyclic.questphonexr.endxrinput"
+            android:exported="true"
+            android:grantUriPermissions="false" />
+        <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
             android:exported="false"
