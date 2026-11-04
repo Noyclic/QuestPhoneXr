@@ -49,6 +49,9 @@ if [[ -s ci-results/device-artifacts/endxr-openxr-latest.log ]]; then
 elif [[ -s ci-results/device-artifacts/endxr-openxr-latest.log.txt ]]; then
   cp ci-results/device-artifacts/endxr-openxr-latest.log.txt ci-results/diagnostics/endxr-openxr-latest.log
 fi
+if [[ -s ci-results/device-artifacts/runtime-broker-probe.txt ]]; then
+  cp ci-results/device-artifacts/runtime-broker-probe.txt ci-results/diagnostics/
+fi
 
 # Keep an independent final emulator screenshot even if a UI test failed.
 adb exec-out screencap -p > ci-results/screenshots/emulator-final.png || true
@@ -63,6 +66,10 @@ fi
 if [[ "$test_exit" -eq 0 ]]; then
   test -s ci-results/diagnostics/endxr-openxr-latest.log || {
     echo "Instrumentation tests passed but the exported OpenXR diagnostic report is missing."
+    test_exit=1
+  }
+  test -s ci-results/diagnostics/runtime-broker-probe.txt || {
+    echo "Instrumentation tests passed but the RuntimeBroker discovery report is missing."
     test_exit=1
   }
   test -s ci-results/screenshots/mode-selection.png || {

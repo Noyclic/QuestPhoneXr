@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Environment
 import android.provider.MediaStore
+import com.noyclic.questphonexr.runtime.AndroidRuntimeBrokerProbe
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -89,6 +90,40 @@ class AppNavigationSmokeTest {
         assertTrue(
             "Back navigation did not return to mode selection",
             device.wait(Until.hasObject(By.text("Выбери режим")), 10_000)
+        )
+    }
+
+    @Test
+    fun runtimeServiceIsDiscoverableAndItsNativePayloadExists() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val report = AndroidRuntimeBrokerProbe.inspect(context)
+        val reportFile = File(context.cacheDir, "runtime-broker-probe.txt")
+        reportFile.writeText(report.toDisplayText())
+        publishCiArtifact(context, reportFile, "runtime-broker-probe.txt", "text/plain")
+
+        assertTrue(
+            "PackageManager did not discover the exported EndXR OpenXR Runtime Service:\n" +
+                report.toDisplayText(),
+            report.ownRuntimeServiceFound
+        )
+        assertTrue(
+            "EndXR OpenXR Runtime Service is not exported:\n" + report.toDisplayText(),
+            report.ownRuntimeServiceExported
+        )
+        assertTrue(
+            "EndXR Runtime Service does not advertise OpenXR major version 1:\n" +
+                report.toDisplayText(),
+            report.majorVersion == 1
+        )
+        assertTrue(
+            "EndXR Runtime Service metadata does not point to libendxr_openxr.so:\n" +
+                report.toDisplayText(),
+            report.soFilename == "libendxr_openxr.so"
+        )
+        assertTrue(
+            "EndXR runtime native library is not present at the ServiceInfo nativeLibraryDir:\n" +
+                report.toDisplayText(),
+            report.nativeLibraryExists
         )
     }
 

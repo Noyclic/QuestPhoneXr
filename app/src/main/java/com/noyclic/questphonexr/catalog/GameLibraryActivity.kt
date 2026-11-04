@@ -31,6 +31,7 @@ import com.noyclic.questphonexr.performance.AndroidDeviceCompatibilityProbe
 import com.noyclic.questphonexr.performance.DeviceCompatibilityReport
 import com.noyclic.questphonexr.performance.NativeVulkanProbe
 import com.noyclic.questphonexr.runtime.EndXrRuntimeReadiness
+import com.noyclic.questphonexr.runtime.AndroidRuntimeBrokerProbe
 import com.noyclic.questphonexr.runtime.RuntimeCapabilityState
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -85,6 +86,24 @@ class GameLibraryActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(8), dp(18), dp(8))
         }
+        body.addView(text(
+            "ANDROID RUNTIME SERVICE / BROKER DISCOVERY",
+            12f,
+            0xFF8FD3B5.toInt(),
+            Typeface.BOLD
+        ).apply { setPadding(0, dp(10), 0, dp(4)) })
+        val brokerReport = AndroidRuntimeBrokerProbe.inspect(this)
+        body.addView(text(
+            brokerReport.toDisplayText(),
+            10f,
+            0xFFB8C2D0.toInt()
+        ))
+        body.addView(text(
+            "CAPABILITIES",
+            12f,
+            0xFF8FD3B5.toInt(),
+            Typeface.BOLD
+        ).apply { setPadding(0, dp(12), 0, dp(4)) })
         EndXrRuntimeReadiness.capabilities.forEach { capability ->
             val color = when (capability.state) {
                 RuntimeCapabilityState.VERIFIED_IN_PROCESS -> 0xFF8FE0B5.toInt()
