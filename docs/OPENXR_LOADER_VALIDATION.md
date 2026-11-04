@@ -57,7 +57,9 @@ For a phone / plug-in-viewer setup:
 
 1. Install the official [OpenXR Runtime Broker from Google Play](https://play.google.com/store/apps/details?id=org.khronos.openxr.runtime_broker).
 2. Return to QuestPhoneXR Sandbox and tap **Выбор OpenXR Runtime**.
-3. In the Broker's runtime list, select **EndXR OpenXR Runtime**. If more than one runtime is installed, the user selection determines which runtime becomes active.
+3. In the Broker's runtime list, select **EndXR — OpenXR Runtime**. If more than one runtime is installed, the user selection determines which runtime becomes active.
+
+The runtime service has its own explicit Android display label and icon, separate from the app's launcher identity (**QuestPhoneXR**). The broker diagnostic report records the service label and whether an icon resource is declared, so a missing identity can be distinguished from a runtime-loading problem.
 4. Return to Sandbox. QuestPhoneXR automatically reruns its in-process loader diagnostic and refreshes the Broker/provider report.
 5. Launch **EndXR External Client Probe** separately to verify that the official Khronos loader in a different APK can create an instance and proceed through system/session/swapchain/frame calls.
 
@@ -99,7 +101,7 @@ diagnostic result without crashing; it does not force an unavailable runtime
 to appear.
 
 For a phone test, install both artifacts, then use the Khronos Runtime Broker
-to select **EndXR OpenXR Runtime** as the active runtime before launching the
+to select **EndXR — OpenXR Runtime** as the active runtime before launching the
 probe. The loader does not select a runtime itself; the broker owns that
 choice. If Monado or another runtime is selected, the probe will test that
 runtime instead of EndXR.
