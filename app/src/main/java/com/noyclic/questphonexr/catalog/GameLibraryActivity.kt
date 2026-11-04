@@ -133,8 +133,17 @@ class GameLibraryActivity : ComponentActivity() {
             10f,
             0xFFB8C2D0.toInt()
         ).apply { setPadding(0, dp(12), 0, dp(6)) })
+        body.addView(text(
+            "В открывшемся Runtime Broker выбери «EndXR OpenXR Runtime» и сделай его активным. " +
+                "После этого вернись в QuestPhoneXR и запусти отдельную проверку: она проверит не только создание OpenXR instance, но и GLES session, swapchain и один кадр.",
+            10f,
+            0xFFB8C2D0.toInt()
+        ).apply { setPadding(0, dp(8), 0, dp(6)) })
         body.addView(button("Открыть / установить OpenXR Runtime Broker").apply {
             setOnClickListener { openRuntimeBroker() }
+        })
+        body.addView(button("Запустить внешний OpenXR тест").apply {
+            setOnClickListener { launchExternalRuntimeProbe() }
         })
 
         val scroll = ScrollView(this).apply {
@@ -146,6 +155,26 @@ class GameLibraryActivity : ComponentActivity() {
             .setView(scroll)
             .setPositiveButton("Закрыть", null)
             .show()
+    }
+
+    private fun launchExternalRuntimeProbe() {
+        val probePackage = "com.noyclic.xrclientprobe"
+        val launchIntent = packageManager.getLaunchIntentForPackage(probePackage)
+        if (launchIntent == null) {
+            Toast.makeText(
+                this,
+                "Сначала установи QuestPhoneXR-external-client-probe-apk из GitHub Actions.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        runCatching { startActivity(launchIntent) }.onFailure { error ->
+            Toast.makeText(
+                this,
+                "Не удалось запустить внешний OpenXR тест: ${error.message ?: "приложение недоступно"}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     private fun openRuntimeBroker() {
