@@ -470,24 +470,6 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             setBackgroundColor(0xE60C111B.toInt())
         }
 
-        // Keep the diagnostic action outside the scrolling area so it is always
-        // reachable while the settings panel is open, even on short landscape screens.
-        val diagnosticsButton = controlButton("Скопировать диагностику EndXR") {
-            copyEndXrOpenXrDiagnostic()
-        }.apply {
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            backgroundTintList = android.content.res.ColorStateList.valueOf(0xFF176B4A.toInt())
-            setPadding(dp(10), dp(4), dp(10), dp(4))
-        }
-        topPanel.addView(
-            diagnosticsButton,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
-
         val scrollContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(statusView)
@@ -581,6 +563,30 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 panelMaxHeight,
                 Gravity.TOP
             )
+        )
+
+        // This action stays available even when the settings panel is hidden.
+        val diagnosticsButton = controlButton("Диагностика EndXR") {
+            copyEndXrOpenXrDiagnostic()
+        }.apply {
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            contentDescription = "Скопировать диагностику EndXR"
+            backgroundTintList = android.content.res.ColorStateList.valueOf(0xFF176B4A.toInt())
+            setPadding(dp(12), dp(5), dp(12), dp(5))
+            minHeight = dp(42)
+            elevation = dp(6).toFloat()
+        }
+        root.addView(
+            diagnosticsButton,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.START
+            ).apply {
+                bottomMargin = dp(14)
+                marginStart = dp(12)
+            }
         )
 
         // Keep a small always-visible toggle so the scene can be used without UI clutter.

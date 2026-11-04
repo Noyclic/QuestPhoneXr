@@ -2,7 +2,7 @@
 
 Every Sandbox GLES surface generation runs the bundled OpenXR probe once. The report is saved in app-private storage at `files/diagnostics/endxr-openxr-latest.log` and in app external-files storage at `Android/data/com.noyclic.questphonexr/files/ci-diagnostics/endxr-openxr-latest.log`.
 
-The Sandbox includes a **Скопировать полную диагностику EndXR** button that copies the complete report to the clipboard.
+The Sandbox includes an always-visible **Диагностика EndXR** button in the bottom-left corner. It remains available when the settings panel is hidden and copies the complete report to the clipboard.
 
 On failure, inspect `failure_stage`, `failure_api_call`, `failure_result_name`, `failure_result_hex`, and any cleanup details. EGL and GLES information includes current surface/config/context, vendor/version/extensions, GPU renderer, GL/GLSL version, texture limits and the last GLES error captured during texture allocation. Schema 4 submits 30 consecutive frames through one running OpenXR session, records how many of the three swapchain images were used, and records the RGBA pixel values read back from the left and right halves of the Sandbox EGL surface.
 

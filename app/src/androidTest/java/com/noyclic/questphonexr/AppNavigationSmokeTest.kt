@@ -1,5 +1,7 @@
 package com.noyclic.questphonexr
 
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -110,6 +112,37 @@ class AppNavigationSmokeTest {
                 report.contains("projection_layer_right_pixel_rgba=") &&
                 report.contains("gl_renderer=") &&
                 report.contains("gles_last_texture_allocation_error=")
+        )
+
+        assertTrue(
+            "Settings panel toggle did not appear",
+            device.wait(Until.hasObject(By.text("Скрыть настройки")), 5_000)
+        )
+        device.findObject(By.text("Скрыть настройки")).click()
+        assertTrue(
+            "Settings panel did not hide",
+            device.wait(Until.hasObject(By.text("Показать настройки")), 5_000)
+        )
+
+        val diagnosticsButton = By.text("Диагностика EndXR")
+        assertTrue(
+            "Always-visible EndXR diagnostics button is missing while settings are hidden",
+            device.wait(Until.hasObject(diagnosticsButton), 5_000)
+        )
+        saveScreenshot(context.getExternalFilesDir(null), device, "sandbox-diagnostics-button.png")
+        device.findObject(diagnosticsButton).click()
+
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val copiedReport = clipboard.primaryClip
+            ?.takeIf { it.itemCount > 0 }
+            ?.getItemAt(0)
+            ?.coerceToText(context)
+            ?.toString()
+            .orEmpty()
+        assertTrue(
+            "EndXR diagnostics button did not copy the schema-v4 report to clipboard",
+            copiedReport.contains("diagnostic_schema=4") &&
+                copiedReport.contains("check_8=30 consecutive OpenXR frames + triple-buffer rotation | PASS")
         )
     }
 
