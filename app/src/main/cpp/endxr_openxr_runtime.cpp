@@ -636,17 +636,29 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrCreateInstance(
 #if defined(__ANDROID__)
         created->applicationVm = reinterpret_cast<JavaVM*>(androidInfo->applicationVM);
         JNIEnv* env = nullptr;
-        if (created->applicationVm == nullptr ||
-            created->applicationVm->GetEnv(
-                reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK ||
-            env == nullptr) {
+        bool attachedHere = false;
+        if (created->applicationVm == nullptr) {
+            delete created;
+            return XR_ERROR_INITIALIZATION_FAILED;
+        }
+        jint envStatus = created->applicationVm->GetEnv(
+            reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+        if (envStatus == JNI_EDETACHED) {
+            envStatus = created->applicationVm->AttachCurrentThread(&env, nullptr);
+            attachedHere = envStatus == JNI_OK;
+        }
+        if (envStatus != JNI_OK || env == nullptr) {
+            if (attachedHere) created->applicationVm->DetachCurrentThread();
             delete created;
             return XR_ERROR_INITIALIZATION_FAILED;
         }
         created->applicationActivity = env->NewGlobalRef(
             reinterpret_cast<jobject>(androidInfo->applicationActivity));
-        if (created->applicationActivity == nullptr || env->ExceptionCheck()) {
-            if (env->ExceptionCheck()) env->ExceptionClear();
+        const bool referenceFailed =
+            created->applicationActivity == nullptr || env->ExceptionCheck();
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        if (attachedHere) created->applicationVm->DetachCurrentThread();
+        if (referenceFailed) {
             delete created;
             return XR_ERROR_INITIALIZATION_FAILED;
         }
