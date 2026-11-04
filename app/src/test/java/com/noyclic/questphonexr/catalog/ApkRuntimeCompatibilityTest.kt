@@ -1,6 +1,8 @@
 package com.noyclic.questphonexr.catalog
 
+import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -27,6 +29,26 @@ class ApkRuntimeCompatibilityTest {
         sizeBytes = 1L,
         importedAtEpochMs = 1L
     )
+
+    @Test
+    fun apkFingerprintIsStableAndChangesWhenBytesChange() {
+        val first = File.createTempFile("endgvr-first-", ".apk")
+        val second = File.createTempFile("endgvr-second-", ".apk")
+        try {
+            first.writeBytes("gear-vr-apk-fixture".toByteArray())
+            second.writeBytes("gear-vr-apk-fixture".toByteArray())
+
+            val firstHash = ApkArchiveFingerprint.sha256(first)
+            assertEquals(firstHash, ApkArchiveFingerprint.sha256(second))
+            assertTrue(firstHash.matches(Regex("[0-9a-f]{64}")))
+
+            second.appendText("-changed")
+            assertNotEquals(firstHash, ApkArchiveFingerprint.sha256(second))
+        } finally {
+            first.delete()
+            second.delete()
+        }
+    }
 
     @Test
     fun identifiesQuestRuntimeRequirementFromOculusNativeLibraries() {

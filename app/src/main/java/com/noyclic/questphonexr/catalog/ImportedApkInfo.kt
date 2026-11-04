@@ -27,8 +27,28 @@ data class ImportedApkInfo(
     val requestedPermissions: List<String> = emptyList(),
     val activityNames: List<String> = emptyList(),
     val serviceNames: List<String> = emptyList(),
-    val providerNames: List<String> = emptyList()
+    val providerNames: List<String> = emptyList(),
+    val sha256: String = ""
 )
+
+/** Streaming APK fingerprint. The file is never loaded fully into memory. */
+internal object ApkArchiveFingerprint {
+    fun sha256(file: File): String {
+        require(file.isFile) { "APK-файл недоступен для вычисления SHA-256." }
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                if (read > 0) digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { byte ->
+            "%02x".format(byte.toInt() and 0xff)
+        }
+    }
+}
 
 /** Reads package metadata from an APK without installing or executing it. */
 internal object ApkArchiveInspector {
@@ -91,6 +111,7 @@ internal object ApkArchiveInspector {
             activityNames = activityNames,
             serviceNames = serviceNames,
             providerNames = providerNames,
+            sha256 = ApkArchiveFingerprint.sha256(file),
             importedAtEpochMs = System.currentTimeMillis()
         )
     }
@@ -193,6 +214,7 @@ class ImportedApkStore(context: Context) {
                 put("activityNames", JSONArray(info.activityNames))
                 put("serviceNames", JSONArray(info.serviceNames))
                 put("providerNames", JSONArray(info.providerNames))
+                put("sha256", info.sha256)
                 put("sizeBytes", info.sizeBytes)
                 put("importedAtEpochMs", info.importedAtEpochMs)
             })
@@ -218,6 +240,7 @@ class ImportedApkStore(context: Context) {
         activityNames = optStringList("activityNames"),
         serviceNames = optStringList("serviceNames"),
         providerNames = optStringList("providerNames"),
+        sha256 = optString("sha256"),
         importedAtEpochMs = optLong("importedAtEpochMs")
     )
 

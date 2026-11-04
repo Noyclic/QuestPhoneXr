@@ -45,13 +45,15 @@ classification only and distinguishes:
 
 The APK importer retains Samsung/HMT Gear VR metadata keys and records
 requested permissions plus declared activities, services and content
-providers. The APK card now presents a grouped static audit: packaged native
-library names, recognized SDK/Runtime filename markers, VR-related manifest
-references, relevant Android components, and an ABI overlap summary against
-the current phone. The report is heuristic evidence only: it does not inspect
-native binary symbols, decompile bytecode, resolve dynamic service binding, or
-prove that a referenced service is installed or callable. Older saved
-catalogue entries remain readable because the added fields are optional.
+providers. The APK card presents a grouped static audit and can copy the
+complete report, including the APK SHA-256, device and Android version,
+package/version data, ABI overlap, packaged libraries, recognized runtime
+markers and manifest dependency names. The fingerprint lets a report refer
+to one exact APK build without uploading or redistributing the APK. The
+report is heuristic evidence only: it does not inspect native binary symbols,
+decompile bytecode, resolve dynamic service binding, or prove that a referenced
+service is installed or callable. Older saved catalogue entries remain
+readable because the added fields are optional.
 
 **This is not a Gear VR runtime.** It does not load legacy VrApi, emulate Gear
 VR services, create a VR session, patch APKs or launch games. Static markers

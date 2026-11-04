@@ -1,6 +1,8 @@
 package com.noyclic.questphonexr.catalog
 
 import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -254,6 +256,7 @@ class ApkImportActivity : ComponentActivity() {
             0xFFB8C7DB.toInt()
         ))
         val audit = runtimeAssessment.audit
+        addAuditLine(card, "SHA-256", info.sha256.ifBlank { "не вычислен (старая запись)" })
         addAuditLine(card, "ABI-проверка", audit.abiSummary)
         addAuditLine(
             card,
@@ -273,6 +276,9 @@ class ApkImportActivity : ComponentActivity() {
             card.addView(text("• $detail", 11f, 0xFFAAB4C2.toInt())
                 .apply { setPadding(0, dp(4), 0, 0) })
         }
+        card.addView(button("Скопировать полный отчёт").apply {
+            setOnClickListener { copyAuditReport(info, runtimeAssessment) }
+        })
         card.addView(text(
             "Импортировано: " + SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
                 .format(Date(info.importedAtEpochMs)),
@@ -400,6 +406,41 @@ class ApkImportActivity : ComponentActivity() {
         }.onFailure { error ->
             statusView.text = "Не удалось открыть системный установщик: ${error.message ?: "ошибка"}"
         }
+    }
+
+    private fun copyAuditReport(info: ImportedApkInfo, assessment: ApkRuntimeAssessment) {
+        val audit = assessment.audit
+        val report = buildString {
+            appendLine("QuestPhoneXR — статический APK-аудит")
+            appendLine("Название: ${info.displayName}")
+            appendLine("Пакет: ${info.packageName}")
+            appendLine("Файл: ${info.originalName}")
+            appendLine("Версия: ${info.versionName} (${info.versionCode})")
+            appendLine("Размер: ${formatSize(info.sizeBytes)}")
+            appendLine("SHA-256: ${info.sha256.ifBlank { "не вычислен" }}")
+            appendLine("Android: min API ${info.minSdk}, target API ${info.targetSdk}")
+            appendLine("Устройство: ${android.os.Build.MODEL} · Android ${android.os.Build.VERSION.RELEASE} · API ${android.os.Build.VERSION.SDK_INT}")
+            appendLine("Маршрут: ${assessment.route.label}")
+            appendLine("Движок: ${assessment.engine}")
+            appendLine("XR: ${assessment.xrTechnologies.joinToString().ifBlank { "не обнаружены" }}")
+            appendLine("ABI: ${audit.abiSummary}")
+            appendLine("Нативные библиотеки: ${audit.nativeLibraries.joinToString().ifBlank { "не обнаружены" }}")
+            appendLine("SDK/Runtime-маркеры: ${audit.sdkRuntimeMarkers.joinToString().ifBlank { "не обнаружены" }}")
+            appendLine("VR-маркеры манифеста: ${audit.manifestReferences.joinToString().ifBlank { "не обнаружены" }}")
+            appendLine("VR-компоненты: ${audit.componentReferences.joinToString().ifBlank { "не обнаружены" }}")
+            appendLine("Разрешения: ${info.requestedPermissions.joinToString().ifBlank { "не перечислены" }}")
+            appendLine("Activities: ${info.activityNames.joinToString().ifBlank { "не перечислены" }}")
+            appendLine("Services: ${info.serviceNames.joinToString().ifBlank { "не перечислены" }}")
+            appendLine("Providers: ${info.providerNames.joinToString().ifBlank { "не перечислены" }}")
+            appendLine()
+            appendLine("Детали и ограничения:")
+            assessment.details.forEach { appendLine("- $it") }
+            appendLine()
+            appendLine("Отчёт статический: он не доказывает успешную установку, создание VR-сессии или игровую совместимость.")
+        }
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("QuestPhoneXR APK audit", report))
+        Toast.makeText(this, "Полный APK-отчёт скопирован.", Toast.LENGTH_SHORT).show()
     }
 
     private fun addAuditLine(container: LinearLayout, label: String, value: String) {
