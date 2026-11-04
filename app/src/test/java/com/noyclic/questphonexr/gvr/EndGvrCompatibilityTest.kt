@@ -57,6 +57,35 @@ class EndGvrCompatibilityTest {
     }
 
     @Test
+    fun recognizesGearVrServiceAndPermissionInManifest() {
+        val result = EndGvrCompatibility.inspect(
+            packageName = "com.example.classicvr",
+            metadataKeys = emptyList(),
+            requiredFeatures = emptyList(),
+            archiveEntries = emptyList(),
+            requestedPermissions = listOf("com.samsung.android.hmt.vrsvc.permission.READ"),
+            serviceNames = listOf("com.samsung.android.hmt.vrsvc.system.SystemService")
+        )
+
+        assertEquals(EndGvrClassification.GEAR_VR_MARKED, result.classification)
+        assertTrue(result.gearVrMarkers.any { it.contains("manifest permission") })
+        assertTrue(result.gearVrMarkers.any { it.contains("manifest component") })
+    }
+
+    @Test
+    fun ordinaryOculusNamesDoNotBecomeSamsungGearVrEvidence() {
+        val result = EndGvrCompatibility.inspect(
+            packageName = "com.oculus.example",
+            metadataKeys = listOf("com.oculus.vr.application.mode"),
+            requiredFeatures = emptyList(),
+            archiveEntries = listOf("lib/arm64-v8a/libOVRPlugin.so"),
+            serviceNames = listOf("com.oculus.vr.system.OculusService")
+        )
+
+        assertEquals(EndGvrClassification.NO_GEAR_VR_EVIDENCE, result.classification)
+    }
+
+    @Test
     fun ordinaryOpenXrArchiveHasNoGearVrEvidence() {
         val result = EndGvrCompatibility.inspect(
             packageName = "com.example.openxr",

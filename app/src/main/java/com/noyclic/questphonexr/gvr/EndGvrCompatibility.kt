@@ -36,12 +36,19 @@ object EndGvrCompatibility {
         packageName: String,
         metadataKeys: Collection<String>,
         requiredFeatures: Collection<String>,
-        archiveEntries: Collection<String>
+        archiveEntries: Collection<String>,
+        requestedPermissions: Collection<String> = emptyList(),
+        activityNames: Collection<String> = emptyList(),
+        serviceNames: Collection<String> = emptyList(),
+        providerNames: Collection<String> = emptyList()
     ): EndGvrAssessment {
         val normalizedPackage = packageName.lowercase()
         val normalizedMetadata = metadataKeys.map { it.lowercase() }
         val normalizedFeatures = requiredFeatures.map { it.lowercase() }
         val normalizedEntries = archiveEntries.map { it.lowercase() }
+        val normalizedPermissions = requestedPermissions.map { it.lowercase() }
+        val normalizedComponents = (activityNames + serviceNames + providerNames)
+            .map { it.lowercase() }
 
         val gearMarkers = linkedSetOf<String>()
         if (
@@ -54,6 +61,14 @@ object EndGvrCompatibility {
         normalizedMetadata
             .filter { key -> gearVrMetadataMarkers.any { marker -> key.contains(marker) } }
             .forEach { gearMarkers += "Gear VR manifest metadata: $it" }
+
+        normalizedPermissions
+            .filter(::containsGearVrMarker)
+            .forEach { gearMarkers += "Gear VR manifest permission: $it" }
+
+        normalizedComponents
+            .filter(::containsGearVrMarker)
+            .forEach { gearMarkers += "Gear VR manifest component: $it" }
 
         normalizedFeatures
             .filter { feature ->
@@ -88,4 +103,7 @@ object EndGvrCompatibility {
             legacyOculusMarkers = legacyOculusMarkers.toList()
         )
     }
+
+    private fun containsGearVrMarker(value: String): Boolean =
+        gearVrMetadataMarkers.any(value::contains)
 }

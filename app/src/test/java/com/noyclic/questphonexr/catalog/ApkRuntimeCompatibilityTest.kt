@@ -74,6 +74,24 @@ class ApkRuntimeCompatibilityTest {
     }
 
     @Test
+    fun routesApkWithGearVrManifestServiceToEndGvr() {
+        val info = sample().copy(
+            serviceNames = listOf("com.samsung.android.hmt.vrsvc.system.SystemService"),
+            requestedPermissions = listOf("com.samsung.android.hmt.vrsvc.permission.READ")
+        )
+        val result = ApkRuntimeCompatibility.assess(
+            info = info,
+            archiveEntries = listOf("lib/armeabi-v7a/libvrapi.so"),
+            deviceApiLevel = 35,
+            supportedAbis = listOf("arm64-v8a", "armeabi-v7a"),
+            missingRequiredFeatures = emptySet()
+        )
+
+        assertEquals(ApkLaunchRoute.GEAR_VR_LEGACY_CANDIDATE, result.route)
+        assertTrue(result.details.any { it.contains("manifest component") })
+    }
+
+    @Test
     fun identifiesOpenXrProjectAsNeedingActiveRuntime() {
         val result = ApkRuntimeCompatibility.assess(
             info = sample(),

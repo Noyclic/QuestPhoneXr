@@ -62,7 +62,11 @@ object ApkRuntimeCompatibility {
             packageName = info.packageName,
             metadataKeys = info.vrMetadataKeys,
             requiredFeatures = info.requiredFeatures,
-            archiveEntries = lowerEntries
+            archiveEntries = lowerEntries,
+            requestedPermissions = info.requestedPermissions,
+            activityNames = info.activityNames,
+            serviceNames = info.serviceNames,
+            providerNames = info.providerNames
         )
         val engine = when {
             nativeLibraries.any { it.endsWith("/libunity.so") } ||

@@ -43,10 +43,13 @@ classification only and distinguishes:
   claiming that the APK is definitely a Gear VR title;
 - no Gear VR evidence found.
 
-The APK importer now retains Samsung/HMT Gear VR metadata keys, and the
-existing APK assessment can route a clearly marked title to the EndGVR
-research path rather than treating every legacy Oculus title as a modern
-Quest APK.
+The APK importer retains Samsung/HMT Gear VR metadata keys and now records
+requested permissions plus declared activities, services and content
+providers. EndGVR checks those manifest component/permission names alongside
+package names, metadata, required features and archive paths. This improves
+the first-pass evidence report without executing or decoding application
+code. Older saved catalogue entries remain readable because these new fields
+are optional.
 
 **This is not a Gear VR runtime.** It does not load legacy VrApi, emulate Gear
 VR services, create a VR session, patch APKs or launch games. Static markers

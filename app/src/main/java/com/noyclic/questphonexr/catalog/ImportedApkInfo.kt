@@ -23,7 +23,11 @@ data class ImportedApkInfo(
     val requiredFeatures: List<String>,
     val vrMetadataKeys: List<String>,
     val sizeBytes: Long,
-    val importedAtEpochMs: Long
+    val importedAtEpochMs: Long,
+    val requestedPermissions: List<String> = emptyList(),
+    val activityNames: List<String> = emptyList(),
+    val serviceNames: List<String> = emptyList(),
+    val providerNames: List<String> = emptyList()
 )
 
 /** Reads package metadata from an APK without installing or executing it. */
@@ -60,6 +64,14 @@ internal object ApkArchiveInspector {
             }
             ?.sorted()
             .orEmpty()
+        val requestedPermissions = packageInfo.requestedPermissions
+            ?.filter(String::isNotBlank)?.distinct()?.sorted().orEmpty()
+        val activityNames = packageInfo.activities
+            ?.mapNotNull { it.name?.takeIf(String::isNotBlank) }?.distinct()?.sorted().orEmpty()
+        val serviceNames = packageInfo.services
+            ?.mapNotNull { it.name?.takeIf(String::isNotBlank) }?.distinct()?.sorted().orEmpty()
+        val providerNames = packageInfo.providers
+            ?.mapNotNull { it.name?.takeIf(String::isNotBlank) }?.distinct()?.sorted().orEmpty()
 
         return ImportedApkInfo(
             id = id,
@@ -75,12 +87,18 @@ internal object ApkArchiveInspector {
             requiredFeatures = requiredFeatures,
             vrMetadataKeys = vrMetadataKeys,
             sizeBytes = file.length(),
+            requestedPermissions = requestedPermissions,
+            activityNames = activityNames,
+            serviceNames = serviceNames,
+            providerNames = providerNames,
             importedAtEpochMs = System.currentTimeMillis()
         )
     }
 
     private fun readPackageInfo(packageManager: PackageManager, file: File): PackageInfo? {
         val flags = PackageManager.GET_ACTIVITIES or
+            PackageManager.GET_SERVICES or
+            PackageManager.GET_PROVIDERS or
             PackageManager.GET_PERMISSIONS or
             PackageManager.GET_META_DATA or
             PackageManager.GET_CONFIGURATIONS
@@ -171,6 +189,10 @@ class ImportedApkStore(context: Context) {
                 put("nativeAbis", JSONArray(info.nativeAbis))
                 put("requiredFeatures", JSONArray(info.requiredFeatures))
                 put("vrMetadataKeys", JSONArray(info.vrMetadataKeys))
+                put("requestedPermissions", JSONArray(info.requestedPermissions))
+                put("activityNames", JSONArray(info.activityNames))
+                put("serviceNames", JSONArray(info.serviceNames))
+                put("providerNames", JSONArray(info.providerNames))
                 put("sizeBytes", info.sizeBytes)
                 put("importedAtEpochMs", info.importedAtEpochMs)
             })
@@ -192,6 +214,10 @@ class ImportedApkStore(context: Context) {
         requiredFeatures = optStringList("requiredFeatures"),
         vrMetadataKeys = optStringList("vrMetadataKeys"),
         sizeBytes = optLong("sizeBytes"),
+        requestedPermissions = optStringList("requestedPermissions"),
+        activityNames = optStringList("activityNames"),
+        serviceNames = optStringList("serviceNames"),
+        providerNames = optStringList("providerNames"),
         importedAtEpochMs = optLong("importedAtEpochMs")
     )
 
