@@ -61,7 +61,7 @@ class ApkRuntimeCompatibilityTest {
     @Test
     fun keepsGenericVrApiEvidenceSeparateFromDefiniteGearVr() {
         val result = ApkRuntimeCompatibility.assess(
-            info = sample(),
+            info = sample(nativeAbis = listOf("armeabi-v7a")),
             archiveEntries = listOf("lib/armeabi-v7a/libvrapi.so", "lib/armeabi-v7a/libunity.so"),
             deviceApiLevel = 35,
             supportedAbis = listOf("armeabi-v7a"),
