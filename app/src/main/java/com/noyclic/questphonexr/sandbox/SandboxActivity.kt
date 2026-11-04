@@ -467,7 +467,29 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
         val topPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0x990C111B.toInt())
+            setBackgroundColor(0xE60C111B.toInt())
+        }
+
+        // Keep the diagnostic action outside the scrolling area so it is always
+        // reachable while the settings panel is open, even on short landscape screens.
+        val diagnosticsButton = controlButton("Скопировать диагностику EndXR") {
+            copyEndXrOpenXrDiagnostic()
+        }.apply {
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(0xFF176B4A.toInt())
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+        }
+        topPanel.addView(
+            diagnosticsButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        val scrollContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             addView(statusView)
 
             val buttons = LinearLayout(this@SandboxActivity).apply {
@@ -526,21 +548,37 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 )
             )
+        }
+
+        val settingsScroll = android.widget.ScrollView(this).apply {
+            isFillViewport = false
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            scrollBarStyle = View.SCROLLBARS_INSIDE_INSET
             addView(
-                controlButton("Скопировать полную диагностику EndXR") {
-                    copyEndXrOpenXrDiagnostic()
-                },
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
+                scrollContent,
+                android.widget.ScrollView.LayoutParams(
+                    android.widget.ScrollView.LayoutParams.MATCH_PARENT,
+                    android.widget.ScrollView.LayoutParams.WRAP_CONTENT
                 )
             )
         }
+        topPanel.addView(
+            settingsScroll,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        )
+
+        val panelMaxHeight = (resources.displayMetrics.heightPixels * 0.82f)
+            .toInt()
+            .coerceAtLeast(dp(180))
         root.addView(
             topPanel,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
+                panelMaxHeight,
                 Gravity.TOP
             )
         )
