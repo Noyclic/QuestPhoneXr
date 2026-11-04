@@ -21,6 +21,7 @@ data class ExternalRuntimeProbeReport(
     val nativeLibraryExists: Boolean,
     val installableBroker: String,
     val systemBroker: String,
+    val inputBridgeStatus: String,
     val queryError: String?
 ) {
     fun toDisplayText(): String = buildString {
@@ -36,10 +37,11 @@ data class ExternalRuntimeProbeReport(
         appendLine("Runtime library exists: ${if (nativeLibraryExists) "YES" else "NO"}")
         appendLine("Installable RuntimeBroker: $installableBroker")
         appendLine("System RuntimeBroker: $systemBroker")
+        appendLine("EndXR input IPC: $inputBridgeStatus")
         queryError?.let { appendLine("PackageManager query error: $it") }
         appendLine()
         appendLine("This is a separate Android package, not QuestPhoneXR itself.")
-        append("It verifies service discoverability and broker responses, not OpenXR loader dlopen or xrCreateInstance.")
+        append("It verifies service discoverability, the read-only EndXR input IPC endpoint and broker responses; it does not prove a live background input producer.")
     }
 }
 
@@ -54,6 +56,7 @@ object ExternalRuntimeClientProbe {
     private const val MAJOR_VERSION_KEY = "org.khronos.openxr.OpenXRRuntime.MajorVersion"
     private const val INSTALLABLE_AUTHORITY = "org.khronos.openxr.runtime_broker"
     private const val SYSTEM_AUTHORITY = "org.khronos.openxr.system_runtime_broker"
+    private const val INPUT_AUTHORITY = "com.noyclic.questphonexr.endxrinput"
 
     fun inspect(context: Context): ExternalRuntimeProbeReport {
         val query = runCatching {
@@ -83,8 +86,44 @@ object ExternalRuntimeClientProbe {
             nativeLibraryExists = nativeLibraryPath?.let { File(it).isFile } == true,
             installableBroker = queryActiveRuntime(context, INSTALLABLE_AUTHORITY),
             systemBroker = queryActiveRuntime(context, SYSTEM_AUTHORITY),
+            inputBridgeStatus = queryEndXrInputBridge(context),
             queryError = query.exceptionOrNull()?.let { it.message ?: it.javaClass.simpleName }
         )
+    }
+
+    private fun queryEndXrInputBridge(context: Context): String {
+        val provider = runCatching {
+            context.packageManager.resolveContentProvider(INPUT_AUTHORITY, 0)
+        }.getOrNull() ?: return "provider not visible"
+
+        val uri = Uri.parse(
+            "content://$INPUT_AUTHORITY/controller_state"
+        )
+        return runCatching {
+            val cursor = context.contentResolver.query(uri, null, null, null, null)
+                ?: return@runCatching "provider found (\${provider.packageName}); query returned null"
+            cursor.use {
+                if (!it.moveToFirst()) {
+                    return@use "provider_query=EMPTY; provider=\${provider.packageName}"
+                }
+                val expected = listOf(
+                    "sequence", "updated_at_elapsed_realtime_nanos", "stale",
+                    "left_active", "left_trigger", "left_grip", "left_stick_x",
+                    "left_stick_y", "left_buttons", "right_active", "right_trigger",
+                    "right_grip", "right_stick_x", "right_stick_y", "right_buttons"
+                )
+                val missing = expected.filter { name -> it.getColumnIndex(name) < 0 }
+                if (missing.isNotEmpty()) {
+                    return@use "provider_query=FAIL; missing_columns=\${missing.joinToString()}"
+                }
+                val stale = it.getInt(it.getColumnIndexOrThrow("stale")) != 0
+                val sequence = it.getLong(it.getColumnIndexOrThrow("sequence"))
+                "provider_query=PASS; provider=\${provider.packageName}; " +
+                    "sequence=$sequence; stale=$stale; columns=\${expected.size}"
+            }
+        }.getOrElse {
+            "provider_query=FAIL; \${it.message ?: it.javaClass.simpleName}"
+        }
     }
 
     private fun safeString(bundle: Bundle?, key: String): String? =
