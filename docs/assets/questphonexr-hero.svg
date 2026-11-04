@@ -1,60 +1,40 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="360" viewBox="0 0 1000 360" fill="none">
   <rect width="1000" height="360" rx="18" fill="#F8F9FF"/>
   <g stroke="#667085" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-    <!-- VR headset -->
     <path d="M355 119c8-27 33-45 65-45h160c32 0 57 18 65 45l16 81c5 27-15 51-43 51H382c-28 0-48-24-43-51l16-81Z" fill="#E8EAFE"/>
     <path d="M368 129c15-13 34-20 54-20h156c20 0 39 7 54 20l11 57c4 20-11 37-32 37H389c-21 0-36-17-32-37l11-57Z" fill="#252B43"/>
     <path d="M421 74c8-28 31-45 59-45h40c28 0 51 17 59 45" stroke="#98A2B3" stroke-width="11"/>
     <path d="M355 144 322 156M645 144l33 12" stroke="#98A2B3" stroke-width="9"/>
     <path d="M458 223v16m84-16v16" stroke="#98A2B3"/>
   </g>
-
-  <!-- Forearms and open palms facing the camera; the Joy-Cons sit in the palms -->
+  <!-- Open palms and fingers behind the Joy-Cons -->
   <g stroke="#7C6CF2" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
     <path d="M288 352c-5-18-12-34-18-48-7-17-10-34-6-50 3-15 14-27 27-30 8-2 16 2 19 10l7 18-2-57c0-13 8-22 18-21 10 1 15 10 14 22l-1 43 7-62c1-12 10-19 19-17 10 2 13 11 11 23l-7 58 14-43c4-11 14-15 22-11 9 4 11 14 7 25l-19 58c-7 22-15 40-27 58l-11 24Z" fill="#EEEAFE"/>
     <path d="M276 305c17-14 35-20 55-20 22 0 43 7 61 20M292 255l31 20 23-20 18 25 24-18M317 195l8 47 23 18M355 193l-2 49 18 18M394 214l-16 38 16 18"/>
   </g>
   <g fill="#FFFFFF" stroke="#7C6CF2" stroke-width="3">
-    <circle cx="288" cy="352" r="6"/><circle cx="270" cy="304" r="6"/><circle cx="264" cy="254" r="6"/>
-    <circle cx="307" cy="234" r="6"/><circle cx="316" cy="195" r="6"/><circle cx="325" cy="242" r="6"/>
-    <circle cx="355" cy="193" r="6"/><circle cx="353" cy="242" r="6"/><circle cx="394" cy="214" r="6"/>
-    <circle cx="378" cy="252" r="6"/><circle cx="402" cy="270" r="6"/><circle cx="331" cy="285" r="6"/>
+    <circle cx="288" cy="352" r="6"/><circle cx="270" cy="304" r="6"/><circle cx="264" cy="254" r="6"/><circle cx="307" cy="234" r="6"/><circle cx="316" cy="195" r="6"/><circle cx="325" cy="242" r="6"/><circle cx="355" cy="193" r="6"/><circle cx="353" cy="242" r="6"/><circle cx="394" cy="214" r="6"/><circle cx="378" cy="252" r="6"/><circle cx="402" cy="270" r="6"/><circle cx="331" cy="285" r="6"/>
   </g>
-
   <g stroke="#38B7A6" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
     <path d="M712 352c5-18 12-34 18-48 7-17 10-34 6-50-3-15-14-27-27-30-8-2-16 2-19 10l-7 18 2-57c0-13-8-22-18-21-10 1-15 10-14 22l1 43-7-62c-1-12-10-19-19-17-10 2-13 11-11 23l7 58-14-43c-4-11-14-15-22-11-9 4-11 14-7 25l19 58c7 22 15 40 27 58l11 24Z" fill="#E5F8F5"/>
     <path d="M724 305c-17-14-35-20-55-20-22 0-43 7-61 20M708 255l-31 20-23-20-18 25-24-18M683 195l-8 47-23 18M645 193l2 49-18 18M606 214l16 38-16 18"/>
   </g>
   <g fill="#FFFFFF" stroke="#38B7A6" stroke-width="3">
-    <circle cx="712" cy="352" r="6"/><circle cx="730" cy="304" r="6"/><circle cx="736" cy="254" r="6"/>
-    <circle cx="693" cy="234" r="6"/><circle cx="684" cy="195" r="6"/><circle cx="675" cy="242" r="6"/>
-    <circle cx="645" cy="193" r="6"/><circle cx="647" cy="242" r="6"/><circle cx="606" cy="214" r="6"/>
-    <circle cx="622" cy="252" r="6"/><circle cx="598" cy="270" r="6"/><circle cx="669" cy="285" r="6"/>
+    <circle cx="712" cy="352" r="6"/><circle cx="730" cy="304" r="6"/><circle cx="736" cy="254" r="6"/><circle cx="693" cy="234" r="6"/><circle cx="684" cy="195" r="6"/><circle cx="675" cy="242" r="6"/><circle cx="645" cy="193" r="6"/><circle cx="647" cy="242" r="6"/><circle cx="606" cy="214" r="6"/><circle cx="622" cy="252" r="6"/><circle cx="598" cy="270" r="6"/><circle cx="669" cy="285" r="6"/>
   </g>
-
-  <!-- Nintendo Switch Joy-Cons held in the palms: blue left, red right -->
+  <!-- Left Joy-Con: blue, stick above directional buttons -->
   <g stroke="#667085" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="302" y="205" width="58" height="126" rx="22" fill="#42A5F5"/>
-    <circle cx="331" cy="237" r="11" fill="#202A3D"/>
-    <circle cx="331" cy="237" r="5" fill="#667085"/>
-    <path d="M322 271h18M331 288v18m-9-9h18" stroke="#202A3D" stroke-width="3"/>
-    <circle cx="331" cy="288" r="3" fill="#202A3D"/>
+    <rect x="302" y="205" width="58" height="126" rx="22" fill="#269BE8"/>
+    <circle cx="331" cy="237" r="12" fill="#202A3D"/><circle cx="331" cy="237" r="5" fill="#667085"/>
+    <path d="M331 270v22m-11-11h22" stroke="#202A3D" stroke-width="4"/><circle cx="331" cy="281" r="3" fill="#202A3D"/>
     <path d="M302 224h-5v19h5M360 224h5v19h-5" fill="#D8E9FF"/>
-    <!-- fingers curling around the outer edge of the left Joy-Con -->
     <path d="M299 248c-10 3-16 11-16 21 0 8 6 13 15 13M299 273c-10 3-14 10-12 18 2 7 8 10 16 8" fill="none" stroke="#7C6CF2" stroke-width="4"/>
-
-    <rect x="640" y="205" width="58" height="126" rx="22" fill="#FF647C"/>
-    <circle cx="669" cy="237" r="11" fill="#202A3D"/>
-    <circle cx="669" cy="237" r="5" fill="#667085"/>
-    <circle cx="669" cy="276" r="4" fill="#202A3D"/>
-    <circle cx="655" cy="290" r="4" fill="#202A3D"/>
-    <circle cx="683" cy="290" r="4" fill="#202A3D"/>
-    <circle cx="669" cy="304" r="4" fill="#202A3D"/>
+    <!-- Right Joy-Con: red, face buttons above stick -->
+    <rect x="640" y="205" width="58" height="126" rx="22" fill="#F04F68"/>
+    <circle cx="669" cy="237" r="4" fill="#202A3D"/><circle cx="655" cy="251" r="4" fill="#202A3D"/><circle cx="683" cy="251" r="4" fill="#202A3D"/><circle cx="669" cy="265" r="4" fill="#202A3D"/>
+    <circle cx="669" cy="301" r="12" fill="#202A3D"/><circle cx="669" cy="301" r="5" fill="#667085"/>
     <path d="M640 224h-5v19h5M698 224h5v19h-5" fill="#FFE0E5"/>
-    <!-- fingers curling around the outer edge of the right Joy-Con -->
     <path d="M701 248c10 3 16 11 16 21 0 8-6 13-15 13M701 273c10 3 14 10 12 18-2 7-8 10-16 8" fill="none" stroke="#38B7A6" stroke-width="4"/>
   </g>
-  <g stroke="#AAB3C5" stroke-width="2" stroke-linecap="round">
-    <path d="M480 274h40M500 254v40"/>
-  </g>
+  <g stroke="#AAB3C5" stroke-width="2" stroke-linecap="round"><path d="M480 274h40M500 254v40"/></g>
 </svg>
