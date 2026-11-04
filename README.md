@@ -2,6 +2,10 @@
 
 **QuestPhoneXR is an Android XR project that explores what a regular smartphone can do in virtual reality.**
 
+<p align="center">
+  <img src="docs/assets/questphonexr-hero.svg" alt="Minimal 2D illustration of a VR headset, MediaPipe-style hand skeletons and standard VR motion controllers" width="100%" />
+</p>
+
 The long-term idea is simple: use an Android phone as the XR device, run lightweight VR experiences directly on it, and build an OpenXR runtime that can gradually support more demanding applications.
 
 The project is called **EndXR** on the Android runtime side. A separate PC streaming component, planned as **EndVR**, is a future direction—not a feature that is already available.
