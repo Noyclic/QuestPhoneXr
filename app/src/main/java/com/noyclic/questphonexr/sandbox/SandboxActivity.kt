@@ -60,6 +60,7 @@ import com.noyclic.questphonexr.performance.DevicePerformancePolicy
 import com.noyclic.questphonexr.performance.DevicePerformancePreset
 import com.noyclic.questphonexr.runtime.EndXrGlSurfaceLifecycle
 import com.noyclic.questphonexr.runtime.EndXrRuntimeBridge
+import com.noyclic.questphonexr.runtime.EndXrInputSnapshotStore
 import com.noyclic.questphonexr.runtime.EndXrRuntimeState
 
 /** Phone-first 3D sandbox for testing stereo viewing, Joy-Con input and object grabbing. */
@@ -419,7 +420,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         controllers: List<PhysicalControllerSnapshot> = controllerSnapshots
     ) {
         val frame = virtualControllerMapper.map(handFrame, controllers)
-        endXrRuntime.setControllerInput(nativeInputRow(frame.left), nativeInputRow(frame.right))
+        val left = nativeInputRow(frame.left)
+        val right = nativeInputRow(frame.right)
+        endXrRuntime.setControllerInput(left, right)
+        EndXrInputSnapshotStore.publish(left, right)
     }
 
     private fun showOpenXrInputDiagnostic() {
@@ -1326,6 +1330,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         if (::sensorManager.isInitialized) sensorManager.unregisterListener(this)
         inputManager.unregisterInputDeviceListener(this)
         endXrRuntime.clearControllerInput()
+        EndXrInputSnapshotStore.clear()
         if (::glView.isInitialized) {
             glView.queueEvent {
                 xrSurfaceLifecycle.onActivityPaused()
