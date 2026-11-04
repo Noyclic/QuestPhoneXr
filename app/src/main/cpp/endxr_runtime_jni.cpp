@@ -99,12 +99,14 @@ Java_com_noyclic_questphonexr_runtime_EndXrRuntimeBridge_nativeEndFrame(
     jlong frame_index,
     jlong predicted_display_time_ns,
     jlong predicted_display_period_ns,
+    jlong frame_deadline_ns,
     jboolean rendered_successfully
 ) {
     const endxr::FrameTiming timing{
         static_cast<std::uint64_t>(frame_index),
         static_cast<std::int64_t>(predicted_display_time_ns),
-        static_cast<std::int64_t>(predicted_display_period_ns)
+        static_cast<std::int64_t>(predicted_display_period_ns),
+        static_cast<std::int64_t>(frame_deadline_ns)
     };
     std::string error;
     g_runtime_core.endFrame(timing, rendered_successfully == JNI_TRUE, &error);

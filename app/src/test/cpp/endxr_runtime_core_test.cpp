@@ -184,8 +184,8 @@ void testShutdownResetsTheRuntime() {
     const auto snapshot = runtime.snapshot();
     expect(snapshot.state == endxr::RuntimeState::Cold,
            "shutdown returns to Cold state");
-    expect(snapshot.config.width == 1600 && snapshot.config.height == 800,
-           "shutdown restores default render dimensions");
+    expect(snapshot.config.width == 800 && snapshot.config.height == 800,
+           "shutdown restores default per-eye render dimensions");
     expect(snapshot.config.target_fps == 30,
            "shutdown restores default target frame rate");
 }
