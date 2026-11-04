@@ -14,7 +14,7 @@ EndXR is an early, minimal runtime implementation. It is not yet a conformant, g
 - Android runtime service metadata for `org.khronos.openxr.OpenXRRuntimeService`, including the library filename and OpenXR major version.
 - An OpenXR entry-point table covering loader bootstrap, instance, system, GLES session, stereo views, swapchain, frame lifecycle, spaces, projection-layer composition and the core Action / Input API command family.
 - Action-set/action creation and destruction, per-instance path interning, suggested interaction-profile bindings, session attachment, `xrSyncActions`, boolean/float/vector/pose state queries, action spaces and localized source-name queries. These APIs are covered by native host tests.
-- A read-only Android ContentProvider used to expose input snapshots across the app-process boundary. The runtime polls the provider from the external game process during `xrSyncActions`.
+- A read-only Android ContentProvider used to expose input snapshots across the app-process boundary. Reads require the app-defined signature permission; the paired diagnostic APK is authorized because it is signed with the same certificate. Arbitrary third-party game packages are not authorized yet. The runtime polls the provider from the external client process during `xrSyncActions`.
 - A user-started camera foreground service that can keep CameraX and MediaPipe tracking active while Sandbox is paused and another app is in the foreground, provided the user starts it while QuestPhoneXR is visible and grants camera permission. Android displays a persistent notification while the camera remains active.
 - MediaPipe pinch/grip values and approximate left/right palm poses. Estimated poses are exposed through `POSE_INPUT` / `xrLocateSpace` with `POSITION_VALID` and `ORIENTATION_VALID`, deliberately without `TRACKED` flags.
 - Phone head orientation from the rotation-vector sensor. This is orientation-only; phone translation is not measured.
@@ -59,7 +59,7 @@ A successful `xrCreateInstance` will still not mean that a particular game is pl
 4. **Official Khronos loader integration** — the separate-package probe initializes the official loader in CI and records the result. Active-runtime selection must be confirmed on a device with a usable RuntimeBroker.
 5. **OpenXR Action API surface** — initial core action, path, attach, sync and state-query entry points are implemented and host-tested.
 6. **Sandbox input bridge** — left/right MediaPipe pinch/grip samples and estimated palm grip poses are mapped to OpenXR input paths. Estimated poses are not marked `TRACKED`.
-7. **Cross-process input IPC** — snapshot provider and native runtime polling are implemented. The separate-package probe checks provider visibility; continuous physical-device input still needs testing.
+7. **Cross-process input IPC** — snapshot provider and native runtime polling are implemented. Signature-level read access is enforced, and the separate-package probe checks permission plus query success. Third-party game authorization and continuous physical-device input still need testing.
 8. **6DoF tracking and OpenXR hand tracking** — not implemented.
 9. **Third-party session/frame interoperability** — not yet verified on the target phone.
 10. **Game-by-game APK support** — not yet verified.
