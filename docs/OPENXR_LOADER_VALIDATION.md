@@ -17,8 +17,13 @@ The probe records these stages:
    `XR_KHR_android_create_instance`.
 5. If an instance is created, the probe requests an HMD system, reads system
    properties, and checks for `XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO`.
-6. The instance is destroyed. This probe does not create a session, bind GLES,
-   submit a projection layer, or render a frame.
+6. If the runtime advertises `XR_KHR_opengl_es_enable`, the probe creates an
+   independent EGL ES 3 pbuffer context, queries graphics requirements, and
+   attempts `xrCreateSession` / `xrBeginSession`.
+7. It creates a small GLES swapchain, enumerates its images, attempts
+   acquire/wait/release, then runs one `xrWaitFrame` / `xrBeginFrame` /
+   `xrEndFrame` cycle with zero composition layers.
+8. It tears down the swapchain, session, EGL context and instance.
 
 The native loader is supplied by the Khronos
 `org.khronos.openxr:openxr_loader_for_android` AAR. The probe does not contain
@@ -34,6 +39,11 @@ a local imitation of the loader or RuntimeBroker.
   this client process.
 - `primary_stereo_supported=YES` means the runtime advertised the primary
   stereo view configuration.
+- `external_xrCreateSession=XR_SUCCESS` means the runtime accepted a real
+  EGL-bound session from the separate client process.
+- Successful `external_xrCreateSwapchain`, image acquire/wait/release and
+  frame calls verify progressively more of the independent GLES lifecycle.
+  The probe submits no projection layer and does not prove headset presentation.
 
 If instance creation returns `XR_ERROR_RUNTIME_UNAVAILABLE`, inspect the
 RuntimeBroker report. Service visibility alone does not select an active
@@ -44,15 +54,14 @@ and queries the documented providers; it does not impersonate or ship a
 replacement for those brokers.
 
 A successful `xrCreateInstance` is a major interoperability checkpoint, but
-it is not proof of game compatibility. EndXR now exports the core OpenXR
-Action API, including action-set and action creation, path conversion,
-interaction-profile binding suggestions, session attachment, synchronization,
-state queries and pose action spaces. Until physical Android input is wired
-into the game process, queries intentionally remain neutral/inactive and
-haptic requests return `XR_ERROR_FEATURE_UNSUPPORTED`. A real application
-may still require live controller poses, buttons, triggers, haptics,
-extensions, a graphics session, swapchain images, frame submission, tracking,
-or Meta/Oculus-specific services.
+it is not proof of game compatibility. The probe now goes further and attempts
+an independent GLES session, swapchain and one frame lifecycle. It does not
+submit a projection layer or present a rendered image to a headset. EndXR's
+Action API is still partial: Sandbox input is currently visible only inside
+the QuestPhoneXR process, while external-game controller transport, controller
+poses, haptics, 6DoF tracking and Meta/Oculus-specific services remain
+incomplete. A real game may also require Vulkan, additional extensions or
+vendor APIs.
 
 ## CI and physical-device test
 
@@ -67,12 +76,20 @@ The CI assertion is that the official loader initializes and returns a
 diagnostic result without crashing; it does not force an unavailable runtime
 to appear.
 
-For a phone test, install both artifacts:
+For a phone test, install both artifacts, then use the Khronos Runtime Broker
+to select **EndXR OpenXR Runtime** as the active runtime before launching the
+probe. The loader does not select a runtime itself; the broker owns that
+choice. If Monado or another runtime is selected, the probe will test that
+runtime instead of EndXR.
+
+Install both artifacts:
 
 - `QuestPhoneXR-debug-apk`
 - `QuestPhoneXR-external-client-probe-apk`
 
 Open **EndXR External Client Probe** and copy or photograph the complete
-report. The report must be interpreted alongside the broker state. A phone
+report. After selection, the key checkpoints are `xrCreateInstance`,
+`external_xrCreateSession`, swapchain image operations and
+`external_xrEndFrame`. The report must be interpreted alongside the broker state. A phone
 that has no installable or system RuntimeBroker cannot prove runtime selection
 just because Android can see EndXR's exported service.
