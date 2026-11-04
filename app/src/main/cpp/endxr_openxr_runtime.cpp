@@ -196,6 +196,7 @@ namespace {
 #if defined(__ANDROID__)
 bool refreshExternalControllerInput(XrInstance_T* instance);
 #endif
+bool locateEstimatedHandPose(XrSpace_T* object, XrSpace_T* base, XrPosef* pose);
 constexpr XrSystemId kEndXrSystemId = 1;
 constexpr std::uint32_t kRecommendedEyeWidth = 960;
 constexpr std::uint32_t kRecommendedEyeHeight = 1080;
@@ -1209,38 +1210,14 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrLocateSpace(
         location->pose.position = {0.0f, 0.0f, 0.0f};
         location->locationFlags = 0;
         if (base->isActionSpace) return XR_SUCCESS;
-
-        XrSession_T* sessionOwner = getSession(object->owner);
-        if (sessionOwner == nullptr) return XR_ERROR_HANDLE_INVALID;
 #if defined(__ANDROID__)
-        refreshExternalControllerInput(getInstance(sessionOwner->owner));
-#endif
-        XrAction_T* action = getAction(object->action);
-        const ResolvedActionPose resolved =
-            resolveActionPose(sessionOwner, action, object->actionSubactionPath);
-        if (!resolved.active) return XR_SUCCESS;
-
-        XrPosef pose = composePose(resolved.pose, object->poseInReferenceSpace);
-        if (base->type == XR_REFERENCE_SPACE_TYPE_LOCAL) {
-            XrQuaternionf headOrientation{};
-            bool headOrientationActive = false;
-            {
-                std::lock_guard<std::mutex> lock(g_headPoseMutex);
-                headOrientation = g_headOrientation;
-                headOrientationActive = g_hasHeadOrientation;
-            }
-            if (!headOrientationActive) return XR_SUCCESS;
-            XrPosef headPose{};
-            headPose.orientation = headOrientation;
-            headPose.position = {0.0f, 0.0f, 0.0f};
-            pose = composePose(headPose, pose);
-        } else if (base->type != XR_REFERENCE_SPACE_TYPE_VIEW) {
-            return XR_SUCCESS;
+        if (XrSession_T* sessionOwner = getSession(object->owner)) {
+            refreshExternalControllerInput(getInstance(sessionOwner->owner));
         }
-
-        // Reference-space offsets are applied as the inverse base transform.
-        pose = composePose(inversePose(base->poseInReferenceSpace), pose);
-        location->pose = pose;
+#endif
+        XrPosef estimatedPose{};
+        if (!locateEstimatedHandPose(object, base, &estimatedPose)) return XR_SUCCESS;
+        location->pose = estimatedPose;
         // The palm pose is estimated from camera landmarks and monocular depth.
         // It is usable as a grip interaction pose, but deliberately not TRACKED.
         location->locationFlags =
@@ -2051,6 +2028,40 @@ ResolvedActionPose resolveActionPose(
     return result;
 }
 
+bool locateEstimatedHandPoseImpl(
+    XrSpace_T* object, XrSpace_T* base, XrPosef* poseOutput
+) {
+    if (object == nullptr || base == nullptr || poseOutput == nullptr ||
+        !object->isActionSpace || base->isActionSpace) return false;
+    XrSession_T* session = getSession(object->owner);
+    if (session == nullptr) return false;
+    XrAction_T* action = getAction(object->action);
+    const ResolvedActionPose resolved =
+        resolveActionPose(session, action, object->actionSubactionPath);
+    if (!resolved.active) return false;
+
+    XrPosef pose = composePose(resolved.pose, object->poseInReferenceSpace);
+    if (base->type == XR_REFERENCE_SPACE_TYPE_LOCAL) {
+        XrQuaternionf headOrientation{};
+        bool headOrientationActive = false;
+        {
+            std::lock_guard<std::mutex> lock(g_headPoseMutex);
+            headOrientation = g_headOrientation;
+            headOrientationActive = g_hasHeadOrientation;
+        }
+        if (!headOrientationActive) return false;
+        XrPosef headPose{};
+        headPose.orientation = headOrientation;
+        headPose.position = {0.0f, 0.0f, 0.0f};
+        pose = composePose(headPose, pose);
+    } else if (base->type != XR_REFERENCE_SPACE_TYPE_VIEW) {
+        return false;
+    }
+
+    *poseOutput = composePose(inversePose(base->poseInReferenceSpace), pose);
+    return true;
+}
+
 XrActionStateSnapshot getActionStateSnapshot(
     XrSession_T* session, XrAction action, XrPath subactionPath
 ) {
@@ -2164,6 +2175,9 @@ bool refreshExternalControllerInput(XrInstance_T* instance) {
     return refreshExternalControllerInputImpl(instance);
 }
 #endif
+bool locateEstimatedHandPose(XrSpace_T* object, XrSpace_T* base, XrPosef* pose) {
+    return locateEstimatedHandPoseImpl(object, base, pose);
+}
 
 XRAPI_ATTR XrResult XRAPI_CALL endxrStringToPath(
     XrInstance instance, const char* pathString, XrPath* path
