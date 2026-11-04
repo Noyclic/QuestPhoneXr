@@ -100,7 +100,9 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
         return environment->NewStringUTF(value.c_str());
     }
 
-    XrLoaderInitInfoAndroidKHR loaderInfo{XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR};
+    XrLoaderInitInfoAndroidKHR loaderInfo{};
+    loaderInfo.type = XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR;
+    loaderInfo.next = nullptr;
     loaderInfo.applicationVM = virtualMachine;
     loaderInfo.applicationContext = activity;
     result = initializeLoader(
@@ -156,13 +158,14 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
            << (androidCreateInstanceExtensionFound ? "YES" : "NO_OR_UNAVAILABLE")
            << "\n";
 
-    XrInstanceCreateInfoAndroidKHR androidCreateInfo{
-        XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR
-    };
+    XrInstanceCreateInfoAndroidKHR androidCreateInfo{};
+    androidCreateInfo.type = XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR;
+    androidCreateInfo.next = nullptr;
     androidCreateInfo.applicationVM = virtualMachine;
     androidCreateInfo.applicationActivity = activity;
 
-    XrInstanceCreateInfo instanceCreateInfo{XR_TYPE_INSTANCE_CREATE_INFO};
+    XrInstanceCreateInfo instanceCreateInfo{};
+    instanceCreateInfo.type = XR_TYPE_INSTANCE_CREATE_INFO;
     instanceCreateInfo.next = &androidCreateInfo;
     copyName(
         instanceCreateInfo.applicationInfo.applicationName,
@@ -203,7 +206,9 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
     report << "runtime_loaded=YES\n";
     report << "runtime_instance_created=YES\n";
 
-    XrInstanceProperties instanceProperties{XR_TYPE_INSTANCE_PROPERTIES};
+    XrInstanceProperties instanceProperties{};
+    instanceProperties.type = XR_TYPE_INSTANCE_PROPERTIES;
+    instanceProperties.next = nullptr;
     const XrResult propertiesResult = xrGetInstanceProperties(
         instance, &instanceProperties
     );
@@ -215,7 +220,9 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                << "." << XR_VERSION_PATCH(instanceProperties.runtimeVersion) << "\n";
     }
 
-    XrSystemGetInfo systemInfo{XR_TYPE_SYSTEM_GET_INFO};
+    XrSystemGetInfo systemInfo{};
+    systemInfo.type = XR_TYPE_SYSTEM_GET_INFO;
+    systemInfo.next = nullptr;
     systemInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
     XrSystemId systemId = XR_NULL_SYSTEM_ID;
     const XrResult getSystemResult = xrGetSystem(
@@ -224,7 +231,9 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
     report << "xrGetSystem(HMD)=" << resultText(getSystemResult) << "\n";
 
     if (XR_SUCCEEDED(getSystemResult)) {
-        XrSystemProperties systemProperties{XR_TYPE_SYSTEM_PROPERTIES};
+        XrSystemProperties systemProperties{};
+        systemProperties.type = XR_TYPE_SYSTEM_PROPERTIES;
+        systemProperties.next = nullptr;
         const XrResult systemPropertiesResult = xrGetSystemProperties(
             instance, systemId, &systemProperties
         );
