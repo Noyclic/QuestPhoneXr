@@ -80,6 +80,8 @@ class EndXrRuntimeBridge {
             append("app_device_name=").append(Build.DEVICE).append('\n')
             append("app_android_release=").append(Build.VERSION.RELEASE).append('\n')
             append("app_android_sdk=").append(Build.VERSION.SDK_INT).append('\n')
+            append("---- ANDROID OPENXR RUNTIME BROKER ----\n")
+            append(AndroidRuntimeBrokerProbe.inspect(activity).toDisplayText()).append('\n')
             append("app_process_id=").append(android.os.Process.myPid()).append('\n')
             append("app_gl_thread=").append(Thread.currentThread().name).append('\n')
             append("app_native_library_loaded=").append(isAvailable).append('\n')

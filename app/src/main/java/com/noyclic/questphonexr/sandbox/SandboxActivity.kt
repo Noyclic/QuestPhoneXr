@@ -19,6 +19,7 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import android.opengl.GLSurfaceView
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.os.Handler
@@ -94,6 +95,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     @Volatile private var endXrOpenXrDiagnosticReport = ""
     @Volatile private var endXrOpenXrDiagnosticPath = ""
     private var endXrOpenXrTestGeneration = -1L
+    private var retryOpenXrProbeOnResume = false
     @Volatile private var endXrCompletedPhoneFrames = 0L
     private var endXrAttemptedSurfaceGeneration = -1L
     private var endXrRecoveryAttempts = 0
@@ -432,6 +434,59 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         EndXrInputSnapshotStore.publishHandPoses(cameraInput.leftPose, cameraInput.rightPose)
     }
 
+    private fun openOpenXrRuntimeBroker() {
+        val brokerPackage = "org.khronos.openxr.runtime_broker"
+        val brokerIntent = packageManager.getLaunchIntentForPackage(brokerPackage)
+        if (brokerIntent != null) {
+            retryOpenXrProbeOnResume = true
+            runCatching {
+                startActivity(brokerIntent)
+                Toast.makeText(
+                    this,
+                    "В Runtime Broker выбери «EndXR OpenXR Runtime», затем вернись сюда.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }.onFailure { error ->
+                retryOpenXrProbeOnResume = false
+                Toast.makeText(
+                    this,
+                    "Не удалось открыть Runtime Broker: ${error.message ?: "ошибка запуска"}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            return
+        }
+
+        val storeUrl = "https://play.google.com/store/apps/details?id=$brokerPackage"
+        AlertDialog.Builder(this)
+            .setTitle("Нужен OpenXR Runtime Broker")
+            .setMessage(
+                "Официальный Khronos OpenXR Loader не может выбрать EndXR, пока на этом Android-устройстве нет Runtime Broker. Установи «OpenXR Runtime Broker» от The Khronos Group, открой его и затем вернись в QuestPhoneXR. Сам Broker не содержит VR-движок — он только выбирает установленный Runtime."
+            )
+            .setPositiveButton("Открыть Google Play") { _, _ ->
+                runCatching {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$brokerPackage")))
+                }.onFailure {
+                    runCatching {
+                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(storeUrl)))
+                    }.onFailure { error ->
+                        Toast.makeText(
+                            this,
+                            "Не удалось открыть магазин: ${error.message ?: "нет приложения для ссылок"}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }
+            .setNeutralButton("Скопировать ссылку") { _, _ ->
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("OpenXR Runtime Broker", storeUrl))
+                Toast.makeText(this, "Ссылка скопирована.", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Позже", null)
+            .show()
+    }
+
     private fun showOpenXrInputDiagnostic() {
         val frame = virtualControllerMapper.map(latestHandFrame, controllerSnapshots)
         fun describe(label: String, state: VirtualControllerState): String = buildString {
@@ -716,6 +771,27 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             ).apply {
                 bottomMargin = dp(62)
                 marginStart = dp(12)
+            }
+        )
+
+        val runtimeBrokerButton = controlButton("Выбор OpenXR Runtime") {
+            openOpenXrRuntimeBroker()
+        }.apply {
+            textSize = 13f
+            contentDescription = "Открыть Khronos OpenXR Runtime Broker"
+            setPadding(dp(12), dp(5), dp(12), dp(5))
+            minHeight = dp(40)
+            elevation = dp(6).toFloat()
+        }
+        root.addView(
+            runtimeBrokerButton,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.END
+            ).apply {
+                bottomMargin = dp(62)
+                marginEnd = dp(12)
             }
         )
 
@@ -1405,7 +1481,12 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         super.onResume()
         if (::glView.isInitialized) {
             glView.onResume()
-            glView.queueEvent { xrSurfaceLifecycle.onActivityResumed() }
+            val retryOpenXrProbe = retryOpenXrProbeOnResume
+            retryOpenXrProbeOnResume = false
+            glView.queueEvent {
+                if (retryOpenXrProbe) endXrOpenXrTestGeneration = -1L
+                xrSurfaceLifecycle.onActivityResumed()
+            }
             glView.requestRender()
             lastFrameNanos = 0L
             Choreographer.getInstance().postFrameCallback(frameCallback)

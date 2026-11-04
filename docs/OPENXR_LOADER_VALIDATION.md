@@ -49,9 +49,21 @@ If instance creation returns `XR_ERROR_RUNTIME_UNAVAILABLE`, inspect the
 RuntimeBroker report. Service visibility alone does not select an active
 runtime. Android obtains the active runtime from either the official
 installable Khronos RuntimeBroker content provider or a system RuntimeBroker
-provided by the device vendor. QuestPhoneXR only advertises its runtime service
-and queries the documented providers; it does not impersonate or ship a
-replacement for those brokers.
+provided by the device vendor. The Khronos installable Broker is a separate
+working-group application. It must not be bundled as a private copy inside
+QuestPhoneXR or replaced with a provider claiming its authority.
+
+For a phone / plug-in-viewer setup:
+
+1. Install the official [OpenXR Runtime Broker from Google Play](https://play.google.com/store/apps/details?id=org.khronos.openxr.runtime_broker).
+2. Return to QuestPhoneXR Sandbox and tap **Выбор OpenXR Runtime**.
+3. In the Broker's runtime list, select **EndXR OpenXR Runtime**. If more than one runtime is installed, the user selection determines which runtime becomes active.
+4. Return to Sandbox. QuestPhoneXR automatically reruns its in-process loader diagnostic and refreshes the Broker/provider report.
+5. Launch **EndXR External Client Probe** separately to verify that the official Khronos loader in a different APK can create an instance and proceed through system/session/swapchain/frame calls.
+
+If the Broker is already installed, the Sandbox button opens its settings screen. If it is missing, the button opens the official Play Store listing and can copy the listing URL. A device without Google Play may require the official Khronos-signed APK from a supported market/source; do not use random repackaged Broker APKs.
+
+The Android 15 CI emulator used by this repository does not include an installable or system RuntimeBroker. Its expected `XR_ERROR_RUNTIME_UNAVAILABLE` is therefore a broker-selection limitation, not proof that the EndXR library failed to load. Physical-device selection and independent client loading remain separate acceptance checks.
 
 A successful `xrCreateInstance` is a major interoperability checkpoint, but
 it is not proof of game compatibility. The probe now goes further and attempts
