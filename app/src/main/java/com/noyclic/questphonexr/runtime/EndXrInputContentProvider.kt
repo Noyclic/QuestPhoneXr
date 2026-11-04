@@ -46,7 +46,14 @@ class EndXrInputContentProvider : ContentProvider() {
                 snapshot.right.grip,
                 snapshot.right.stickX,
                 snapshot.right.stickY,
-                snapshot.right.buttons
+                snapshot.right.buttons,
+                snapshot.headOrientation.active.asInt(),
+                snapshot.headOrientationStale.asInt(),
+                snapshot.headOrientationUpdatedAtElapsedRealtimeNanos,
+                snapshot.headOrientation.x,
+                snapshot.headOrientation.y,
+                snapshot.headOrientation.z,
+                snapshot.headOrientation.w
             )
         )
 
@@ -109,7 +116,14 @@ class EndXrInputContentProvider : ContentProvider() {
             "right_grip",
             "right_stick_x",
             "right_stick_y",
-            "right_buttons"
+            "right_buttons",
+            "head_orientation_active",
+            "head_orientation_stale",
+            "head_orientation_updated_at_elapsed_realtime_nanos",
+            "head_orientation_x",
+            "head_orientation_y",
+            "head_orientation_z",
+            "head_orientation_w"
         )
     }
 }

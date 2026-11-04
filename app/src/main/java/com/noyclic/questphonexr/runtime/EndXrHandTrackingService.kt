@@ -10,6 +10,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -29,9 +33,14 @@ import java.util.concurrent.Executors
  *
  * This service does not intercept Android input events from other applications.
  */
-class EndXrHandTrackingService : Service(), LifecycleOwner {
+class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener {
     private val lifecycleRegistry = LifecycleRegistry(this)
     private val cameraExecutor = Executors.newSingleThreadExecutor()
+    private val sensorManager by lazy { getSystemService(SENSOR_SERVICE) as SensorManager }
+    private val rotationSensor by lazy {
+        sensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
+            ?: sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+    }
 
     @Volatile private var handTracker: HandLandmarkerController? = null
     private var cameraProvider: ProcessCameraProvider? = null
@@ -82,6 +91,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner {
         if (lifecycleRegistry.currentState == Lifecycle.State.CREATED) {
             lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         }
+        startHeadOrientationTracking()
         startCamera()
         return START_NOT_STICKY
     }
@@ -194,6 +204,33 @@ class EndXrHandTrackingService : Service(), LifecycleOwner {
         }, ContextCompat.getMainExecutor(this))
     }
 
+    private fun startHeadOrientationTracking() {
+        val sensor = rotationSensor
+        if (sensor == null) {
+            Log.w(TAG, "No rotation-vector sensor is available; external head orientation stays inactive.")
+            EndXrInputSnapshotStore.publishHeadOrientation(0f, 0f, 0f, 0f)
+            return
+        }
+        val registered = sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME)
+        if (!registered) {
+            Log.w(TAG, "Could not register the phone rotation-vector sensor.")
+            EndXrInputSnapshotStore.publishHeadOrientation(0f, 0f, 0f, 0f)
+        }
+    }
+
+    override fun onSensorChanged(event: SensorEvent) {
+        if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR &&
+            event.sensor.type != Sensor.TYPE_GAME_ROTATION_VECTOR
+        ) return
+        val quaternion = FloatArray(4)
+        SensorManager.getQuaternionFromVector(quaternion, event.values)
+        EndXrInputSnapshotStore.publishHeadOrientation(
+            quaternion[1], quaternion[2], quaternion[3], quaternion[0]
+        )
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+
     private fun buildNotification(message: String): Notification {
         val stopIntent = PendingIntent.getService(
             this,
@@ -238,6 +275,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner {
 
     override fun onDestroy() {
         activeOrPending = false
+        sensorManager.unregisterListener(this)
         cameraGeneration += 1L
         analysisUseCase?.clearAnalyzer()
         analysisUseCase?.let { useCase ->

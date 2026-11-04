@@ -1486,6 +1486,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             endXrRuntime.setHeadOrientation(
                 quaternion[1], quaternion[2], quaternion[3], quaternion[0]
             )
+            EndXrInputSnapshotStore.publishHeadOrientation(
+                quaternion[1], quaternion[2], quaternion[3], quaternion[0]
+            )
             trackingSender?.updateHeadRotation(displayRotationMatrix)
         }
     }
