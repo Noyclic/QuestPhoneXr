@@ -39,7 +39,7 @@ object EndXrRuntimeReadiness {
             RuntimeCapabilityState.PARTIAL,
             "Action sets, action lifecycle, paths, binding suggestions, action spaces and xrSyncActions are implemented. Boolean/Float/Vector2 values now resolve from left/right Sandbox input samples inside the same process; third-party process input is not connected."),
         RuntimeCapability("controller-input", "Controller poses, buttons and haptics",
-            RuntimeCapabilityState.NOT_IMPLEMENTED,
+            RuntimeCapabilityState.PARTIAL,
             "MediaPipe pinch/grip and Android gamepad trigger/grip/stick/button samples reach EndXR Action states inside Sandbox. Cross-process delivery, real controller poses and haptic transport are not implemented."),
         RuntimeCapability("openxr-hand-tracking", "OpenXR hand-tracking extension",
             RuntimeCapabilityState.NOT_IMPLEMENTED,

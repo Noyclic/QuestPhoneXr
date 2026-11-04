@@ -55,7 +55,7 @@ class ApkRuntimeCompatibilityTest {
 
         assertEquals(ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE, result.route)
         assertTrue(result.xrTechnologies.contains("OpenXR"))
-        assertTrue(result.details.any { it.contains("neutral/inactive") })
+        assertTrue(result.details.any { it.contains("Отдельный игровой процесс") })
         assertTrue(result.details.any { it.contains("haptics") })
     }
 
