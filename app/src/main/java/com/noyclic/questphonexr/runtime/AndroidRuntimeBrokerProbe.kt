@@ -91,7 +91,9 @@ object AndroidRuntimeBrokerProbe {
             ownRuntimeServiceExported = ownService?.exported == true,
             servicePackage = ownService?.packageName,
             serviceName = ownService?.name,
-            serviceLabel = ownService?.loadLabel(packageManager)?.toString()?.takeIf { it.isNotBlank() },
+            serviceLabel = runCatching {
+                ownService?.loadLabel(packageManager)?.toString()?.takeIf { it.isNotBlank() }
+            }.getOrNull(),
             serviceIconDeclared = ownService?.icon?.let { it != 0 } == true,
             majorVersion = majorVersion,
             soFilename = soFilename,
