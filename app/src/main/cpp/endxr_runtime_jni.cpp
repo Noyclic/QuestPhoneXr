@@ -4,6 +4,7 @@
 #include <string>
 
 #include "endxr_runtime_core.hpp"
+#include "endxr_openxr_android_self_test.hpp"
 
 namespace {
 
@@ -203,4 +204,30 @@ Java_com_noyclic_questphonexr_runtime_EndXrRuntimeBridge_nativeSetHeadOrientatio
     JNIEnv*, jobject, jfloat x, jfloat y, jfloat z, jfloat w
 ) {
     endxrSetHeadOrientation(x, y, z, w);
+}
+
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_noyclic_questphonexr_runtime_EndXrRuntimeBridge_nativeRunOpenXrSelfTest(
+    JNIEnv* env,
+    jobject,
+    jobject activity
+) {
+    if (activity == nullptr) {
+        return env->NewStringUTF("OpenXR probe: FAIL · Activity is null");
+    }
+
+    JavaVM* vm = nullptr;
+    if (env->GetJavaVM(&vm) != JNI_OK || vm == nullptr) {
+        return env->NewStringUTF("OpenXR probe: FAIL · JavaVM unavailable");
+    }
+
+    jobject activityReference = env->NewGlobalRef(activity);
+    if (activityReference == nullptr) {
+        return env->NewStringUTF("OpenXR probe: FAIL · Activity reference allocation failed");
+    }
+
+    const std::string result = runEndXrOpenXrAndroidSelfTest(vm, activityReference);
+    env->DeleteGlobalRef(activityReference);
+    return env->NewStringUTF(result.c_str());
 }

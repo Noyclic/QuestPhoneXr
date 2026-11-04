@@ -76,6 +76,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private val xrSurfaceLifecycle = EndXrGlSurfaceLifecycle()
     private val endXrRuntime = EndXrRuntimeBridge()
     @Volatile private var endXrRuntimeLabel = "ожидает GLES surface"
+    @Volatile private var endXrOpenXrTestLabel = "OpenXR probe: ждёт GLES-контекст"
+    private var endXrOpenXrTestGeneration = -1L
     @Volatile private var endXrCompletedPhoneFrames = 0L
     private var endXrAttemptedSurfaceGeneration = -1L
     private var endXrRecoveryAttempts = 0
@@ -236,6 +238,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     xrSurfaceLifecycle.onGlSurfaceChanged(width, height)
                     renderer.onSurfaceChanged(gl, width, height)
                     ensureEndXrRuntimeStarted()
+                    runEndXrOpenXrSelfTestIfNeeded()
                 }
 
                 override fun onDrawFrame(gl: javax.microedition.khronos.opengles.GL10?) {
@@ -313,6 +316,16 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     }
 
     /** Called exclusively from GLSurfaceView's render thread. */
+    /** Runs the loader-facing runtime against the real EGL context on the GL thread. */
+    private fun runEndXrOpenXrSelfTestIfNeeded() {
+        if (xrSurfaceLifecycle.state != EndXrGlSurfaceLifecycle.State.READY) return
+        val generation = xrSurfaceLifecycle.surfaceGeneration
+        if (endXrOpenXrTestGeneration == generation) return
+        endXrOpenXrTestGeneration = generation
+        endXrOpenXrTestLabel = endXrRuntime.runOpenXrSelfTest(this)
+        runOnUiThread { updateStatus() }
+    }
+
     private fun renderFrameThroughEndXr(gl: javax.microedition.khronos.opengles.GL10?) {
         ensureEndXrRuntimeStarted()
         val isRunning = endXrRuntime.snapshot()?.state == EndXrRuntimeState.RUNNING
@@ -362,6 +375,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         endXrAttemptedSurfaceGeneration = -1L
         endXrRecoveryAttempts = 0
         endXrLastAttemptMs = 0L
+        endXrOpenXrTestGeneration = -1L
         endXrRuntimeLabel = status
     }
 
@@ -1035,7 +1049,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 append(" · lateness ").append(runtime.lastLatenessNanos / 1_000_000L)
                     .append(" ms")
             }
-            append(" · без XR compositor").append('\n')
+            append('\n').append(endXrOpenXrTestLabel).append('\n')
             append("Joy-Con L: ").append(if (leftConnected) "подключён" else "нет")
             append(" · R: ").append(if (rightConnected) "подключён" else "нет")
             append('\n')

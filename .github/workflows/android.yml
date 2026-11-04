@@ -89,8 +89,7 @@ jobs:
           grep -qx "lib/arm64-v8a/libendxr_openxr.so" <<< "$APK_FILES"
           echo "APK package, MediaPipe model, JNI library and OpenXR runtime library are present." | tee ci-results/apk-validation.txt
 
-      - name: Run navigation smoke test on Android emulator
-        if: github.event_name == 'workflow_dispatch'
+      - name: Run navigation and OpenXR runtime smoke tests on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30

@@ -1,5 +1,7 @@
 package com.noyclic.questphonexr.runtime
 
+import android.app.Activity
+
 data class EndXrFrameTiming(
     val frameIndex: Long,
     val predictedDisplayTimeNanos: Long,
@@ -52,6 +54,17 @@ class EndXrRuntimeBridge {
     val isAvailable: Boolean get() = nativeLoadError == null
     fun initialize(width: Int, height: Int, targetFps: Int): String? =
         invokeNative { nativeInitialize(width, height, targetFps) }
+    fun runOpenXrSelfTest(activity: Activity): String {
+        if (!isAvailable) return "OpenXR probe: FAIL · ${nativeLoadError ?: "native library unavailable"}"
+        return try {
+            nativeRunOpenXrSelfTest(activity)
+                ?: "OpenXR probe: FAIL · native self-test returned no result"
+        } catch (error: LinkageError) {
+            "OpenXR probe: FAIL · ${error.message ?: error.javaClass.simpleName}"
+        } catch (error: RuntimeException) {
+            "OpenXR probe: FAIL · ${error.message ?: error.javaClass.simpleName}"
+        }
+    }
     fun createSession(): String? = invokeNative { nativeCreateSession() }
     fun beginSession(): String? = invokeNative { nativeBeginSession() }
     fun setHeadOrientation(x: Float, y: Float, z: Float, w: Float) {
@@ -108,6 +121,7 @@ class EndXrRuntimeBridge {
         catch (error: RuntimeException) { error.message ?: error.javaClass.simpleName }
     }
     private external fun nativeInitialize(width: Int, height: Int, targetFps: Int): String?
+    private external fun nativeRunOpenXrSelfTest(activity: Activity): String?
     private external fun nativeCreateSession(): String?
     private external fun nativeBeginSession(): String?
     private external fun nativeSetHeadOrientation(x: Float, y: Float, z: Float, w: Float)

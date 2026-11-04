@@ -67,6 +67,29 @@ class AppNavigationSmokeTest {
         )
     }
 
+    @Test
+    fun sandboxRunsLoaderFacingOpenXrProbeOnCurrentGlesContext() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val device = UiDevice.getInstance(instrumentation)
+
+        // Avoid the camera permission prompt obscuring the in-scene diagnostic label.
+        device.executeShellCommand(
+            "pm grant \${context.packageName} android.permission.CAMERA"
+        )
+
+        val sandboxIntent = Intent().setClassName(
+            context.packageName,
+            "\${context.packageName}.sandbox.SandboxActivity"
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        context.startActivity(sandboxIntent)
+
+        assertTrue(
+            "Sandbox did not complete the OpenXR runtime probe on its GLES context",
+            device.wait(Until.hasObject(By.textContains("OpenXR probe: PASS")), 30_000)
+        )
+    }
+
     private fun saveScreenshot(baseDirectory: File?, device: UiDevice, fileName: String) {
         val root = requireNotNull(baseDirectory) {
             "External app storage is unavailable in the emulator"
