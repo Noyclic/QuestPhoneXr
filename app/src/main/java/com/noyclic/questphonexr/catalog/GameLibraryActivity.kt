@@ -99,6 +99,14 @@ class GameLibraryActivity : ComponentActivity() {
             0xFFB8C2D0.toInt()
         ))
         body.addView(text(
+            EndXrRuntimeReadiness.OPEN_XR_GAME_WARNING,
+            11f,
+            0xFFFFD28A.toInt()
+        ).apply {
+            background = rounded(0xFF29251D.toInt(), dp(9).toFloat())
+            setPadding(dp(10), dp(9), dp(10), dp(9))
+        })
+        body.addView(text(
             "CAPABILITIES",
             12f,
             0xFF8FD3B5.toInt(),
