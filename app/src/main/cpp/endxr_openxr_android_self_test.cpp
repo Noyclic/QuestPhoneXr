@@ -259,30 +259,33 @@ static std::string runEndXrOpenXrAndroidSelfTestImpl(JavaVM* vm, jobject activit
             }
         };
 
-
-
-        if (swapchain != XR_NULL_HANDLE && api.destroySwapchain != nullptr) {
-            if (imageAcquired && api.waitSwapchainImage != nullptr &&
-                api.releaseSwapchainImage != nullptr) {
-                if (!imageWaited) {
-                    XrSwapchainImageWaitInfo waitInfo{};
-                    waitInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
-                    waitInfo.timeout = XR_INFINITE_DURATION;
-                    const XrResult waitResult = api.waitSwapchainImage(swapchain, &waitInfo);
-                    rememberFailure("cleanup xrWaitSwapchainImage", waitResult);
-                    imageWaited = waitResult == XR_SUCCESS;
-                }
-                if (imageWaited) {
-                    XrSwapchainImageReleaseInfo releaseInfo{};
-                    releaseInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
-                    const XrResult releaseResult =
-                        api.releaseSwapchainImage(swapchain, &releaseInfo);
-                    rememberFailure("cleanup xrReleaseSwapchainImage", releaseResult);
-                    if (releaseResult == XR_SUCCESS) imageAcquired = false;
+        // Release any acquired swapchain image before ending an outstanding frame.
+        if (swapchain != XR_NULL_HANDLE && imageAcquired &&
+            api.waitSwapchainImage != nullptr && api.releaseSwapchainImage != nullptr) {
+            if (!imageWaited) {
+                XrSwapchainImageWaitInfo waitInfo{};
+                waitInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
+                waitInfo.timeout = XR_INFINITE_DURATION;
+                const XrResult waitResult = api.waitSwapchainImage(swapchain, &waitInfo);
+                rememberFailure("cleanup xrWaitSwapchainImage", waitResult);
+                imageWaited = waitResult == XR_SUCCESS;
+            }
+            if (imageWaited) {
+                XrSwapchainImageReleaseInfo releaseInfo{};
+                releaseInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
+                const XrResult releaseResult =
+                    api.releaseSwapchainImage(swapchain, &releaseInfo);
+                rememberFailure("cleanup xrReleaseSwapchainImage", releaseResult);
+                if (releaseResult == XR_SUCCESS) {
+                    imageAcquired = false;
+                    imageWaited = false;
                 }
             }
-        if (frameWaited && session != XR_NULL_HANDLE && api.beginFrame != nullptr &&
-            api.endFrame != nullptr) {
+        }
+
+        // A successful xrWaitFrame must always be paired with begin/end frame.
+        if (frameWaited && session != XR_NULL_HANDLE &&
+            api.beginFrame != nullptr && api.endFrame != nullptr) {
             if (!frameBegun) {
                 XrFrameBeginInfo beginInfo{};
                 beginInfo.type = XR_TYPE_FRAME_BEGIN_INFO;
@@ -304,20 +307,22 @@ static std::string runEndXrOpenXrAndroidSelfTestImpl(JavaVM* vm, jobject activit
             }
         }
 
-            if (!imageAcquired) {
-                const XrResult destroyResult = api.destroySwapchain(swapchain);
-                rememberFailure("cleanup xrDestroySwapchain", destroyResult);
-                if (destroyResult == XR_SUCCESS) swapchain = XR_NULL_HANDLE;
-            }
+        const bool frameIdle = !frameWaited && !frameBegun;
+        if (swapchain != XR_NULL_HANDLE && !imageAcquired && frameIdle &&
+            api.destroySwapchain != nullptr) {
+            const XrResult destroyResult = api.destroySwapchain(swapchain);
+            rememberFailure("cleanup xrDestroySwapchain", destroyResult);
+            if (destroyResult == XR_SUCCESS) swapchain = XR_NULL_HANDLE;
         }
 
-        if (space != XR_NULL_HANDLE && api.destroySpace != nullptr) {
+        if (space != XR_NULL_HANDLE && frameIdle && api.destroySpace != nullptr) {
             const XrResult destroyResult = api.destroySpace(space);
             rememberFailure("cleanup xrDestroySpace", destroyResult);
             if (destroyResult == XR_SUCCESS) space = XR_NULL_HANDLE;
         }
 
-        if (session != XR_NULL_HANDLE && sessionRunning) {
+        if (session != XR_NULL_HANDLE && sessionRunning && frameIdle &&
+            !imageAcquired && swapchain == XR_NULL_HANDLE && space == XR_NULL_HANDLE) {
             if (api.requestExitSession != nullptr && api.endSession != nullptr) {
                 const XrResult requestResult = api.requestExitSession(session);
                 rememberFailure("cleanup xrRequestExitSession", requestResult);
@@ -342,6 +347,10 @@ static std::string runEndXrOpenXrAndroidSelfTestImpl(JavaVM* vm, jobject activit
             const XrResult destroyResult = api.destroyInstance(instance);
             rememberFailure("cleanup xrDestroyInstance", destroyResult);
             if (destroyResult == XR_SUCCESS) instance = XR_NULL_HANDLE;
+        }
+
+        if ((imageAcquired || frameWaited || frameBegun) && cleanupFailure.empty()) {
+            cleanupFailure = "cleanup left an acquired image or active XR frame";
         }
         return cleanupFailure;
     };
