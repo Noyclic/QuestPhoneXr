@@ -1559,7 +1559,7 @@ EndXrControllerInput readControllerInput(int hand) {
 }
 
 #if defined(__ANDROID__)
-bool refreshExternalControllerInput(XrInstance_T* instance) {
+bool refreshExternalControllerInputImpl(XrInstance_T* instance) {
     if (instance == nullptr || !instance->androidExtensionEnabled ||
         instance->applicationVm == nullptr || instance->applicationActivity == nullptr) {
         return false;
@@ -1942,6 +1942,12 @@ XrResult validateActionForSession(
 }
 
 } // namespace
+
+#if defined(__ANDROID__)
+bool refreshExternalControllerInput(XrInstance_T* instance) {
+    return refreshExternalControllerInputImpl(instance);
+}
+#endif
 
 XRAPI_ATTR XrResult XRAPI_CALL endxrStringToPath(
     XrInstance instance, const char* pathString, XrPath* path
