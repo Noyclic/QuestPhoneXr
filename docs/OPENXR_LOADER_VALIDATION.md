@@ -71,9 +71,12 @@ RuntimeBroker report, Khronos loader report, OpenXR Sandbox report, screenshots
 and instrumentation results in the `QuestPhoneXR-CI-diagnostics` artifact.
 
 The external client probe also queries QuestPhoneXR's read-only input snapshot
-provider from its separate package. This confirms that the IPC endpoint is
-visible across the Android application boundary; it does not prove that input
-continues to be published after Sandbox pauses.
+provider from its separate package. The provider enforces a signature-level
+read permission, so install the main APK and probe APK from the **same CI
+workflow run**; mixing debug artifacts from different runs can fail the
+signature check. A passing query confirms the protected IPC endpoint is
+accessible to the paired diagnostic package; it does not prove that input
+continues to be published after Sandbox pauses. See [IPC security](IPC_SECURITY.md).
 
 The emulator currently has no Android RuntimeBroker provider, so the
 `xrCreateInstance` result may correctly report that no runtime is selected.
