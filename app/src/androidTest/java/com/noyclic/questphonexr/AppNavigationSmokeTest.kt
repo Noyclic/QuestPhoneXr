@@ -46,16 +46,17 @@ class AppNavigationSmokeTest {
         context.startActivity(launchIntent)
 
         device.waitForIdle()
-        assertTrue(
-            "Mode selection Activity did not render its title",
-            device.wait(Until.hasObject(By.text("Выбери режим")), 20_000)
-        )
-        saveScreenshot(context, device, "mode-selection-initial.png")
         // A pending crash-report dialog from an earlier emulator test can appear
         // before the mode selector. Dismiss it, then wait for the real mode action.
         if (device.wait(Until.hasObject(By.text("Предыдущий запуск завершился с ошибкой")), 1_000)) {
             device.findObject(By.text("Закрыть"))?.click()
         }
+
+        assertTrue(
+            "Mode selection Activity did not render its title",
+            device.wait(Until.hasObject(By.text("Выбери режим")), 20_000)
+        )
+        saveScreenshot(context, device, "mode-selection-initial.png")
         assertTrue(
             "Mode selection screen did not expose its library action",
             device.wait(Until.hasObject(By.textContains("Открыть библиотеку")), 20_000)
