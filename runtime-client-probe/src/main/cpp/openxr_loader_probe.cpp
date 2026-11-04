@@ -7,6 +7,7 @@
 #include <cstring>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #if defined(__ANDROID__)
@@ -56,6 +57,65 @@ std::string resultText(XrResult result) {
     std::ostringstream stream;
     stream << resultName(result) << " (" << static_cast<std::int32_t>(result) << ")";
     return stream.str();
+}
+
+const char* sessionStateName(XrSessionState state) {
+    switch (state) {
+        case XR_SESSION_STATE_UNKNOWN: return "UNKNOWN";
+        case XR_SESSION_STATE_IDLE: return "IDLE";
+        case XR_SESSION_STATE_READY: return "READY";
+        case XR_SESSION_STATE_SYNCHRONIZED: return "SYNCHRONIZED";
+        case XR_SESSION_STATE_VISIBLE: return "VISIBLE";
+        case XR_SESSION_STATE_FOCUSED: return "FOCUSED";
+        case XR_SESSION_STATE_STOPPING: return "STOPPING";
+        case XR_SESSION_STATE_LOSS_PENDING: return "LOSS_PENDING";
+        case XR_SESSION_STATE_EXITING: return "EXITING";
+        default: return "SESSION_STATE_OTHER";
+    }
+}
+
+bool waitForSessionState(
+    XrInstance instance,
+    XrSession session,
+    XrSessionState desiredState,
+    const char* stage,
+    std::ostringstream& report
+) {
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::seconds(2);
+    while (std::chrono::steady_clock::now() < deadline) {
+        XrEventDataBuffer event{};
+        event.type = XR_TYPE_EVENT_DATA_BUFFER;
+        event.next = nullptr;
+        const XrResult pollResult = xrPollEvent(instance, &event);
+        if (pollResult == XR_EVENT_UNAVAILABLE) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue;
+        }
+        if (XR_FAILED(pollResult)) {
+            report << stage << "_poll=" << resultText(pollResult) << "\n";
+            return false;
+        }
+        if (event.type != XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
+            continue;
+        }
+        const auto* changed =
+            reinterpret_cast<const XrEventDataSessionStateChanged*>(&event);
+        report << stage << "_event_state=" << sessionStateName(changed->state) << "\n";
+        if (changed->session != session) {
+            continue;
+        }
+        if (changed->state == desiredState) {
+            return true;
+        }
+        if (changed->state == XR_SESSION_STATE_EXITING ||
+            changed->state == XR_SESSION_STATE_LOSS_PENDING) {
+            return false;
+        }
+    }
+    report << stage << "_timeout waiting_for="
+           << sessionStateName(desiredState) << "\n";
+    return false;
 }
 
 void copyName(char* destination, std::size_t destinationSize, const char* source) {
@@ -347,10 +407,13 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
 
     // Exercise a real GLES-bound session from this independent Android process.
     // This is intentionally separate from the in-app Sandbox EGL context.
+    bool externalGlesSessionAttempted = false;
+    bool externalFrameLifecycleAttempted = false;
 #if defined(__ANDROID__)
     if (!openGlesExtensionFound) {
         report << "external_gles_session=SKIPPED (runtime did not advertise XR_KHR_opengl_es_enable)\n";
     } else {
+        externalGlesSessionAttempted = true;
         EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
         EGLint eglMajor = 0;
         EGLint eglMinor = 0;
@@ -435,6 +498,16 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                 report << "external_xrCreateSession=" << resultText(sessionResult) << "\n";
 
                 if (XR_SUCCEEDED(sessionResult) && session != XR_NULL_HANDLE) {
+                    const bool readyEventObserved = waitForSessionState(
+                        instance,
+                        session,
+                        XR_SESSION_STATE_READY,
+                        "external_wait_ready",
+                        report
+                    );
+                    report << "external_session_ready_event="
+                           << (readyEventObserved ? "OBSERVED" : "NOT_OBSERVED") << "\n";
+                    if (readyEventObserved) {
                     XrSessionBeginInfo beginInfo{};
                     beginInfo.type = XR_TYPE_SESSION_BEGIN_INFO;
                     beginInfo.primaryViewConfigurationType =
@@ -511,6 +584,7 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                             }
                         }
 
+                        externalFrameLifecycleAttempted = true;
                         XrFrameWaitInfo frameWaitInfo{};
                         frameWaitInfo.type = XR_TYPE_FRAME_WAIT_INFO;
                         XrFrameState frameState{};
@@ -544,6 +618,7 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                             }
                         }
                     }
+                    }
 
                     if (swapchain != XR_NULL_HANDLE) {
                         report << "external_xrDestroySwapchain="
@@ -554,8 +629,22 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                         report << "external_xrRequestExitSession="
                                << resultText(exitResult) << "\n";
                         if (XR_SUCCEEDED(exitResult)) {
-                            report << "external_xrEndSession="
-                                   << resultText(xrEndSession(session)) << "\n";
+                            const bool stoppingEventObserved = waitForSessionState(
+                                instance,
+                                session,
+                                XR_SESSION_STATE_STOPPING,
+                                "external_wait_stopping",
+                                report
+                            );
+                            report << "external_session_stopping_event="
+                                   << (stoppingEventObserved ? "OBSERVED" : "NOT_OBSERVED")
+                                   << "\n";
+                            if (stoppingEventObserved) {
+                                report << "external_xrEndSession="
+                                       << resultText(xrEndSession(session)) << "\n";
+                            } else {
+                                report << "external_xrEndSession=SKIPPED (STOPPING event not observed)\n";
+                            }
                         }
                     }
                     report << "external_xrDestroySession="
@@ -579,8 +668,12 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
 
     const XrResult destroyResult = xrDestroyInstance(instance);
     report << "xrDestroyInstance=" << resultText(destroyResult) << "\n";
-    report << "probe_result=loader completed runtime instance checks; "
-              "no session or rendered frame was attempted\n";
+    report << "external_gles_session_attempted="
+           << (externalGlesSessionAttempted ? "YES" : "NO") << "\n";
+    report << "external_frame_lifecycle_attempted="
+           << (externalFrameLifecycleAttempted ? "YES" : "NO") << "\n";
+    report << "probe_result=external lifecycle attempts completed; inspect each stage above; "
+              "no projection layer was submitted\n";
 
     const std::string value = report.str();
     return environment->NewStringUTF(value.c_str());
