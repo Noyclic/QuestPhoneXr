@@ -41,6 +41,10 @@ class ExternalRuntimeClientDiscoveryTest {
                 serviceReport.contains("EndXR service visible: YES")
             )
             assertTrue(
+                "External package did not receive the signed EndXR input permission:\n$serviceReport",
+                serviceReport.contains("provider_permission=GRANTED")
+            )
+            assertTrue(
                 "External package could not read the EndXR input IPC snapshot:\n$serviceReport",
                 serviceReport.contains("provider_query=PASS")
             )
