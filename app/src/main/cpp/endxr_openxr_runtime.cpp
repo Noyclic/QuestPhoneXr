@@ -67,6 +67,7 @@ struct XrInstance_T {
     void* applicationActivity = nullptr;
     bool androidExtensionEnabled = false;
     bool glesExtensionEnabled = false;
+    bool glesRequirementsQueried = false;
     std::mutex eventMutex;
     std::deque<XrEventDataSessionStateChanged> pendingSessionEvents;
 };
