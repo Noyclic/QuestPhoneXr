@@ -1,5 +1,13 @@
 #include <jni.h>
 
+#if defined(__ANDROID__)
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES3/gl3.h>
+#endif
+
+// openxr_platform.h refers to EGL types when the OpenGL ES extension is
+// enabled, so the Android graphics headers must be visible first.
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 
@@ -10,12 +18,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-
-#if defined(__ANDROID__)
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
-#include <GLES3/gl3.h>
-#endif
 
 namespace {
 
