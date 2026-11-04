@@ -1,8 +1,10 @@
 package com.noyclic.questphonexr
 
+import android.content.ComponentName
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Environment
 import android.provider.MediaStore
 import com.noyclic.questphonexr.runtime.AndroidRuntimeBrokerProbe
@@ -13,6 +15,7 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiScrollable
 import androidx.test.uiautomator.UiSelector
 import androidx.test.uiautomator.Until
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -122,6 +125,25 @@ class AppNavigationSmokeTest {
     @Test
     fun bRuntimeServiceIsDiscoverableAndItsNativePayloadExists() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val packageManager = context.packageManager
+        val runtimeServiceInfo = packageManager.getServiceInfo(
+            ComponentName(
+                context,
+                com.noyclic.questphonexr.runtime.EndXrRuntimeService::class.java
+            ),
+            PackageManager.ComponentInfoFlags.of(PackageManager.GET_META_DATA.toLong())
+        )
+        assertEquals(
+            "OpenXR runtime service must expose its own display name",
+            context.getString(R.string.openxr_runtime_name),
+            runtimeServiceInfo.loadLabel(packageManager).toString()
+        )
+        assertEquals(
+            "OpenXR runtime service must expose the EndXR icon resource",
+            R.drawable.ic_endxr_runtime,
+            runtimeServiceInfo.icon
+        )
+
         val report = AndroidRuntimeBrokerProbe.inspect(context)
         val reportFile = File(context.cacheDir, "runtime-broker-probe.txt")
         reportFile.writeText(report.toDisplayText())
