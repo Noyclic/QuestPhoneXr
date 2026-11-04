@@ -591,8 +591,16 @@ void testActionInputApiLifecycleAndNeutralState() {
            "unfed physical input remains neutral and inactive");
     endxrSetControllerInput(0, 1, 0.91f, 0.2f, -0.35f, 0.6f, 0);
     expect(getBoolean(session, &stateInfo, &booleanState) == XR_SUCCESS &&
-               booleanState.currentState == XR_TRUE && booleanState.isActive == XR_TRUE,
-           "left select action reads injected left trigger");
+               booleanState.currentState == XR_FALSE && booleanState.isActive == XR_FALSE &&
+               booleanState.changedSinceLastSync == XR_FALSE,
+           "input remains frozen until the next xrSyncActions");
+    expect(syncActions(session, &syncInfo) == XR_SUCCESS,
+           "capture injected input at the next action synchronization");
+    expect(getBoolean(session, &stateInfo, &booleanState) == XR_SUCCESS &&
+               booleanState.currentState == XR_TRUE && booleanState.isActive == XR_TRUE &&
+               booleanState.changedSinceLastSync == XR_TRUE && booleanState.lastChangeTime > 0,
+           "left select action changes on the next synchronized input snapshot");
+    const XrTime selectChangeTime = booleanState.lastChangeTime;
     stateInfo.subactionPath = rightHand;
     expect(getBoolean(session, &stateInfo, &booleanState) == XR_SUCCESS &&
                booleanState.currentState == XR_FALSE && booleanState.isActive == XR_FALSE,
@@ -612,8 +620,10 @@ void testActionInputApiLifecycleAndNeutralState() {
     floatState = {};
     floatState.type = XR_TYPE_ACTION_STATE_FLOAT;
     expect(getFloat(session, &triggerValueStateInfo, &floatState) == XR_SUCCESS &&
-               floatState.isActive == XR_TRUE && std::abs(floatState.currentState - 0.91f) < 0.001f,
-           "float action receives analog left trigger value");
+               floatState.isActive == XR_TRUE && std::abs(floatState.currentState - 0.91f) < 0.001f &&
+               floatState.changedSinceLastSync == XR_TRUE && floatState.lastChangeTime > 0,
+           "float action receives analog left trigger value and reports the sync transition");
+    const XrTime triggerValueChangeTime = floatState.lastChangeTime;
     triggerValueStateInfo.subactionPath = rightHand;
     expect(getFloat(session, &triggerValueStateInfo, &floatState) == XR_SUCCESS &&
                floatState.isActive == XR_FALSE && floatState.currentState == 0.0f,
@@ -629,13 +639,34 @@ void testActionInputApiLifecycleAndNeutralState() {
     expect(getVector(session, &stickStateInfo, &stickState) == XR_SUCCESS &&
                stickState.isActive == XR_TRUE &&
                std::abs(stickState.currentState.x + 0.35f) < 0.001f &&
-               std::abs(stickState.currentState.y - 0.6f) < 0.001f,
-           "Vector2 action receives both left thumbstick axes");
+               std::abs(stickState.currentState.y - 0.6f) < 0.001f &&
+               stickState.changedSinceLastSync == XR_TRUE && stickState.lastChangeTime > 0,
+           "Vector2 action receives both left thumbstick axes and reports the sync transition");
+    const XrTime stickChangeTime = stickState.lastChangeTime;
     stickStateInfo.subactionPath = rightHand;
     expect(getVector(session, &stickStateInfo, &stickState) == XR_SUCCESS &&
                stickState.isActive == XR_FALSE &&
                stickState.currentState.x == 0.0f && stickState.currentState.y == 0.0f,
            "thumbstick vector stays isolated to left hand");
+
+    expect(syncActions(session, &syncInfo) == XR_SUCCESS,
+           "capture an unchanged controller sample on the following sync");
+    stateInfo.subactionPath = leftHand;
+    triggerValueStateInfo.subactionPath = leftHand;
+    stickStateInfo.subactionPath = leftHand;
+    expect(getBoolean(session, &stateInfo, &booleanState) == XR_SUCCESS &&
+               booleanState.currentState == XR_TRUE &&
+               booleanState.changedSinceLastSync == XR_FALSE &&
+               booleanState.lastChangeTime == selectChangeTime,
+           "unchanged boolean clears changedSinceLastSync and preserves lastChangeTime");
+    expect(getFloat(session, &triggerValueStateInfo, &floatState) == XR_SUCCESS &&
+               floatState.changedSinceLastSync == XR_FALSE &&
+               floatState.lastChangeTime == triggerValueChangeTime,
+           "unchanged float clears changedSinceLastSync and preserves lastChangeTime");
+    expect(getVector(session, &stickStateInfo, &stickState) == XR_SUCCESS &&
+               stickState.changedSinceLastSync == XR_FALSE &&
+               stickState.lastChangeTime == stickChangeTime,
+           "unchanged Vector2 clears changedSinceLastSync and preserves lastChangeTime");
 
     auto getPose = reinterpret_cast<PFN_xrGetActionStatePose>(
         resolve(request.getInstanceProcAddr, instance, "xrGetActionStatePose"));
@@ -673,6 +704,27 @@ void testActionInputApiLifecycleAndNeutralState() {
     expect(enumerateBoundSources(session, &boundInfo, 1, &sourceCount, &activeSource) ==
                XR_SUCCESS && sourceCount == 1 && activeSource == leftSelect,
            "return active left select source path");
+
+    endxrSetControllerInput(0, 1, 0.10f, 0.2f, -0.35f, 0.6f, 0);
+    expect(getBoolean(session, &stateInfo, &booleanState) == XR_SUCCESS &&
+               booleanState.currentState == XR_TRUE &&
+               booleanState.changedSinceLastSync == XR_FALSE &&
+               booleanState.lastChangeTime == selectChangeTime,
+           "new physical values do not mutate the already synchronized snapshot");
+    expect(syncActions(session, &syncInfo) == XR_SUCCESS,
+           "synchronize released trigger state");
+    expect(getBoolean(session, &stateInfo, &booleanState) == XR_SUCCESS &&
+               booleanState.currentState == XR_FALSE && booleanState.isActive == XR_TRUE &&
+               booleanState.changedSinceLastSync == XR_TRUE &&
+               booleanState.lastChangeTime > selectChangeTime,
+           "trigger release is reported as a state change on sync");
+    endxrClearControllerInput();
+    expect(syncActions(session, &syncInfo) == XR_SUCCESS,
+           "synchronize controller disconnect");
+    expect(getBoolean(session, &stateInfo, &booleanState) == XR_SUCCESS &&
+               booleanState.currentState == XR_FALSE && booleanState.isActive == XR_FALSE &&
+               booleanState.changedSinceLastSync == XR_TRUE,
+           "controller disconnect changes the input active state");
 
     auto getLocalizedName = reinterpret_cast<PFN_xrGetInputSourceLocalizedName>(
         resolve(request.getInstanceProcAddr, instance, "xrGetInputSourceLocalizedName"));
