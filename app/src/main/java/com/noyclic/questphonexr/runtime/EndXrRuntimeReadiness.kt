@@ -37,26 +37,26 @@ object EndXrRuntimeReadiness {
             "The current OpenXR system properties explicitly advertise positionTracking=false."),
         RuntimeCapability("openxr-actions", "OpenXR Action / Input API",
             RuntimeCapabilityState.PARTIAL,
-            "Action sets, action lifecycle, paths, binding suggestions, action spaces and xrSyncActions are implemented. State queries deliberately stay inactive until a separate-process controller input source is connected."),
+            "Action sets, action lifecycle, paths, binding suggestions, action spaces and xrSyncActions are implemented. Boolean/Float/Vector2 values now resolve from left/right Sandbox input samples inside the same process; third-party process input is not connected."),
         RuntimeCapability("controller-input", "Controller poses, buttons and haptics",
             RuntimeCapabilityState.NOT_IMPLEMENTED,
-            "Phone-side gamepad adapters exist, but their state is not exposed through OpenXR action and controller-pose APIs."),
+            "MediaPipe pinch/grip and Android gamepad trigger/grip/stick/button samples reach EndXR Action states inside Sandbox. Cross-process delivery, real controller poses and haptic transport are not implemented."),
         RuntimeCapability("openxr-hand-tracking", "OpenXR hand-tracking extension",
             RuntimeCapabilityState.NOT_IMPLEMENTED,
             "MediaPipe tracking is app-internal; XR_EXT_hand_tracking is not advertised by the runtime."),
         RuntimeCapability("runtime-broker", "Discovery from a separate third-party app process",
             RuntimeCapabilityState.NOT_VERIFIED,
-            "The Android runtime service is declared, but a separate client APK has not validated RuntimeBroker discovery and runtime loading.")
+            "A separate client APK can discover the exported service and library path in CI. Active RuntimeBroker selection and successful xrCreateInstance on the Redmi remain unverified.")
     )
 
     val librarySummary: String =
         "Внутри Sandbox проверены loader negotiation, Android/GLES session и stereo projection layer. " +
-            "OpenXR Actions API частично реализован, но реальные состояния кнопок, стиков, позы контроллеров и haptics пока не поступают в сторонние процессы. " +
+            "OpenXR Actions API частично реализован: ввод Sandbox поступает в Action states внутри того же процесса, но не передаётся сторонним приложениям; позы контроллеров и haptics ещё не готовы. " +
             "Также не хватает 6DoF position и XR hand tracking; выбор runtime через RuntimeBroker ещё не подтверждён на физическом телефоне."
 
     const val OPEN_XR_GAME_WARNING =
-        "EndXR экспортирует базовый OpenXR Action / Input API, однако реальные состояния кнопок, триггеров, стиков и контроллерных поз пока не подключены к процессу игры. " +
-            "Action queries сейчас возвращают neutral/inactive, а haptics не поддерживаются. Игры, требующие физический ввод или позы контроллеров, ещё не готовы к полноценной игре."
+        "EndXR экспортирует базовый OpenXR Action / Input API, а ввод Sandbox уже отображается в Action states внутри QuestPhoneXR. " +
+            "Отдельный игровой процесс пока не получает эти состояния; controller poses и haptics не поддерживаются. Игры, требующие внешнего ввода или поз контроллеров, ещё не готовы к полноценной игре."
 
     const val QUEST_GAME_WARNING =
         "Quest APK может зависеть от Meta/Oculus Runtime и системных сервисов гарнитуры. На обычном Android " +
