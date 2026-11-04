@@ -301,8 +301,11 @@ class ApkImportActivity : ComponentActivity() {
         val missing = info.requiredFeatures.filterNot { packageManager.hasSystemFeature(it) }.toSet()
         val assessment = ApkRuntimeCompatibility.inspect(info, archive, android.os.Build.VERSION.SDK_INT,
             android.os.Build.SUPPORTED_ABIS.toList(), missing)
-        if (assessment.route == ApkLaunchRoute.DEVICE_REQUIREMENTS_BLOCKED ||
-            assessment.route == ApkLaunchRoute.QUEST_RUNTIME_REQUIRED
+        if (
+            assessment.route == ApkLaunchRoute.DEVICE_REQUIREMENTS_BLOCKED ||
+            assessment.route == ApkLaunchRoute.QUEST_RUNTIME_REQUIRED ||
+            assessment.route == ApkLaunchRoute.GEAR_VR_LEGACY_CANDIDATE ||
+            assessment.route == ApkLaunchRoute.LEGACY_OCULUS_MOBILE_CANDIDATE
         ) {
             statusView.text = assessment.details.joinToString("\n").ifBlank {
                 "Для этого APK пока нет совместимого маршрута запуска."
