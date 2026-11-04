@@ -5,6 +5,8 @@
 
 #include "endxr_runtime_core.hpp"
 #include "endxr_openxr_android_self_test.hpp"
+#include "endxr_openxr_runtime.hpp"
+#include <algorithm>
 
 namespace {
 
@@ -206,6 +208,29 @@ Java_com_noyclic_questphonexr_runtime_EndXrRuntimeBridge_nativeSetHeadOrientatio
     endxrSetHeadOrientation(x, y, z, w);
 }
 
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_noyclic_questphonexr_runtime_EndXrRuntimeBridge_nativeSetControllerInput(
+    JNIEnv* env, jobject, jfloatArray left, jfloatArray right
+) {
+    if (left == nullptr || right == nullptr ||
+        env->GetArrayLength(left) < 6 || env->GetArrayLength(right) < 6) {
+        endxrClearControllerInput();
+        return;
+    }
+    jfloat l[6]{}, r[6]{};
+    env->GetFloatArrayRegion(left, 0, 6, l);
+    if (env->ExceptionCheck()) { env->ExceptionClear(); return; }
+    env->GetFloatArrayRegion(right, 0, 6, r);
+    if (env->ExceptionCheck()) { env->ExceptionClear(); return; }
+    auto publish = [](std::uint32_t hand, const jfloat* v) {
+        const auto buttons = static_cast<std::uint32_t>(std::max(0.0f, v[5]));
+        endxrSetControllerInput(hand, v[0] >= 0.5f ? 1u : 0u,
+            v[1], v[2], v[3], v[4], buttons);
+    };
+    publish(0, l);
+    publish(1, r);
+}
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_noyclic_questphonexr_runtime_EndXrRuntimeBridge_nativeRunOpenXrSelfTest(

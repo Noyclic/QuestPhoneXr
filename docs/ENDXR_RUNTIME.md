@@ -21,9 +21,12 @@ Monado is not a required dependency in the active architecture or build path.
   suggested interaction-profile bindings, session attachment, xrSyncActions,
   boolean/float/vector/pose state queries, action spaces and localized source
   name queries are implemented and covered by native host tests.
-- Action state is deliberately neutral/inactive because no physical input
-  provider has yet been connected to a third-party app process. The runtime
-  does not fabricate trigger presses, stick positions or controller poses.
+- An in-process controller provider now receives independent left/right
+  Sandbox samples through JNI. Boolean select, float trigger/grip and Vector2
+  thumbstick actions resolve supported suggested binding paths. Samples expire
+  after 300 ms without refresh. This is not a cross-process input service.
+- Pose actions remain inactive: camera-relative hand landmarks are not yet
+  calibrated into an OpenXR reference-space pose.
 - Haptic output entry points validate their inputs but return
   XR_ERROR_FEATURE_UNSUPPORTED until a device haptic transport exists.
 - In-process Sandbox diagnostics have exercised 30 consecutive stereo
@@ -58,9 +61,9 @@ xrCreateInstance result.
 EndXR is an early, minimal runtime implementation, not a conformant general
 purpose Quest runtime. It currently does not implement:
 
-- Live OpenXR controller pose, button, trigger and stick state. The core
-  Action API exists, but action queries remain neutral/inactive until a
-  cross-process Android input source is connected.
+- Cross-process controller input for unrelated APKs. Sandbox-local input is
+  now mapped to in-process action values, but Android input capture is scoped
+  to the foreground QuestPhoneXR Activity and cannot inject into other apps.
 - Haptic output transport.
 - 6DoF positional tracking.
 - The XR_EXT_hand_tracking runtime extension. MediaPipe hand tracking in
@@ -88,11 +91,14 @@ graphics backend and vendor services.
 5. **OpenXR Action API surface** — initial core action/path/attach/sync/state
    entry points are implemented and host-tested. This is an API milestone,
    not live controller input.
-6. **Cross-process controller input and haptics** — not implemented. The
-   Android gamepad adapter currently receives input only inside QuestPhoneXR.
-7. **6DoF tracking and OpenXR hand tracking** — not implemented.
-8. **Third-party session/frame interoperability** — not yet verified.
-9. **Game-by-game APK support** — not yet verified.
+6. **In-process Sandbox-to-EndXR input bridge** — initial implementation
+   maps left/right gamepad and MediaPipe pinch/grip samples to Boolean, Float
+   and Vector2 action states. Native tests cover hand isolation, active profile
+   selection and bound-source enumeration.
+7. **Cross-process controller input and haptics** — not implemented.
+8. **6DoF tracking and OpenXR hand tracking** — not implemented.
+9. **Third-party session/frame interoperability** — not yet verified.
+10. **Game-by-game APK support** — not yet verified.
 
 ## Performance target
 

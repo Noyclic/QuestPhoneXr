@@ -183,6 +183,14 @@ std::unordered_map<XrAction, XrAction_T*> g_actions;
 std::mutex g_headPoseMutex;
 XrQuaternionf g_headOrientation{0.0f, 0.0f, 0.0f, 1.0f};
 bool g_hasHeadOrientation = false;
+struct EndXrControllerInput {
+    bool active = false;
+    float trigger = 0.0f, grip = 0.0f, stickX = 0.0f, stickY = 0.0f;
+    std::uint32_t buttons = 0;
+    std::chrono::steady_clock::time_point updatedAt{};
+};
+std::mutex g_controllerInputMutex;
+std::array<EndXrControllerInput, 2> g_controllerInputs{};
 thread_local std::uint32_t g_lastGlesError = 0;
 
 XrInstance makeInstanceHandle(XrInstance_T* object) {
@@ -1422,6 +1430,114 @@ bool validActionSubactionPath(const XrAction_T* action, XrPath path) {
     return std::find(action->subactionPaths.begin(), action->subactionPaths.end(), path) !=
         action->subactionPaths.end();
 }
+int handIndexFromPath(const std::string& path) {
+    if (path.compare(0, 15, "/user/hand/left") == 0) return 0;
+    if (path.compare(0, 16, "/user/hand/right") == 0) return 1;
+    return -1;
+}
+EndXrControllerInput readControllerInput(int hand) {
+    if (hand < 0 || hand > 1) return {};
+    std::lock_guard<std::mutex> lock(g_controllerInputMutex);
+    auto input = g_controllerInputs[static_cast<std::size_t>(hand)];
+    if (!input.active || input.updatedAt.time_since_epoch().count() == 0 ||
+        std::chrono::steady_clock::now() - input.updatedAt > std::chrono::milliseconds(300)) return {};
+    return input;
+}
+XrPath currentProfileForHand(XrInstance instanceHandle, int hand) {
+    XrInstance_T* instance = getInstance(instanceHandle);
+    if (instance == nullptr || hand < 0 || hand > 1 || !readControllerInput(hand).active) return XR_NULL_PATH;
+    const std::string prefix = hand == 0 ? "/user/hand/left/" : "/user/hand/right/";
+    std::vector<std::pair<std::string, XrPath>> profiles;
+    for (const auto& entry : instance->suggestedBindings) {
+        for (const auto& binding : entry.second) {
+            std::string bindingPath, profilePath;
+            if (pathBelongsToInstance(instanceHandle, binding.binding, &bindingPath) &&
+                bindingPath.compare(0, prefix.size(), prefix) == 0 &&
+                pathBelongsToInstance(instanceHandle, entry.first, &profilePath)) {
+                profiles.emplace_back(profilePath, entry.first);
+                break;
+            }
+        }
+    }
+    std::sort(profiles.begin(), profiles.end(),
+        [](const auto& a, const auto& b) { return a.first < b.first; });
+    return profiles.empty() ? XR_NULL_PATH : profiles.front().second;
+}
+struct ResolvedActionInput {
+    bool active = false, booleanValue = false;
+    float scalarValue = 0.0f;
+    XrVector2f vectorValue{0.0f, 0.0f};
+};
+ResolvedActionInput resolveActionInput(XrSession_T* session, XrAction_T* action, XrPath requestedHand) {
+    ResolvedActionInput result{};
+    if (session == nullptr || action == nullptr) return result;
+    const bool actionSetActive = std::any_of(session->activeActionSets.begin(),
+        session->activeActionSets.end(), [&](const XrActiveActionSet& active) {
+            return active.actionSet == action->owner &&
+                (active.subactionPath == XR_NULL_PATH || requestedHand == XR_NULL_PATH ||
+                 active.subactionPath == requestedHand);
+        });
+    if (!actionSetActive) return result;
+    XrInstance_T* instance = getInstance(session->owner);
+    if (instance == nullptr) return result;
+    const auto requested = instance->pathStrings.find(requestedHand);
+    const int firstHand = requestedHand == XR_NULL_PATH ? 0 :
+        (requested == instance->pathStrings.end() ? -1 : handIndexFromPath(requested->second));
+    const int lastHand = requestedHand == XR_NULL_PATH ? 1 : firstHand;
+    if (firstHand < 0) return result;
+    for (int hand = firstHand; hand <= lastHand; ++hand) {
+        const XrPath handPath = hand == 0
+            ? (instance->pathHandles.count("/user/hand/left") ? instance->pathHandles.at("/user/hand/left") : XR_NULL_PATH)
+            : (instance->pathHandles.count("/user/hand/right") ? instance->pathHandles.at("/user/hand/right") : XR_NULL_PATH);
+        const bool handSetActive = std::any_of(session->activeActionSets.begin(),
+            session->activeActionSets.end(), [&](const XrActiveActionSet& active) {
+                return active.actionSet == action->owner &&
+                    (active.subactionPath == XR_NULL_PATH || active.subactionPath == handPath);
+            });
+        if (!handSetActive) continue;
+        const XrPath profile = currentProfileForHand(session->owner, hand);
+        const auto profileBindings = instance->suggestedBindings.find(profile);
+        if (profile == XR_NULL_PATH || profileBindings == instance->suggestedBindings.end()) continue;
+        const auto input = readControllerInput(hand);
+        for (const auto& binding : profileBindings->second) {
+            if (binding.action != reinterpret_cast<XrAction>(action)) continue;
+            std::string path;
+            if (!pathBelongsToInstance(session->owner, binding.binding, &path) ||
+                handIndexFromPath(path) != hand) continue;
+            const auto marker = path.find("/input/");
+            if (marker == std::string::npos) continue;
+            const std::string component = path.substr(marker + 7);
+            float scalar = 0.0f;
+            bool pressed = false, recognized = true;
+            XrVector2f vector{input.stickX, input.stickY};
+            if (component == "select/click" || component == "trigger/click" ||
+                component == "select/value" || component == "trigger/value") {
+                scalar = input.trigger; pressed = scalar >= 0.5f;
+            } else if (component == "squeeze/click" || component == "grip/click" ||
+                       component == "squeeze/value" || component == "grip/value") {
+                scalar = input.grip; pressed = scalar >= 0.5f;
+            } else if (component == "thumbstick" || component == "thumbstick/x" ||
+                       component == "thumbstick/y") {
+                scalar = component == "thumbstick/x" ? input.stickX :
+                    component == "thumbstick/y" ? input.stickY : 0.0f;
+                pressed = std::abs(scalar) > 0.5f;
+            } else {
+                const std::uint32_t bit = component == "a/click" ? 0u :
+                    component == "b/click" ? 1u : component == "x/click" ? 2u :
+                    component == "y/click" ? 3u : component == "menu/click" ? 4u : 31u;
+                recognized = bit < 5;
+                pressed = recognized && (input.buttons & (1u << bit)) != 0;
+                scalar = pressed ? 1.0f : 0.0f;
+            }
+            if (!recognized) continue;
+            result.active = true;
+            result.booleanValue = result.booleanValue || pressed;
+            result.scalarValue = std::max(result.scalarValue, scalar);
+            result.vectorValue = vector;
+        }
+    }
+    return result;
+}
 
 XrResult validateActionForSession(
     XrSession_T* session,
@@ -1742,9 +1858,11 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrGetCurrentInteractionProfile(
         return XR_ERROR_VALIDATION_FAILURE;
     }
     if (!validUserPath(owner->owner, topLevelUserPath)) return XR_ERROR_PATH_UNSUPPORTED;
-    // EndXR has no active physical interaction profile yet. XR_NULL_PATH is the
-    // defined "no profile active" result; do not pretend a controller is tracked.
-    interactionProfile->interactionProfile = XR_NULL_PATH;
+    std::string userPath;
+    if (!pathBelongsToInstance(owner->owner, topLevelUserPath, &userPath)) return XR_ERROR_PATH_UNSUPPORTED;
+    const int hand = handIndexFromPath(userPath);
+    interactionProfile->interactionProfile =
+        hand < 0 ? XR_NULL_PATH : currentProfileForHand(owner->owner, hand);
     return XR_SUCCESS;
 }
 
@@ -1791,14 +1909,16 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrGetActionStateBoolean(
     if (state == nullptr || state->type != XR_TYPE_ACTION_STATE_BOOLEAN) {
         return XR_ERROR_VALIDATION_FAILURE;
     }
+    XrAction_T* action = nullptr;
     XrResult result = validateActionForSession(
-        owner, getInfo, XR_ACTION_TYPE_BOOLEAN_INPUT, nullptr
+        owner, getInfo, XR_ACTION_TYPE_BOOLEAN_INPUT, &action
     );
     if (XR_FAILED(result)) return result;
-    state->currentState = XR_FALSE;
+    const auto input = resolveActionInput(owner, action, getInfo->subactionPath);
+    state->currentState = input.booleanValue ? XR_TRUE : XR_FALSE;
     state->changedSinceLastSync = XR_FALSE;
-    state->lastChangeTime = 0;
-    state->isActive = XR_FALSE;
+    state->lastChangeTime = input.active ? monotonicTimeNow() : 0;
+    state->isActive = input.active ? XR_TRUE : XR_FALSE;
     return XR_SUCCESS;
 }
 
@@ -1809,14 +1929,16 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrGetActionStateFloat(
     if (state == nullptr || state->type != XR_TYPE_ACTION_STATE_FLOAT) {
         return XR_ERROR_VALIDATION_FAILURE;
     }
+    XrAction_T* action = nullptr;
     XrResult result = validateActionForSession(
-        owner, getInfo, XR_ACTION_TYPE_FLOAT_INPUT, nullptr
+        owner, getInfo, XR_ACTION_TYPE_FLOAT_INPUT, &action
     );
     if (XR_FAILED(result)) return result;
-    state->currentState = 0.0f;
+    const auto input = resolveActionInput(owner, action, getInfo->subactionPath);
+    state->currentState = input.scalarValue;
     state->changedSinceLastSync = XR_FALSE;
-    state->lastChangeTime = 0;
-    state->isActive = XR_FALSE;
+    state->lastChangeTime = input.active ? monotonicTimeNow() : 0;
+    state->isActive = input.active ? XR_TRUE : XR_FALSE;
     return XR_SUCCESS;
 }
 
@@ -1827,14 +1949,16 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrGetActionStateVector2f(
     if (state == nullptr || state->type != XR_TYPE_ACTION_STATE_VECTOR2F) {
         return XR_ERROR_VALIDATION_FAILURE;
     }
+    XrAction_T* action = nullptr;
     XrResult result = validateActionForSession(
-        owner, getInfo, XR_ACTION_TYPE_VECTOR2F_INPUT, nullptr
+        owner, getInfo, XR_ACTION_TYPE_VECTOR2F_INPUT, &action
     );
     if (XR_FAILED(result)) return result;
-    state->currentState = {0.0f, 0.0f};
+    const auto input = resolveActionInput(owner, action, getInfo->subactionPath);
+    state->currentState = input.vectorValue;
     state->changedSinceLastSync = XR_FALSE;
-    state->lastChangeTime = 0;
-    state->isActive = XR_FALSE;
+    state->lastChangeTime = input.active ? monotonicTimeNow() : 0;
+    state->isActive = input.active ? XR_TRUE : XR_FALSE;
     return XR_SUCCESS;
 }
 
@@ -1913,6 +2037,30 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrEnumerateBoundSourcesForAction(
     }
     *count = 0;
     if (capacity > 0 && sources == nullptr) return XR_ERROR_VALIDATION_FAILURE;
+    XrInstance_T* instance = getInstance(owner->owner);
+    if (instance == nullptr) return XR_ERROR_HANDLE_INVALID;
+    std::vector<XrPath> activeSources;
+    for (int hand = 0; hand < 2; ++hand) {
+        const XrPath profile = currentProfileForHand(owner->owner, hand);
+        const auto found = instance->suggestedBindings.find(profile);
+        if (profile == XR_NULL_PATH || found == instance->suggestedBindings.end()) continue;
+        const XrPath handPath = hand == 0
+            ? (instance->pathHandles.count("/user/hand/left") ? instance->pathHandles.at("/user/hand/left") : XR_NULL_PATH)
+            : (instance->pathHandles.count("/user/hand/right") ? instance->pathHandles.at("/user/hand/right") : XR_NULL_PATH);
+        for (const auto& binding : found->second) {
+            if (binding.action != enumerateInfo->action) continue;
+            std::string path;
+            if (pathBelongsToInstance(owner->owner, binding.binding, &path) &&
+                handIndexFromPath(path) == hand && handPath != XR_NULL_PATH &&
+                std::find(activeSources.begin(), activeSources.end(), binding.binding) == activeSources.end()) {
+                activeSources.push_back(binding.binding);
+            }
+        }
+    }
+    *count = static_cast<std::uint32_t>(activeSources.size());
+    if (capacity == 0) return XR_SUCCESS;
+    if (capacity < activeSources.size()) return XR_ERROR_SIZE_INSUFFICIENT;
+    for (std::uint32_t i = 0; i < *count; ++i) sources[i] = activeSources[i];
     return XR_SUCCESS;
 }
 
@@ -2099,6 +2247,26 @@ xrNegotiateLoaderRuntimeInterface(
     return XR_SUCCESS;
 }
 
+extern "C" __attribute__((visibility("default"))) void endxrSetControllerInput(
+    std::uint32_t hand, std::uint32_t active, float trigger, float grip,
+    float stickX, float stickY, std::uint32_t buttons
+) {
+    if (hand > 1) return;
+    auto clean = [](float value) { return std::isfinite(value) ? std::clamp(value, -1.0f, 1.0f) : 0.0f; };
+    std::lock_guard<std::mutex> lock(g_controllerInputMutex);
+    auto& input = g_controllerInputs[hand];
+    input.active = active != 0;
+    input.trigger = std::clamp(clean(trigger), 0.0f, 1.0f);
+    input.grip = std::clamp(clean(grip), 0.0f, 1.0f);
+    input.stickX = clean(stickX);
+    input.stickY = clean(stickY);
+    input.buttons = buttons;
+    input.updatedAt = std::chrono::steady_clock::now();
+}
+extern "C" __attribute__((visibility("default"))) void endxrClearControllerInput() {
+    std::lock_guard<std::mutex> lock(g_controllerInputMutex);
+    g_controllerInputs = {};
+}
 extern "C" __attribute__((visibility("default"))) void endxrSetHeadOrientation(
     float x, float y, float z, float w
 ) {

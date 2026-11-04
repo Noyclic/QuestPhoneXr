@@ -1,5 +1,6 @@
 #include "endxr_openxr_runtime.hpp"
 #include <cstdint>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -387,6 +388,8 @@ void testActionInputApiLifecycleAndNeutralState() {
     XrPath profile = XR_NULL_PATH;
     XrPath leftSelect = XR_NULL_PATH;
     XrPath rightSelect = XR_NULL_PATH;
+    XrPath leftTriggerValue = XR_NULL_PATH, rightTriggerValue = XR_NULL_PATH;
+    XrPath leftThumbstick = XR_NULL_PATH, rightThumbstick = XR_NULL_PATH;
     expect(stringToPath(instance, "/user/hand/left", &leftHand) == XR_SUCCESS &&
                leftHand != XR_NULL_PATH,
            "intern left hand subaction path");
@@ -402,6 +405,12 @@ void testActionInputApiLifecycleAndNeutralState() {
     expect(stringToPath(instance, "/user/hand/right/input/select/click",
                         &rightSelect) == XR_SUCCESS,
            "intern right select binding path");
+    expect(stringToPath(instance, "/user/hand/left/input/trigger/value", &leftTriggerValue) == XR_SUCCESS &&
+               stringToPath(instance, "/user/hand/right/input/trigger/value", &rightTriggerValue) == XR_SUCCESS,
+           "intern per-hand analog trigger paths");
+    expect(stringToPath(instance, "/user/hand/left/input/thumbstick", &leftThumbstick) == XR_SUCCESS &&
+               stringToPath(instance, "/user/hand/right/input/thumbstick", &rightThumbstick) == XR_SUCCESS,
+           "intern per-hand thumbstick paths");
     XrPath leftHandAgain = XR_NULL_PATH;
     expect(stringToPath(instance, "/user/hand/left", &leftHandAgain) == XR_SUCCESS &&
                leftHandAgain == leftHand,
@@ -471,16 +480,39 @@ void testActionInputApiLifecycleAndNeutralState() {
     expect(createAction(actionSet, &hapticInfo, &hapticAction) == XR_SUCCESS,
            "create haptic output action");
 
+    XrActionCreateInfo triggerValueInfo{};
+    triggerValueInfo.type = XR_TYPE_ACTION_CREATE_INFO;
+    std::strncpy(triggerValueInfo.actionName, "trigger_value", sizeof(triggerValueInfo.actionName) - 1);
+    std::strncpy(triggerValueInfo.localizedActionName, "Trigger Value", sizeof(triggerValueInfo.localizedActionName) - 1);
+    triggerValueInfo.actionType = XR_ACTION_TYPE_FLOAT_INPUT;
+    triggerValueInfo.countSubactionPaths = 2;
+    triggerValueInfo.subactionPaths = handPaths;
+    XrAction triggerValueAction = XR_NULL_HANDLE;
+    expect(createAction(actionSet, &triggerValueInfo, &triggerValueAction) == XR_SUCCESS,
+           "create analog trigger action");
+
+    XrActionCreateInfo stickInfo{};
+    stickInfo.type = XR_TYPE_ACTION_CREATE_INFO;
+    std::strncpy(stickInfo.actionName, "move_stick", sizeof(stickInfo.actionName) - 1);
+    std::strncpy(stickInfo.localizedActionName, "Move Stick", sizeof(stickInfo.localizedActionName) - 1);
+    stickInfo.actionType = XR_ACTION_TYPE_VECTOR2F_INPUT;
+    stickInfo.countSubactionPaths = 2;
+    stickInfo.subactionPaths = handPaths;
+    XrAction stickAction = XR_NULL_HANDLE;
+    expect(createAction(actionSet, &stickInfo, &stickAction) == XR_SUCCESS,
+           "create thumbstick vector action");
+
     auto suggestBindings = reinterpret_cast<PFN_xrSuggestInteractionProfileBindings>(
         resolve(request.getInstanceProcAddr, instance, "xrSuggestInteractionProfileBindings"));
     const XrActionSuggestedBinding bindings[] = {
-        {triggerAction, leftSelect},
-        {triggerAction, rightSelect}
+        {triggerAction, leftSelect}, {triggerAction, rightSelect},
+        {triggerValueAction, leftTriggerValue}, {triggerValueAction, rightTriggerValue},
+        {stickAction, leftThumbstick}, {stickAction, rightThumbstick}
     };
     XrInteractionProfileSuggestedBinding suggested{};
     suggested.type = XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING;
     suggested.interactionProfile = profile;
-    suggested.countSuggestedBindings = 2;
+    suggested.countSuggestedBindings = 6;
     suggested.suggestedBindings = bindings;
     expect(suggestBindings(instance, &suggested) == XR_SUCCESS,
            "accept validated interaction-profile binding suggestions");
@@ -557,6 +589,15 @@ void testActionInputApiLifecycleAndNeutralState() {
                booleanState.currentState == XR_FALSE &&
                booleanState.isActive == XR_FALSE,
            "unfed physical input remains neutral and inactive");
+    endxrSetControllerInput(0, 1, 0.91f, 0.2f, -0.35f, 0.6f, 0);
+    expect(getBoolean(session, &stateInfo, &booleanState) == XR_SUCCESS &&
+               booleanState.currentState == XR_TRUE && booleanState.isActive == XR_TRUE,
+           "left select action reads injected left trigger");
+    stateInfo.subactionPath = rightHand;
+    expect(getBoolean(session, &stateInfo, &booleanState) == XR_SUCCESS &&
+               booleanState.currentState == XR_FALSE && booleanState.isActive == XR_FALSE,
+           "left controller input does not leak into right action");
+    stateInfo.subactionPath = leftHand;
 
     auto getFloat = reinterpret_cast<PFN_xrGetActionStateFloat>(
         resolve(request.getInstanceProcAddr, instance, "xrGetActionStateFloat"));
@@ -564,6 +605,37 @@ void testActionInputApiLifecycleAndNeutralState() {
     floatState.type = XR_TYPE_ACTION_STATE_FLOAT;
     expect(getFloat(session, &stateInfo, &floatState) == XR_ERROR_ACTION_TYPE_MISMATCH,
            "reject reading a boolean action as float");
+    XrActionStateGetInfo triggerValueStateInfo{};
+    triggerValueStateInfo.type = XR_TYPE_ACTION_STATE_GET_INFO;
+    triggerValueStateInfo.action = triggerValueAction;
+    triggerValueStateInfo.subactionPath = leftHand;
+    floatState = {};
+    floatState.type = XR_TYPE_ACTION_STATE_FLOAT;
+    expect(getFloat(session, &triggerValueStateInfo, &floatState) == XR_SUCCESS &&
+               floatState.isActive == XR_TRUE && std::abs(floatState.currentState - 0.91f) < 0.001f,
+           "float action receives analog left trigger value");
+    triggerValueStateInfo.subactionPath = rightHand;
+    expect(getFloat(session, &triggerValueStateInfo, &floatState) == XR_SUCCESS &&
+               floatState.isActive == XR_FALSE && floatState.currentState == 0.0f,
+           "analog trigger value stays isolated to left hand");
+    auto getVector = reinterpret_cast<PFN_xrGetActionStateVector2f>(
+        resolve(request.getInstanceProcAddr, instance, "xrGetActionStateVector2f"));
+    XrActionStateGetInfo stickStateInfo{};
+    stickStateInfo.type = XR_TYPE_ACTION_STATE_GET_INFO;
+    stickStateInfo.action = stickAction;
+    stickStateInfo.subactionPath = leftHand;
+    XrActionStateVector2f stickState{};
+    stickState.type = XR_TYPE_ACTION_STATE_VECTOR2F;
+    expect(getVector(session, &stickStateInfo, &stickState) == XR_SUCCESS &&
+               stickState.isActive == XR_TRUE &&
+               std::abs(stickState.currentState.x + 0.35f) < 0.001f &&
+               std::abs(stickState.currentState.y - 0.6f) < 0.001f,
+           "Vector2 action receives both left thumbstick axes");
+    stickStateInfo.subactionPath = rightHand;
+    expect(getVector(session, &stickStateInfo, &stickState) == XR_SUCCESS &&
+               stickState.isActive == XR_FALSE &&
+               stickState.currentState.x == 0.0f && stickState.currentState.y == 0.0f,
+           "thumbstick vector stays isolated to left hand");
 
     auto getPose = reinterpret_cast<PFN_xrGetActionStatePose>(
         resolve(request.getInstanceProcAddr, instance, "xrGetActionStatePose"));
@@ -582,8 +654,11 @@ void testActionInputApiLifecycleAndNeutralState() {
     XrInteractionProfileState profileState{};
     profileState.type = XR_TYPE_INTERACTION_PROFILE_STATE;
     expect(currentProfile(session, leftHand, &profileState) == XR_SUCCESS &&
+               profileState.interactionProfile == profile,
+           "report suggested simple-controller profile for active left input");
+    expect(currentProfile(session, rightHand, &profileState) == XR_SUCCESS &&
                profileState.interactionProfile == XR_NULL_PATH,
-           "report no active physical interaction profile");
+           "right interaction profile remains inactive without right input");
 
     auto enumerateBoundSources = reinterpret_cast<PFN_xrEnumerateBoundSourcesForAction>(
         resolve(request.getInstanceProcAddr, instance, "xrEnumerateBoundSourcesForAction"));
@@ -591,9 +666,13 @@ void testActionInputApiLifecycleAndNeutralState() {
     boundInfo.type = XR_TYPE_BOUND_SOURCES_FOR_ACTION_ENUMERATE_INFO;
     boundInfo.action = triggerAction;
     std::uint32_t sourceCount = 99;
-    expect(enumerateBoundSources(session, &boundInfo, 0, &sourceCount, nullptr) == XR_SUCCESS &&
-               sourceCount == 0,
-           "report no active runtime sources until controller bridge is connected");
+    expect(enumerateBoundSources(session, &boundInfo, 0, &sourceCount, nullptr) ==
+               XR_SUCCESS && sourceCount == 1,
+           "query active bound-source count after input injection");
+    XrPath activeSource = XR_NULL_PATH;
+    expect(enumerateBoundSources(session, &boundInfo, 1, &sourceCount, &activeSource) ==
+               XR_SUCCESS && sourceCount == 1 && activeSource == leftSelect,
+           "return active left select source path");
 
     auto getLocalizedName = reinterpret_cast<PFN_xrGetInputSourceLocalizedName>(
         resolve(request.getInstanceProcAddr, instance, "xrGetInputSourceLocalizedName"));
@@ -665,7 +744,10 @@ void testActionInputApiLifecycleAndNeutralState() {
         resolve(request.getInstanceProcAddr, instance, "xrDestroySession"));
     expect(destroySession(session) == XR_SUCCESS, "destroy action test session");
 
+    endxrClearControllerInput();
     expect(destroyAction(triggerAction) == XR_SUCCESS, "destroy select action");
+    expect(destroyAction(triggerValueAction) == XR_SUCCESS, "destroy analog trigger action");
+    expect(destroyAction(stickAction) == XR_SUCCESS, "destroy thumbstick action");
     expect(destroyAction(poseAction) == XR_SUCCESS, "destroy pose action");
     expect(destroyAction(hapticAction) == XR_SUCCESS, "destroy haptic action");
     expect(destroyActionSet(actionSet) == XR_SUCCESS, "destroy gameplay action set");

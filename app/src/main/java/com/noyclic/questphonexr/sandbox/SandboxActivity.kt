@@ -41,6 +41,10 @@ import android.text.InputType
 import java.util.Locale
 import java.io.File
 import com.noyclic.questphonexr.input.AndroidGamepadInputAdapter
+import com.noyclic.questphonexr.input.GamepadButtonCodes
+import com.noyclic.questphonexr.input.VirtualControllerMapper
+import com.noyclic.questphonexr.input.VirtualControllerState
+import com.noyclic.questphonexr.input.ControllerInputSource
 import com.noyclic.questphonexr.tracking.HandLandmarkerController
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.HandTrackingPreset
@@ -62,6 +66,7 @@ import com.noyclic.questphonexr.runtime.EndXrRuntimeState
 class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.InputDeviceListener {
     private val inputManager by lazy { getSystemService(INPUT_SERVICE) as InputManager }
     private val simulation = SandboxSimulation()
+    private val virtualControllerMapper = VirtualControllerMapper()
     @Volatile private var controllerSnapshots: List<PhysicalControllerSnapshot> = emptyList()
     @Volatile private var latestHandFrame = HandTrackingFrame(0L, emptyList())
     @Volatile private var measuredHandTrackingFps = 0f
@@ -167,6 +172,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 } else {
                     latestHands
                 }
+                publishOpenXrInput(hands, snapshot)
                 val cameraToWorldRotation = renderer.cameraToWorldRotation()
                 glView.queueEvent {
                     simulation.update(snapshot, hands, deltaSeconds, cameraToWorldRotation)
@@ -391,6 +397,52 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         }
         Log.i("EndXR-DIAG", "OpenXR report saved: " + endXrOpenXrDiagnosticPath)
         if (errors.isNotEmpty()) Log.e("EndXR-DIAG", errors.joinToString(" | "))
+    }
+
+    private fun nativeInputRow(state: VirtualControllerState): FloatArray {
+        var buttons = 0
+        if (GamepadButtonCodes.BUTTON_A in state.pressedKeyCodes) buttons = buttons or (1 shl 0)
+        if (GamepadButtonCodes.BUTTON_B in state.pressedKeyCodes) buttons = buttons or (1 shl 1)
+        if (GamepadButtonCodes.BUTTON_X in state.pressedKeyCodes) buttons = buttons or (1 shl 2)
+        if (GamepadButtonCodes.BUTTON_Y in state.pressedKeyCodes) buttons = buttons or (1 shl 3)
+        if (GamepadButtonCodes.BUTTON_START in state.pressedKeyCodes) buttons = buttons or (1 shl 4)
+        return floatArrayOf(
+            if (state.source != ControllerInputSource.NONE) 1f else 0f,
+            state.trigger.coerceIn(0f, 1f), state.grip.coerceIn(0f, 1f),
+            state.stickX.coerceIn(-1f, 1f), state.stickY.coerceIn(-1f, 1f),
+            buttons.toFloat()
+        )
+    }
+
+    private fun publishOpenXrInput(
+        handFrame: HandTrackingFrame = latestHandFrame,
+        controllers: List<PhysicalControllerSnapshot> = controllerSnapshots
+    ) {
+        val frame = virtualControllerMapper.map(handFrame, controllers)
+        endXrRuntime.setControllerInput(nativeInputRow(frame.left), nativeInputRow(frame.right))
+    }
+
+    private fun showOpenXrInputDiagnostic() {
+        val frame = virtualControllerMapper.map(latestHandFrame, controllerSnapshots)
+        fun describe(label: String, state: VirtualControllerState): String = buildString {
+            append(label).append(": ").append(state.source.name).append('\n')
+            append("  trigger=").append(String.format(Locale.US, "%.2f", state.trigger))
+            append(" · grip=").append(String.format(Locale.US, "%.2f", state.grip)).append('\n')
+            append("  stick=(").append(String.format(Locale.US, "%.2f", state.stickX))
+                .append(", ").append(String.format(Locale.US, "%.2f", state.stickY)).append(")")
+                .append(" · pinch=").append(state.pinchPressed)
+        }
+        publishOpenXrInput()
+        AlertDialog.Builder(this)
+            .setTitle("Проверка OpenXR ввода")
+            .setMessage(
+                describe("Левая рука", frame.left) + "\n\n" +
+                    describe("Правая рука", frame.right) +
+                    "\n\nДанные переданы через JNI в EndXR внутри процесса Sandbox. " +
+                    "Это не подтверждает системную передачу ввода сторонним APK."
+            )
+            .setPositiveButton("ОК", null)
+            .show()
     }
 
     private fun copyEndXrOpenXrDiagnostic() {
@@ -624,6 +676,26 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 Gravity.BOTTOM or Gravity.START
             ).apply {
                 bottomMargin = dp(14)
+                marginStart = dp(12)
+            }
+        )
+        val inputDiagnosticsButton = controlButton("Проверить OpenXR ввод") {
+            showOpenXrInputDiagnostic()
+        }.apply {
+            textSize = 13f
+            contentDescription = "Проверить передачу ввода в EndXR"
+            setPadding(dp(12), dp(5), dp(12), dp(5))
+            minHeight = dp(40)
+            elevation = dp(6).toFloat()
+        }
+        root.addView(
+            inputDiagnosticsButton,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.START
+            ).apply {
+                bottomMargin = dp(62)
                 marginStart = dp(12)
             }
         )
@@ -1253,6 +1325,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         Choreographer.getInstance().removeFrameCallback(frameCallback)
         if (::sensorManager.isInitialized) sensorManager.unregisterListener(this)
         inputManager.unregisterInputDeviceListener(this)
+        endXrRuntime.clearControllerInput()
         if (::glView.isInitialized) {
             glView.queueEvent {
                 xrSurfaceLifecycle.onActivityPaused()

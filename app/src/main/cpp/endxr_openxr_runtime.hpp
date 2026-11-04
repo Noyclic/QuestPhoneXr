@@ -62,6 +62,9 @@ XRAPI_ATTR XrResult XRAPI_CALL xrNegotiateLoaderRuntimeInterface(
 __attribute__((visibility("default")))
 #endif
 void endxrSetHeadOrientation(float x, float y, float z, float w);
+void endxrSetControllerInput(std::uint32_t hand, std::uint32_t active,
+    float trigger, float grip, float stickX, float stickY, std::uint32_t buttons);
+void endxrClearControllerInput();
 std::uint32_t endxrGetLastGlesError();
 
 #if defined(__cplusplus)
