@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Process
 import android.os.Bundle
+import android.os.SystemClock
 import java.io.File
 
 data class ExternalRuntimeProbeReport(
@@ -42,6 +43,40 @@ data class ExternalRuntimeProbeReport(
         appendLine()
         appendLine("This is a separate Android package, not QuestPhoneXR itself.")
         append("It verifies service discoverability, the read-only EndXR input IPC endpoint and broker responses; it does not prove a live background input producer.")
+    }
+}
+
+internal enum class ExternalInputPublicationState {
+    STALE,
+    LIVE_HANDS,
+    LIVE_CONTROLLERS,
+    PUBLISHING_NO_HANDS,
+    HEAD_SENSOR_ONLY,
+    NO_ACTIVE_INPUT
+}
+
+internal object ExternalInputHealthClassifier {
+    fun classify(
+        controllerStale: Boolean,
+        handPoseStale: Boolean,
+        headStale: Boolean,
+        headActive: Boolean,
+        leftControllerActive: Boolean,
+        rightControllerActive: Boolean,
+        leftHandPoseActive: Boolean,
+        rightHandPoseActive: Boolean
+    ): ExternalInputPublicationState = when {
+        controllerStale && handPoseStale && headStale ->
+            ExternalInputPublicationState.STALE
+        !handPoseStale && (leftHandPoseActive || rightHandPoseActive) ->
+            ExternalInputPublicationState.LIVE_HANDS
+        !controllerStale && (leftControllerActive || rightControllerActive) ->
+            ExternalInputPublicationState.LIVE_CONTROLLERS
+        !controllerStale && !handPoseStale ->
+            ExternalInputPublicationState.PUBLISHING_NO_HANDS
+        !headStale && headActive ->
+            ExternalInputPublicationState.HEAD_SENSOR_ONLY
+        else -> ExternalInputPublicationState.NO_ACTIVE_INPUT
     }
 }
 
@@ -143,11 +178,50 @@ object ExternalRuntimeClientProbe {
                 val handPoseStale = it.getInt(it.getColumnIndexOrThrow("hand_pose_stale")) != 0
                 val leftPoseActive = it.getInt(it.getColumnIndexOrThrow("left_pose_active")) != 0
                 val rightPoseActive = it.getInt(it.getColumnIndexOrThrow("right_pose_active")) != 0
+                val leftControllerActive = it.getInt(it.getColumnIndexOrThrow("left_active")) != 0
+                val rightControllerActive = it.getInt(it.getColumnIndexOrThrow("right_active")) != 0
                 val sequence = it.getLong(it.getColumnIndexOrThrow("sequence"))
+                val nowNanos = SystemClock.elapsedRealtimeNanos()
+                fun ageMs(column: String): Long {
+                    val timestamp = it.getLong(it.getColumnIndexOrThrow(column))
+                    return if (timestamp <= 0L) -1L
+                    else ((nowNanos - timestamp).coerceAtLeast(0L) / 1_000_000L)
+                }
+                val controllerAgeMs = ageMs("updated_at_elapsed_realtime_nanos")
+                val headAgeMs = ageMs("head_orientation_updated_at_elapsed_realtime_nanos")
+                val handPoseAgeMs = ageMs("hand_pose_updated_at_elapsed_realtime_nanos")
+                val publicationState = ExternalInputHealthClassifier.classify(
+                    controllerStale = stale,
+                    handPoseStale = handPoseStale,
+                    headStale = headStale,
+                    headActive = headActive,
+                    leftControllerActive = leftControllerActive,
+                    rightControllerActive = rightControllerActive,
+                    leftHandPoseActive = leftPoseActive,
+                    rightHandPoseActive = rightPoseActive
+                )
+                val nextStep = when (publicationState) {
+                    ExternalInputPublicationState.STALE ->
+                        "Start background hand tracking in Sandbox and keep its foreground notification running."
+                    ExternalInputPublicationState.LIVE_HANDS ->
+                        "Live camera hand poses are reaching the external process."
+                    ExternalInputPublicationState.LIVE_CONTROLLERS ->
+                        "Live controller samples are reaching the external process."
+                    ExternalInputPublicationState.PUBLISHING_NO_HANDS ->
+                        "The publisher is updating; put one or both hands in the camera view to test hand poses."
+                    ExternalInputPublicationState.HEAD_SENSOR_ONLY ->
+                        "Head sensor is live, but no camera hand/controller samples are active."
+                    ExternalInputPublicationState.NO_ACTIVE_INPUT ->
+                        "No active input source is visible. Start the user-controlled background tracking service in Sandbox."
+                }
                 "provider_permission=GRANTED; provider_query=PASS; provider=${provider.packageName}; " +
-                    "sequence=$sequence; stale=$stale; head_active=$headActive; " +
-                    "head_stale=$headStale; hand_pose_stale=$handPoseStale; " +
-                    "left_pose=$leftPoseActive; right_pose=$rightPoseActive; columns=${expected.size}"
+                    "sequence=$sequence; input_publication_state=${publicationState.name}; " +
+                    "controller_stale=$stale; controller_age_ms=$controllerAgeMs; " +
+                    "left_controller_active=$leftControllerActive; right_controller_active=$rightControllerActive; " +
+                    "head_active=$headActive; head_stale=$headStale; head_age_ms=$headAgeMs; " +
+                    "hand_pose_stale=$handPoseStale; hand_pose_age_ms=$handPoseAgeMs; " +
+                    "left_pose=$leftPoseActive; right_pose=$rightPoseActive; " +
+                    "next_step=$nextStep; columns=${expected.size}"
             }
         }.getOrElse {
             "provider_query=FAIL; ${it.message ?: it.javaClass.simpleName}"

@@ -15,6 +15,49 @@ import java.io.File
 @RunWith(AndroidJUnit4::class)
 class ExternalRuntimeClientDiscoveryTest {
     @Test
+    fun inputHealthClassifierDistinguishesLiveHandsFromStalePublisher() {
+        assertEquals(
+            ExternalInputPublicationState.LIVE_HANDS,
+            ExternalInputHealthClassifier.classify(
+                controllerStale = false,
+                handPoseStale = false,
+                headStale = false,
+                headActive = true,
+                leftControllerActive = false,
+                rightControllerActive = false,
+                leftHandPoseActive = true,
+                rightHandPoseActive = false
+            )
+        )
+        assertEquals(
+            ExternalInputPublicationState.STALE,
+            ExternalInputHealthClassifier.classify(
+                controllerStale = true,
+                handPoseStale = true,
+                headStale = true,
+                headActive = false,
+                leftControllerActive = false,
+                rightControllerActive = false,
+                leftHandPoseActive = false,
+                rightHandPoseActive = false
+            )
+        )
+        assertEquals(
+            ExternalInputPublicationState.PUBLISHING_NO_HANDS,
+            ExternalInputHealthClassifier.classify(
+                controllerStale = false,
+                handPoseStale = false,
+                headStale = false,
+                headActive = true,
+                leftControllerActive = false,
+                rightControllerActive = false,
+                leftHandPoseActive = false,
+                rightHandPoseActive = false
+            )
+        )
+    }
+
+    @Test
     fun separatePackageRunsOfficialLoaderAndReportsRuntimeCreationResult() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
@@ -47,6 +90,13 @@ class ExternalRuntimeClientDiscoveryTest {
             assertTrue(
                 "External package could not read the EndXR input IPC snapshot:\n$serviceReport",
                 serviceReport.contains("provider_query=PASS")
+            )
+            assertTrue(
+                "External probe did not report input producer freshness:\n$serviceReport",
+                serviceReport.contains("input_publication_state=") &&
+                    serviceReport.contains("controller_age_ms=") &&
+                    serviceReport.contains("head_age_ms=") &&
+                    serviceReport.contains("hand_pose_age_ms=")
             )
             assertTrue(
                 "EndXR runtime library was not visible to the external package:\n$serviceReport",

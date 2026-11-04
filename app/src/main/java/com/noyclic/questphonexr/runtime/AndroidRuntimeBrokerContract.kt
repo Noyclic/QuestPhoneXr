@@ -8,6 +8,12 @@ package com.noyclic.questphonexr.runtime
  * /openxr/<major>/abi/<abi>/runtimes/<package>/functions
  */
 internal object AndroidRuntimeBrokerContract {
+    const val INSTALLABLE_BROKER_PACKAGE = "org.khronos.openxr.runtime_broker"
+    const val INSTALLABLE_BROKER_MAIN_ACTIVITY =
+        "org.khronos.openxr.runtime_broker.MainActivity"
+    const val INSTALLABLE_BROKER_PLAY_STORE_URL =
+        "https://play.google.com/store/apps/details?id=org.khronos.openxr.runtime_broker"
+
     private val allowedAuthorities = setOf(
         "org.khronos.openxr.runtime_broker",
         "org.khronos.openxr.system_runtime_broker"

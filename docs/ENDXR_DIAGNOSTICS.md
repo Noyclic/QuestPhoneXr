@@ -37,6 +37,20 @@ It now requires the signature permission `com.noyclic.questphonexr.permission.RE
 
 Arbitrary third-party game APKs are deliberately not authorized yet. A future user-controlled package-specific authorization flow is required before game clients can read live controller snapshots. Do not remove the permission to make a test game work.
 
+A successful provider query does not prove a live camera producer. The
+external probe now reports controller, head-sensor and hand-pose sample ages
+plus input publication state:
+- LIVE_HANDS — one or both camera hand poses are fresh.
+- LIVE_CONTROLLERS — fresh controller rows are active.
+- PUBLISHING_NO_HANDS — the producer is refreshing samples, but no hand pose is currently detected.
+- HEAD_SENSOR_ONLY — phone orientation is fresh without camera hand/controller data.
+- STALE — all input sources have expired; start **Фоновое отслеживание рук для Quest-игр** in Sandbox and leave its foreground notification running before switching to the external client.
+- NO_ACTIVE_INPUT — no active source is currently visible to the external package.
+
+The 300 ms sample lease is deliberate: old controller values are neutralized
+instead of being replayed as if they were live input. Sample ages use Android
+elapsed realtime, so they can be compared between processes on the same device.
+
 The Android emulator smoke test also queries the provider as the untrusted `adb shell` UID and requires Android to deny access. The CI artifact includes `diagnostics/ipc-access-control.txt` and the raw denial output in `diagnostics/ipc-unauthorized-shell.txt`.
 
 ## CI artifact export

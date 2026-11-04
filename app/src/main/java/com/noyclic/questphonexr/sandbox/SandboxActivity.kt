@@ -61,6 +61,7 @@ import com.noyclic.questphonexr.performance.AdaptivePerformanceState
 import com.noyclic.questphonexr.performance.DevicePerformancePolicy
 import com.noyclic.questphonexr.performance.DevicePerformancePreset
 import com.noyclic.questphonexr.runtime.EndXrGlSurfaceLifecycle
+import com.noyclic.questphonexr.runtime.AndroidRuntimeBrokerContract
 import com.noyclic.questphonexr.runtime.EndXrRuntimeBridge
 import com.noyclic.questphonexr.runtime.EndXrInputSnapshotStore
 import com.noyclic.questphonexr.runtime.EndXrHandInputEncoder
@@ -435,29 +436,31 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     }
 
     private fun openOpenXrRuntimeBroker() {
-        val brokerPackage = "org.khronos.openxr.runtime_broker"
-        val brokerIntent = packageManager.getLaunchIntentForPackage(brokerPackage)
-        if (brokerIntent != null) {
-            retryOpenXrProbeOnResume = true
-            runCatching {
-                startActivity(brokerIntent)
-                Toast.makeText(
-                    this,
-                    "В Runtime Broker выбери «EndXR OpenXR Runtime», затем вернись сюда.",
-                    Toast.LENGTH_LONG
-                ).show()
-            }.onFailure { error ->
-                retryOpenXrProbeOnResume = false
-                Toast.makeText(
-                    this,
-                    "Не удалось открыть Runtime Broker: ${error.message ?: "ошибка запуска"}",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
+        val brokerPackage = AndroidRuntimeBrokerContract.INSTALLABLE_BROKER_PACKAGE
+        val storeUrl = AndroidRuntimeBrokerContract.INSTALLABLE_BROKER_PLAY_STORE_URL
+        val brokerIntent = Intent().setClassName(
+            brokerPackage,
+            AndroidRuntimeBrokerContract.INSTALLABLE_BROKER_MAIN_ACTIVITY
+        )
+        retryOpenXrProbeOnResume = true
+        runCatching {
+            startActivity(brokerIntent)
+            Toast.makeText(
+                this,
+                "В Runtime Broker выбери «EndXR OpenXR Runtime», затем вернись сюда.",
+                Toast.LENGTH_LONG
+            ).show()
+        }.onSuccess {
             return
+        }.onFailure { launchError ->
+            retryOpenXrProbeOnResume = false
+            Log.i(
+                "EndXR-RuntimeBroker",
+                "Khronos Broker activity is not available; offering official store listing.",
+                launchError
+            )
         }
 
-        val storeUrl = "https://play.google.com/store/apps/details?id=$brokerPackage"
         AlertDialog.Builder(this)
             .setTitle("Нужен OpenXR Runtime Broker")
             .setMessage(
@@ -1486,6 +1489,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             glView.queueEvent {
                 if (retryOpenXrProbe) endXrOpenXrTestGeneration = -1L
                 xrSurfaceLifecycle.onActivityResumed()
+                if (retryOpenXrProbe) runEndXrOpenXrSelfTestIfNeeded()
             }
             glView.requestRender()
             lastFrameNanos = 0L
