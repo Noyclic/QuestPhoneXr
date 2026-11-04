@@ -112,7 +112,6 @@ jobs:
             adb logcat -b all -d -v threadtime > ci-results/emulator-logcat.txt
             grep -Ei 'endxr|vulkan|OpenGLRenderer|FATAL EXCEPTION|Fatal signal|DEBUG   :' ci-results/emulator-logcat.txt > ci-results/endxr-native-filtered.log || true
 
-
             adb pull /sdcard/Android/data/com.noyclic.questphonexr/files/ci-screenshots/. ci-results/screenshots/ || true
             mkdir -p ci-results/diagnostics
             adb pull /sdcard/Android/data/com.noyclic.questphonexr/files/ci-diagnostics/. ci-results/diagnostics/ || true
@@ -138,8 +137,11 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      # Emulator startup is flaky on hosted runners. Keep the APK available
+      # whenever the build and validation steps produced it, even if the
+      # later connected-device smoke test fails.
       - name: Upload debug APK
-        if: success()
+        if: always() && !cancelled() && hashFiles('app/build/outputs/apk/debug/app-debug.apk') != ''
         uses: actions/upload-artifact@v4
         with:
           name: QuestPhoneXR-debug-apk
