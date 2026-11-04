@@ -1,35 +1,36 @@
 package com.noyclic.questphonexr.catalog
 
 object GameCatalog {
+    // User's first real-game targets are kept at the top in the agreed test order.
     val entries: List<GameCatalogEntry> = listOf(
-        GameCatalogEntry(
-            id = "baldis-basics-classic-vr",
-            title = "Baldi's Basics Classic VR",
-            summary = "Отдельный VR-порт классической Baldi's Basics с проектом и Quest-сборкой.",
-            portingPath = GamePortingPath.QUEST_BUILD_NEEDS_ADAPTATION,
-            expectedLoad = ExpectedLoad.UNKNOWN,
-            projectUrl = "https://github.com/hanabira-mitsu/bbvr",
-            compatibilityNotes = "Наличие Quest APK не означает, что он запустится на обычном Android-телефоне. Нужна адаптация рендеринга, трекинга и ввода."
-        ),
         GameCatalogEntry(
             id = "open-saber",
             title = "Open Saber",
-            summary = "VR-клон ритм-игры с отдельным Quest-проектом; также найден отдельный Android/SBS-порт.",
+            summary = "Первая цель тестирования. Есть отдельный Quest-проект и отдельный Android/SBS-порт.",
             portingPath = GamePortingPath.ANDROID_BUILD_LISTED,
             expectedLoad = ExpectedLoad.MEDIUM,
             projectUrl = "https://github.com/mstritt/OpenSaberVR-Quest",
             secondaryUrl = "https://sasukidasprime.itch.io/open-saber-port",
             secondaryUrlLabel = "Android-порт",
-            compatibilityNotes = "Android-порт и Quest-версия — разные сборки. Ни одна из них пока не проверена на Redmi Note 13 4G."
+            compatibilityNotes = "Сначала проверяем Android/SBS-сборку на Redmi Note 13 4G. Quest APK — отдельная сборка и не считается совместимой автоматически."
         ),
         GameCatalogEntry(
             id = "granny-vr",
-            title = "Granny VR",
-            summary = "Неофициальный VR-проект Granny; автор указывает Android- и Quest-версии.",
+            title = "Granny: Quest / Granny VR",
+            summary = "Вторая цель. Неофициальный VR-проект Granny с заявленными Android- и Quest-вариантами.",
             portingPath = GamePortingPath.ANDROID_BUILD_LISTED,
             expectedLoad = ExpectedLoad.UNKNOWN,
             projectUrl = "https://gogozooom.itch.io/granny-vr",
-            compatibilityNotes = "Страница проекта указывает Android и Quest, но это не подтверждает работу конкретной сборки в VR Shinecon или на Redmi."
+            compatibilityNotes = "Нужно отдельно определить точную сборку и проверить её манифест, ABI, запуск, стереорендеринг и ввод. Страница проекта сама по себе не подтверждает совместимость с Redmi."
+        ),
+        GameCatalogEntry(
+            id = "baldis-basics-classic-vr",
+            title = "Baldi's Basics Quest / Classic VR",
+            summary = "Третья цель. Отдельный VR-порт классической Baldi's Basics с Quest-сборкой.",
+            portingPath = GamePortingPath.QUEST_BUILD_NEEDS_ADAPTATION,
+            expectedLoad = ExpectedLoad.UNKNOWN,
+            projectUrl = "https://github.com/hanabira-mitsu/bbvr",
+            compatibilityNotes = "Quest APK может зависеть от Meta XR Runtime и сервисов гарнитуры. Сначала проверяем APK-метаданные; для телефона может потребоваться отдельный порт."
         ),
         GameCatalogEntry(
             id = "questcraft",
