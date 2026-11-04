@@ -1576,10 +1576,14 @@ bool refreshExternalControllerInput(XrInstance_T* instance) {
         reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
     if (envStatus == JNI_EDETACHED) {
         if (instance->applicationVm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
+            endxrClearControllerInput();
+            endxrClearHeadOrientation();
             return false;
         }
         attachedHere = true;
     } else if (envStatus != JNI_OK || env == nullptr) {
+        endxrClearControllerInput();
+        endxrClearHeadOrientation();
         return false;
     }
 
@@ -1689,7 +1693,6 @@ bool refreshExternalControllerInput(XrInstance_T* instance) {
 
             if (stale != 0) {
                 endxrClearControllerInput();
-            endxrClearHeadOrientation();
             } else {
                 endxrSetControllerInput(0, static_cast<std::uint32_t>(leftActive != 0),
                     leftTrigger, leftGrip, leftStickX, leftStickY,
@@ -1715,9 +1718,13 @@ bool refreshExternalControllerInput(XrInstance_T* instance) {
     } else {
         if (env->ExceptionCheck()) env->ExceptionClear();
         endxrClearControllerInput();
-            endxrClearHeadOrientation();
+        endxrClearHeadOrientation();
     }
 
+    if (!success) {
+        endxrClearControllerInput();
+        endxrClearHeadOrientation();
+    }
     if (attachedHere) instance->applicationVm->DetachCurrentThread();
     return success;
 }

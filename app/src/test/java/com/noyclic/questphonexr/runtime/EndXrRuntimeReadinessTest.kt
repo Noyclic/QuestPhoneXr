@@ -12,6 +12,8 @@ class EndXrRuntimeReadinessTest {
         assertEquals(RuntimeCapabilityState.PARTIAL, byId.getValue("controller-input").state)
         assertTrue(byId.getValue("controller-input").details.contains("foreground service"))
         assertTrue(byId.getValue("controller-input").details.contains("not globally captured"))
+        assertTrue(byId.getValue("head-orientation").details.contains("Android IPC provider"))
+        assertTrue(byId.getValue("head-orientation").details.contains("not positional 6DoF"))
         assertEquals(RuntimeCapabilityState.NOT_IMPLEMENTED, byId.getValue("position-tracking").state)
         assertEquals(RuntimeCapabilityState.NOT_IMPLEMENTED, byId.getValue("openxr-hand-tracking").state)
         assertEquals(RuntimeCapabilityState.NOT_VERIFIED, byId.getValue("runtime-broker").state)
@@ -33,5 +35,6 @@ class EndXrRuntimeReadinessTest {
         assertTrue(warnings.single().contains("во внешнюю игру"))
         assertTrue(warnings.single().contains("camera foreground service"))
         assertTrue(warnings.single().contains("haptics"))
+        assertTrue(warnings.single().contains("ориентацию головы"))
     }
 }

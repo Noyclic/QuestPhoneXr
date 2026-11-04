@@ -24,24 +24,30 @@ Monado is not a required dependency in the active architecture or build path.
 - The Sandbox publishes independent left/right controller samples to an
   in-memory input snapshot store. A read-only exported Android ContentProvider
   exposes one row with trigger, grip, thumbstick, button mask, sequence and
-  timestamp. When an imported OpenXR candidate is launched from ApkImportActivity,
-  QuestPhoneXR grants that exact read-only URI to the game package so the game
-  does not have to add a package-visibility query for the provider authority. Inactive or stale samples are always neutral; the lease is 300 ms.
+  timestamp plus a normalized phone head-orientation quaternion and its own
+  freshness lease. When an imported OpenXR candidate is launched from
+  ApkImportActivity, QuestPhoneXR grants that exact read-only URI to the game
+  package so the game does not have to add a package-visibility query for the
+  provider authority. Controller samples expire after 300 ms; head orientation
+  expires independently after 500 ms. Stale values are neutral/inactive.
 - The loader-facing runtime retains the Android VM and Activity supplied through
   XR_KHR_android_create_instance. At xrSyncActions it polls the provider from
   the game process (throttled to one query per 8 ms) and refreshes the runtime's
   local Action input cache. The separate client APK verifies that a different
   package can query the provider; Android CI now asserts this IPC checkpoint.
-- A user-started camera foreground service now owns the CameraX lifecycle when
-  the user enables "Фоновое отслеживание рук для Quest-игр" in Sandbox.
-  It republishes MediaPipe pinch/grip snapshots while Sandbox is paused and
-  clears the IPC snapshot when stopped. It must be started while QuestPhoneXR
-  is visible and camera permission is granted; Android keeps a persistent
-  notification while the camera remains active.
-- This persistent producer is camera-hand input only. Android gamepad key and
-  motion events are not globally intercepted after another app receives focus;
-  controller poses and haptics are still unavailable. Physical-device camera
-  lifecycle and thermal impact remain to be verified on the Redmi.
+- A user-started camera foreground service now owns the CameraX lifecycle and
+  listens to the phone rotation-vector sensor when the user enables
+  "Фоновое отслеживание рук для Quest-игр" in Sandbox. It republishes MediaPipe
+  pinch/grip and a normalized head-orientation quaternion while Sandbox is
+  paused, and clears the IPC snapshot when stopped. It must be started while
+  QuestPhoneXR is visible and camera permission is granted; Android keeps a
+  persistent notification while the camera remains active.
+- The foreground producer provides phone head orientation and camera-hand
+  pinch/grip, but it does not globally intercept Android gamepad key or motion
+  events after another app receives focus. Controller poses and haptics are
+  still unavailable; phone translation is not measured, so this is not 6DoF.
+  Physical-device sensor/camera lifecycle and thermal impact remain to be
+  verified on the Redmi.
 - Pose actions remain inactive: camera-relative hand landmarks are not yet
   calibrated into an OpenXR reference-space pose.
 - Haptic output entry points validate their inputs but return

@@ -110,16 +110,23 @@ object ExternalRuntimeClientProbe {
                     "sequence", "updated_at_elapsed_realtime_nanos", "stale",
                     "left_active", "left_trigger", "left_grip", "left_stick_x",
                     "left_stick_y", "left_buttons", "right_active", "right_trigger",
-                    "right_grip", "right_stick_x", "right_stick_y", "right_buttons"
+                    "right_grip", "right_stick_x", "right_stick_y", "right_buttons",
+                    "head_orientation_active", "head_orientation_stale",
+                    "head_orientation_updated_at_elapsed_realtime_nanos",
+                    "head_orientation_x", "head_orientation_y",
+                    "head_orientation_z", "head_orientation_w"
                 )
                 val missing = expected.filter { name -> it.getColumnIndex(name) < 0 }
                 if (missing.isNotEmpty()) {
                     return@use "provider_query=FAIL; missing_columns=${missing.joinToString()}"
                 }
                 val stale = it.getInt(it.getColumnIndexOrThrow("stale")) != 0
+                val headActive = it.getInt(it.getColumnIndexOrThrow("head_orientation_active")) != 0
+                val headStale = it.getInt(it.getColumnIndexOrThrow("head_orientation_stale")) != 0
                 val sequence = it.getLong(it.getColumnIndexOrThrow("sequence"))
                 "provider_query=PASS; provider=${provider.packageName}; " +
-                    "sequence=$sequence; stale=$stale; columns=${expected.size}"
+                    "sequence=$sequence; stale=$stale; head_active=$headActive; " +
+                    "head_stale=$headStale; columns=${expected.size}"
             }
         }.getOrElse {
             "provider_query=FAIL; ${it.message ?: it.javaClass.simpleName}"

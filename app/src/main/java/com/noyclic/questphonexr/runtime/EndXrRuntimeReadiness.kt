@@ -31,7 +31,7 @@ object EndXrRuntimeReadiness {
             "The Sandbox probe submits two eye views and verifies compositor output on its own EGL surface."),
         RuntimeCapability("head-orientation", "Head orientation",
             RuntimeCapabilityState.PARTIAL,
-            "Orientation can be supplied to the runtime; this is not positional 6DoF tracking."),
+            "The phone rotation-vector sensor publishes a normalized quaternion through the same Android IPC provider; EndXR refreshes it in the external game process during view/space location. It is orientation-only, not positional 6DoF."),
         RuntimeCapability("position-tracking", "6DoF position tracking",
             RuntimeCapabilityState.NOT_IMPLEMENTED,
             "The current OpenXR system properties explicitly advertise positionTracking=false."),
@@ -51,12 +51,11 @@ object EndXrRuntimeReadiness {
 
     val librarySummary: String =
         "Внутри Sandbox проверены loader negotiation, Android/GLES session и stereo projection layer. " +
-            "OpenXR Actions API частично реализован: отдельный процесс читает IPC-снимок контроллеров во время xrSyncActions, а user-started camera foreground service продолжает передавать pinch/grip при открытой внешней игре. Android gamepad events, controller poses и haptics пока отсутствуют. " +
+            "OpenXR Actions API частично реализован: отдельный процесс читает IPC-снимок контроллеров во время xrSyncActions, а user-started camera foreground service передаёт pinch/grip и ориентацию головы при открытой внешней игре. Android gamepad events, controller poses и haptics пока отсутствуют; позиционного 6DoF нет. " +
             "Также не хватает 6DoF position и XR hand tracking; выбор runtime через RuntimeBroker ещё не подтверждён на физическом телефоне."
 
     const val OPEN_XR_GAME_WARNING =
-        "EndXR экспортирует базовый OpenXR Action / Input API, а ввод Sandbox уже отображается в Action states внутри QuestPhoneXR. " +
-            "Для передачи жестов во внешнюю игру можно вручную включить camera foreground service в Sandbox до переключения приложения; он продолжает публиковать MediaPipe pinch/grip через IPC. Android gamepad события не перехватываются глобально, controller poses и haptics не поддерживаются, поэтому полноценная игра пока не подтверждена."
+        "EndXR экспортирует базовый OpenXR Action / Input API. Перед запуском внешней игры можно включить camera foreground service в Sandbox: он передаёт MediaPipe pinch/grip и ориентацию головы через IPC. Позиционного 6DoF, Android gamepad capture, controller poses и haptics пока нет, поэтому полноценная игра ещё не подтверждена."
 
     const val QUEST_GAME_WARNING =
         "Quest APK может зависеть от Meta/Oculus Runtime и системных сервисов гарнитуры. На обычном Android " +
