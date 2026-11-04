@@ -78,6 +78,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     @Volatile private var endXrRuntimeLabel = "ожидает GLES surface"
     @Volatile private var endXrCompletedPhoneFrames = 0L
     private var endXrAttemptedSurfaceGeneration = -1L
+    private var endXrRecoveryAttempts = 0
+    private var endXrLastAttemptMs = 0L
     private lateinit var sensorManager: SensorManager
     private lateinit var statusView: TextView
     private lateinit var viewerProfileStore: ViewerProfileStore
@@ -263,23 +265,36 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private fun ensureEndXrRuntimeStarted() {
         if (xrSurfaceLifecycle.state != EndXrGlSurfaceLifecycle.State.READY) return
         val generation = xrSurfaceLifecycle.surfaceGeneration
-        if (endXrAttemptedSurfaceGeneration == generation) return
-
-        endXrAttemptedSurfaceGeneration = generation
+        val currentState = endXrRuntime.snapshot()?.state ?: EndXrRuntimeState.COLD
+        val sameSurface = endXrAttemptedSurfaceGeneration == generation
+        if (sameSurface && currentState != EndXrRuntimeState.LOST &&
+            currentState != EndXrRuntimeState.COLD
+        ) return
+        if (sameSurface && endXrRecoveryAttempts >= MAX_ENDXR_START_ATTEMPTS) return
+        val nowMs = SystemClock.uptimeMillis()
+        if (sameSurface && nowMs - endXrLastAttemptMs < ENDXR_RECOVERY_DELAY_MS) return
+        if (!sameSurface) {
+            endXrAttemptedSurfaceGeneration = generation
+            endXrRecoveryAttempts = 0
+        } else {
+            endXrRuntime.shutdown()
+        }
+        endXrRecoveryAttempts += 1
+        endXrLastAttemptMs = nowMs
         if (!endXrRuntime.isAvailable) {
             endXrRuntimeLabel = "native library unavailable"
             return
         }
 
-        val width = xrSurfaceLifecycle.surfaceWidth.coerceIn(64, 8192)
+        // Sandbox renders two side-by-side views; runtime dimensions describe one eye.
+        val width = (xrSurfaceLifecycle.surfaceWidth / 2).coerceIn(64, 8192)
         val height = xrSurfaceLifecycle.surfaceHeight.coerceIn(64, 8192)
         val targetFps = adaptivePerformanceState.renderFpsCap.coerceIn(10, 120)
-
         fun fail(stage: String, error: String) {
             endXrRuntime.shutdown()
-            endXrRuntimeLabel = "$stage: $error"
+            endXrRuntimeLabel =
+                "$stage: $error · attempt $endXrRecoveryAttempts/$MAX_ENDXR_START_ATTEMPTS"
         }
-
         endXrRuntime.initialize(width, height, targetFps)?.let {
             fail("initialize", it)
             return
@@ -292,9 +307,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             fail("begin session", it)
             return
         }
-
         endXrCompletedPhoneFrames = 0L
-        endXrRuntimeLabel = "active · $width×$height · $targetFps FPS target"
+        endXrRuntimeLabel =
+            "active · 2 views · ${width}×$height/eye · $targetFps FPS target"
     }
 
     /** Called exclusively from GLSurfaceView's render thread. */
@@ -345,6 +360,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         }
         endXrRuntime.shutdown()
         endXrAttemptedSurfaceGeneration = -1L
+        endXrRecoveryAttempts = 0
+        endXrLastAttemptMs = 0L
         endXrRuntimeLabel = status
     }
 
@@ -1009,6 +1026,15 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 .append(xrSurfaceLifecycle.surfaceHeight)
             append(" · core ").append(endXrRuntimeLabel)
             append(" · phone frames ").append(endXrCompletedPhoneFrames)
+            endXrRuntime.snapshot()?.let { runtime ->
+                append('\n')
+                append("EndXR frames: ").append(runtime.framesStarted)
+                append(" · sent ").append(runtime.submittedFrames)
+                append(" · dropped ").append(runtime.droppedFrames)
+                append(" · late ").append(runtime.lateFrames)
+                append(" · lateness ").append(runtime.lastLatenessNanos / 1_000_000L)
+                    .append(" ms")
+            }
             append(" · без XR compositor").append('\n')
             append("Joy-Con L: ").append(if (leftConnected) "подключён" else "нет")
             append(" · R: ").append(if (rightConnected) "подключён" else "нет")
@@ -1165,6 +1191,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         private const val MAX_PHYSICS_STEP_SECONDS = 0.05f
         private const val STATUS_REFRESH_INTERVAL_MS = 250L
         private const val HAND_FRAME_STALE_MS = 500L
+        private const val ENDXR_RECOVERY_DELAY_MS = 1_500L
+        private const val MAX_ENDXR_START_ATTEMPTS = 3
         private const val PC_BRIDGE_PREFERENCES = "pc_tracking_bridge"
         private const val KEY_PC_HOST = "host"
     }

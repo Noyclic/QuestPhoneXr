@@ -74,15 +74,16 @@ Java_com_noyclic_questphonexr_runtime_EndXrRuntimeBridge_nativeWaitFrame(
     const jlong values[] = {
         static_cast<jlong>(timing.frame_index),
         static_cast<jlong>(timing.predicted_display_time_ns),
-        static_cast<jlong>(timing.predicted_display_period_ns)
+        static_cast<jlong>(timing.predicted_display_period_ns),
+        static_cast<jlong>(timing.frame_deadline_ns)
     };
-    jlongArray result = env->NewLongArray(3);
+    jlongArray result = env->NewLongArray(4);
     if (result == nullptr) {
         std::string cleanup_error;
         g_runtime_core.endFrame(timing, false, &cleanup_error);
         return nullptr;
     }
-    env->SetLongArrayRegion(result, 0, 3, values);
+    env->SetLongArrayRegion(result, 0, 4, values);
     if (env->ExceptionCheck()) {
         std::string cleanup_error;
         g_runtime_core.endFrame(timing, false, &cleanup_error);
@@ -169,14 +170,18 @@ Java_com_noyclic_questphonexr_runtime_EndXrRuntimeBridge_nativeSnapshot(
         static_cast<jlong>(snapshot.config.width),
         static_cast<jlong>(snapshot.config.height),
         static_cast<jlong>(snapshot.config.target_fps),
-        static_cast<jlong>(snapshot.submitted_frames)
+        static_cast<jlong>(snapshot.frames_started),
+        static_cast<jlong>(snapshot.submitted_frames),
+        static_cast<jlong>(snapshot.dropped_frames),
+        static_cast<jlong>(snapshot.late_frames),
+        static_cast<jlong>(snapshot.last_lateness_ns)
     };
 
-    jlongArray result = env->NewLongArray(5);
+    jlongArray result = env->NewLongArray(9);
     if (result == nullptr) {
         return nullptr;
     }
-    env->SetLongArrayRegion(result, 0, 5, values);
+    env->SetLongArrayRegion(result, 0, 9, values);
     return result;
 }
 
