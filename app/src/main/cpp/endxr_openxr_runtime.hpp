@@ -66,6 +66,9 @@ void endxrClearHeadOrientation();
 void endxrSetControllerInput(std::uint32_t hand, std::uint32_t active,
     float trigger, float grip, float stickX, float stickY, std::uint32_t buttons);
 void endxrClearControllerInput();
+void endxrSetHandPose(std::uint32_t hand, std::uint32_t active,
+    float x, float y, float z, float qx, float qy, float qz, float qw);
+void endxrClearHandPoses();
 std::uint32_t endxrGetLastGlesError();
 
 #if defined(__cplusplus)

@@ -71,6 +71,8 @@ struct XrControllerInputSample {
     float stickX = 0.0f;
     float stickY = 0.0f;
     std::uint32_t buttons = 0;
+    bool poseActive = false;
+    XrPosef gripPose{{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f}};
 };
 
 struct XrActionStateKey {
@@ -241,6 +243,8 @@ struct EndXrControllerInput {
     bool active = false;
     float trigger = 0.0f, grip = 0.0f, stickX = 0.0f, stickY = 0.0f;
     std::uint32_t buttons = 0;
+    bool poseActive = false;
+    XrPosef gripPose{{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f}};
     std::chrono::steady_clock::time_point updatedAt{};
 };
 std::mutex g_controllerInputMutex;
@@ -1665,9 +1669,14 @@ bool refreshExternalControllerInputImpl(XrInstance_T* instance) {
             jint stale = 1;
             jint leftActive = 0, leftButtons = 0, rightActive = 0, rightButtons = 0;
             jint headActive = 0, headStale = 1;
+            jint handPoseStale = 1, leftPoseActive = 0, rightPoseActive = 0;
             jfloat leftTrigger = 0, leftGrip = 0, leftStickX = 0, leftStickY = 0;
             jfloat rightTrigger = 0, rightGrip = 0, rightStickX = 0, rightStickY = 0;
             jfloat headX = 0, headY = 0, headZ = 0, headW = 1;
+            jfloat leftPoseX = 0, leftPoseY = 0, leftPoseZ = 0;
+            jfloat leftPoseQx = 0, leftPoseQy = 0, leftPoseQz = 0, leftPoseQw = 1;
+            jfloat rightPoseX = 0, rightPoseY = 0, rightPoseZ = 0;
+            jfloat rightPoseQx = 0, rightPoseQy = 0, rightPoseQz = 0, rightPoseQw = 1;
             const bool columnsRead =
                 readInt("stale", &stale) &&
                 readInt("left_active", &leftActive) &&
@@ -1687,7 +1696,24 @@ bool refreshExternalControllerInputImpl(XrInstance_T* instance) {
                 readFloat("head_orientation_x", &headX) &&
                 readFloat("head_orientation_y", &headY) &&
                 readFloat("head_orientation_z", &headZ) &&
-                readFloat("head_orientation_w", &headW);
+                readFloat("head_orientation_w", &headW) &&
+                readInt("hand_pose_stale", &handPoseStale) &&
+                readInt("left_pose_active", &leftPoseActive) &&
+                readFloat("left_pose_x", &leftPoseX) &&
+                readFloat("left_pose_y", &leftPoseY) &&
+                readFloat("left_pose_z", &leftPoseZ) &&
+                readFloat("left_pose_qx", &leftPoseQx) &&
+                readFloat("left_pose_qy", &leftPoseQy) &&
+                readFloat("left_pose_qz", &leftPoseQz) &&
+                readFloat("left_pose_qw", &leftPoseQw) &&
+                readInt("right_pose_active", &rightPoseActive) &&
+                readFloat("right_pose_x", &rightPoseX) &&
+                readFloat("right_pose_y", &rightPoseY) &&
+                readFloat("right_pose_z", &rightPoseZ) &&
+                readFloat("right_pose_qx", &rightPoseQx) &&
+                readFloat("right_pose_qy", &rightPoseQy) &&
+                readFloat("right_pose_qz", &rightPoseQz) &&
+                readFloat("right_pose_qw", &rightPoseQw);
             if (env->ExceptionCheck()) env->ExceptionClear();
             env->CallVoidMethod(cursor, close);
             if (env->ExceptionCheck()) {
@@ -1710,6 +1736,16 @@ bool refreshExternalControllerInputImpl(XrInstance_T* instance) {
                 endxrClearHeadOrientation();
             } else {
                 endxrSetHeadOrientation(headX, headY, headZ, headW);
+            }
+            if (handPoseStale != 0) {
+                endxrClearHandPoses();
+            } else {
+                endxrSetHandPose(0, static_cast<std::uint32_t>(leftPoseActive != 0),
+                    leftPoseX, leftPoseY, leftPoseZ,
+                    leftPoseQx, leftPoseQy, leftPoseQz, leftPoseQw);
+                endxrSetHandPose(1, static_cast<std::uint32_t>(rightPoseActive != 0),
+                    rightPoseX, rightPoseY, rightPoseZ,
+                    rightPoseQx, rightPoseQy, rightPoseQz, rightPoseQw);
             }
             success = true;
         } while (false);
@@ -2273,9 +2309,15 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrSyncActions(
     owner->activeActionSets = std::move(active);
     for (int hand = 0; hand < 2; ++hand) {
         const EndXrControllerInput input = readControllerInput(hand);
-        owner->synchronizedControllerInputs[static_cast<std::size_t>(hand)] = {
-            input.active, input.trigger, input.grip, input.stickX, input.stickY, input.buttons
-        };
+        auto& synchronized = owner->synchronizedControllerInputs[static_cast<std::size_t>(hand)];
+        synchronized.active = input.active;
+        synchronized.trigger = input.trigger;
+        synchronized.grip = input.grip;
+        synchronized.stickX = input.stickX;
+        synchronized.stickY = input.stickY;
+        synchronized.buttons = input.buttons;
+        synchronized.poseActive = input.poseActive;
+        synchronized.gripPose = input.gripPose;
     }
     rebuildActionStateSnapshots(owner);
     owner->actionSyncCompleted = true;
@@ -2349,11 +2391,13 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrGetActionStatePose(
     if (state == nullptr || state->type != XR_TYPE_ACTION_STATE_POSE) {
         return XR_ERROR_VALIDATION_FAILURE;
     }
+    XrAction_T* action = nullptr;
     XrResult result = validateActionForSession(
-        owner, getInfo, XR_ACTION_TYPE_POSE_INPUT, nullptr
+        owner, getInfo, XR_ACTION_TYPE_POSE_INPUT, &action
     );
     if (XR_FAILED(result)) return result;
-    state->isActive = XR_FALSE;
+    state->isActive = resolveActionPose(owner, action, getInfo->subactionPath).active
+        ? XR_TRUE : XR_FALSE;
     return XR_SUCCESS;
 }
 
@@ -2646,6 +2690,43 @@ extern "C" __attribute__((visibility("default"))) void endxrSetControllerInput(
 extern "C" __attribute__((visibility("default"))) void endxrClearControllerInput() {
     std::lock_guard<std::mutex> lock(g_controllerInputMutex);
     g_controllerInputs = {};
+}
+extern "C" __attribute__((visibility("default"))) void endxrSetHandPose(
+    std::uint32_t hand, std::uint32_t active,
+    float x, float y, float z, float qx, float qy, float qz, float qw
+) {
+    if (hand > 1) return;
+    const float values[] = {x, y, z, qx, qy, qz, qw};
+    for (float value : values) if (!std::isfinite(value)) active = 0;
+    const double magnitude = std::sqrt(
+        static_cast<double>(qx) * qx + static_cast<double>(qy) * qy +
+        static_cast<double>(qz) * qz + static_cast<double>(qw) * qw
+    );
+    if (!std::isfinite(magnitude) || magnitude < 0.5 || magnitude > 1.5 ||
+        std::abs(x) > 8.0f || std::abs(y) > 6.0f || z > -0.25f || z < -6.0f) {
+        active = 0;
+    }
+    std::lock_guard<std::mutex> lock(g_controllerInputMutex);
+    auto& input = g_controllerInputs[hand];
+    input.poseActive = active != 0;
+    if (input.poseActive) {
+        input.gripPose.orientation = {
+            static_cast<float>(qx / magnitude),
+            static_cast<float>(qy / magnitude),
+            static_cast<float>(qz / magnitude),
+            static_cast<float>(qw / magnitude)
+        };
+        input.gripPose.position = {x, y, z};
+    } else {
+        input.gripPose = {{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f}};
+    }
+}
+extern "C" __attribute__((visibility("default"))) void endxrClearHandPoses() {
+    std::lock_guard<std::mutex> lock(g_controllerInputMutex);
+    for (auto& input : g_controllerInputs) {
+        input.poseActive = false;
+        input.gripPose = {{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f}};
+    }
 }
 extern "C" __attribute__((visibility("default"))) void endxrSetHeadOrientation(
     float x, float y, float z, float w
