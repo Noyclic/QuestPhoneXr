@@ -31,6 +31,27 @@ Every title must be assessed independently and assigned the highest evidence-bac
 
 Never promote a title to "playable" because it installs, appears in a catalogue, or starts a splash screen.
 
+## EndGVR software boundary
+
+The first code layer lives in the Android app under
+`com.noyclic.questphonexr.gvr.EndGvrCompatibility`. It performs static
+classification only and distinguishes:
+
+- explicit Samsung Gear VR markers in package names, manifest metadata,
+  required features or archive paths;
+- a generic legacy Oculus Mobile SDK marker (`libvrapi.so`) without
+  claiming that the APK is definitely a Gear VR title;
+- no Gear VR evidence found.
+
+The APK importer now retains Samsung/HMT Gear VR metadata keys, and the
+existing APK assessment can route a clearly marked title to the EndGVR
+research path rather than treating every legacy Oculus title as a modern
+Quest APK.
+
+**This is not a Gear VR runtime.** It does not load legacy VrApi, emulate Gear
+VR services, create a VR session, patch APKs or launch games. Static markers
+can be missing or misleading; a real APK audit remains necessary.
+
 ## First research pass: inspect before emulating
 
 For each APK, record:

@@ -68,6 +68,24 @@ It is not:
 
 EndVR is planned as a separate system with a PC host, Android client, video encoding/decoding, tracking transport and SteamVR integration. Linux is a first-class target; Windows support is also planned. None of those streaming components should be described as complete until implemented and tested.
 
+### EndGVR — separate legacy Gear VR track
+
+EndGVR is an isolated package inside the Android app for Gear VR evidence,
+legacy dependency reports and future title-specific compatibility work. It
+is not an extension of the modern OpenXR runtime and it must not change
+EndXR's loader, runtime service, IPC permission or Sandbox path.
+
+The initial EndGVR code statically distinguishes explicit Samsung Gear VR
+markers from generic legacy Oculus Mobile SDK evidence. It does not implement
+VrApi, Gear VR Services, a legacy session compositor or APK execution. A
+future native compatibility component should be designed only after a real
+classic APK has been inspected and its required service/API calls are known.
+
+### EndVR — separate PC streaming track
+
+EndVR is the planned PC streaming system described above. It is not the Gear
+VR compatibility layer.
+
 ## Runtime boundaries and compatibility
 
 QuestPhoneXR does not emulate Meta/Oculus services. Quest-only APKs may require vendor APIs, extensions, input paths, graphics features or system services that EndXR does not currently implement.

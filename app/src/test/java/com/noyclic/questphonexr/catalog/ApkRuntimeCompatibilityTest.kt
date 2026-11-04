@@ -44,6 +44,36 @@ class ApkRuntimeCompatibilityTest {
     }
 
     @Test
+    fun routesExplicitGearVrApkMarkersToEndGvrInsteadOfQuestRuntime() {
+        val result = ApkRuntimeCompatibility.assess(
+            info = sample(vrMetadataKeys = listOf("com.samsung.android.vr.application.mode")),
+            archiveEntries = listOf("lib/armeabi-v7a/libvrapi.so", "lib/armeabi-v7a/libunity.so"),
+            deviceApiLevel = 35,
+            supportedAbis = listOf("arm64-v8a", "armeabi-v7a"),
+            missingRequiredFeatures = emptySet()
+        )
+
+        assertEquals(ApkLaunchRoute.GEAR_VR_LEGACY_CANDIDATE, result.route)
+        assertTrue(result.xrTechnologies.contains("Gear VR (legacy)"))
+        assertTrue(result.details.any { it.contains("EndGVR") })
+    }
+
+    @Test
+    fun keepsGenericVrApiEvidenceSeparateFromDefiniteGearVr() {
+        val result = ApkRuntimeCompatibility.assess(
+            info = sample(),
+            archiveEntries = listOf("lib/armeabi-v7a/libvrapi.so", "lib/armeabi-v7a/libunity.so"),
+            deviceApiLevel = 35,
+            supportedAbis = listOf("armeabi-v7a"),
+            missingRequiredFeatures = emptySet()
+        )
+
+        assertEquals(ApkLaunchRoute.LEGACY_OCULUS_MOBILE_CANDIDATE, result.route)
+        assertTrue(result.xrTechnologies.contains("Legacy Oculus Mobile SDK"))
+        assertTrue(result.xrTechnologies.none { it == "Gear VR (legacy)" })
+    }
+
+    @Test
     fun identifiesOpenXrProjectAsNeedingActiveRuntime() {
         val result = ApkRuntimeCompatibility.assess(
             info = sample(),

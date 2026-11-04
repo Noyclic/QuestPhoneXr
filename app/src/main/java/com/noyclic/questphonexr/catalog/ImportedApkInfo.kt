@@ -52,7 +52,11 @@ internal object ApkArchiveInspector {
                 val normalized = key.lowercase()
                 normalized.contains("oculus") ||
                     normalized.contains("quest") ||
-                    normalized.contains("meta")
+                    normalized.contains("meta") ||
+                    normalized.contains("samsung.android.vr") ||
+                    normalized.contains("samsung.android.hmt") ||
+                    normalized.contains("gearvr") ||
+                    normalized.contains("gear_vr")
             }
             ?.sorted()
             .orEmpty()
