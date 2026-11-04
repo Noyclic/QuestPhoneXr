@@ -556,9 +556,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             scrollBarStyle = View.SCROLLBARS_INSIDE_INSET
             addView(
                 scrollContent,
-                android.widget.ScrollView.LayoutParams(
-                    android.widget.ScrollView.LayoutParams.MATCH_PARENT,
-                    android.widget.ScrollView.LayoutParams.WRAP_CONTENT
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
                 )
             )
         }
