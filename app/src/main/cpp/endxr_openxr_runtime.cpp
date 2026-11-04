@@ -1606,8 +1606,13 @@ bool refreshExternalControllerInput(XrInstance_T* instance) {
                 readFloat("right_stick_x", &rightStickX) &&
                 readFloat("right_stick_y", &rightStickY) &&
                 readInt("right_buttons", &rightButtons);
+            if (env->ExceptionCheck()) env->ExceptionClear();
             env->CallVoidMethod(cursor, close);
-            if (!columnsRead || env->ExceptionCheck()) break;
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                break;
+            }
+            if (!columnsRead) break;
 
             if (stale != 0) {
                 endxrClearControllerInput();
