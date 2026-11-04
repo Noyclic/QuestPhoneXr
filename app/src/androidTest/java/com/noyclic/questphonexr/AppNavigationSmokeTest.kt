@@ -1,6 +1,10 @@
 package com.noyclic.questphonexr
 
+import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
+import android.os.Environment
+import android.provider.MediaStore
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -14,9 +18,10 @@ import java.io.File
 /**
  * End-to-end smoke test for the app entry flow.
  *
- * This verifies that the launcher screen and game library can be opened in a
- * clean Android environment. Hardware-specific XR and camera behavior is
- * deliberately not inferred from an emulator run.
+ * Device artifacts are copied to shared Downloads while the target APK is still
+ * installed. The emulator runner uninstalls instrumentation packages afterwards,
+ * which otherwise removes app-specific external storage before the CI script can
+ * collect it.
  */
 @RunWith(AndroidJUnit4::class)
 class AppNavigationSmokeTest {
@@ -42,7 +47,7 @@ class AppNavigationSmokeTest {
             "APK / Quest mode card is missing",
             device.wait(Until.hasObject(By.text("APK / Quest")), 5_000)
         )
-        saveScreenshot(context.getExternalFilesDir(null), device, "mode-selection.png")
+        saveScreenshot(context, device, "mode-selection.png")
 
         assertTrue(
             "Open library button did not appear",
@@ -58,7 +63,7 @@ class AppNavigationSmokeTest {
             "APK import action is missing from the library",
             device.wait(Until.hasObject(By.text("Мои APK · импорт и анализ")), 5_000)
         )
-        saveScreenshot(context.getExternalFilesDir(null), device, "game-library.png")
+        saveScreenshot(context, device, "game-library.png")
 
         device.pressBack()
         assertTrue(
@@ -94,6 +99,13 @@ class AppNavigationSmokeTest {
         )
         val report = if (diagnosticFile.isFile) diagnosticFile.readText() else
             "Diagnostic report file was not written: " + diagnosticFile.absolutePath
+
+        // Export before assertions and before the test runner uninstalls the app.
+        // This preserves failure reports as well as passing reports for later CI collection.
+        if (diagnosticFile.isFile) {
+            publishCiArtifact(context, diagnosticFile, "endxr-openxr-latest.log", "text/plain")
+        }
+
         assertTrue(
             "Sandbox did not pass the OpenXR runtime probe. Full diagnostic:\n" + report,
             probePassed
@@ -127,7 +139,8 @@ class AppNavigationSmokeTest {
             "Always-visible EndXR diagnostics button is missing while settings are hidden",
             device.wait(Until.hasObject(diagnosticsButton), 5_000)
         )
-        saveScreenshot(context.getExternalFilesDir(null), device, "sandbox-diagnostics-button.png")
+        saveScreenshot(context, device, "sandbox-diagnostics-button.png")
+
         // Android 15 may suppress or expose toast overlays inconsistently to UiAutomator.
         // Verify the app's own post-setPrimaryClip log instead of reading another process's clipboard.
         device.executeShellCommand("logcat -c")
@@ -144,22 +157,71 @@ class AppNavigationSmokeTest {
             }
         }
         assertTrue(
-            "EndXR diagnostics action did not complete setPrimaryClip. Log:\\n" + copyLog,
+            "EndXR diagnostics action did not complete setPrimaryClip. Log:\n" + copyLog,
             copyLog.contains("Clipboard setPrimaryClip completed")
         )
     }
 
-    private fun saveScreenshot(baseDirectory: File?, device: UiDevice, fileName: String) {
-        val root = requireNotNull(baseDirectory) {
+    private fun saveScreenshot(context: Context, device: UiDevice, fileName: String) {
+        val root = requireNotNull(context.getExternalFilesDir(null)) {
             "External app storage is unavailable in the emulator"
         }
         val directory = File(root, "ci-screenshots")
         check(directory.exists() || directory.mkdirs()) {
             "Could not create screenshot directory: ${directory.absolutePath}"
         }
+        val screenshot = File(directory, fileName)
         assertTrue(
             "Could not save emulator screenshot: $fileName",
-            device.takeScreenshot(File(directory, fileName))
+            device.takeScreenshot(screenshot)
         )
+        publishCiArtifact(context, screenshot, fileName, "image/png")
+    }
+
+    /**
+     * Publish a durable CI copy under Downloads/QuestPhoneXR-CI.
+     * MediaStore avoids legacy storage permissions and survives package uninstall.
+     */
+    private fun publishCiArtifact(
+        context: Context,
+        source: File,
+        displayName: String,
+        mimeType: String
+    ) {
+        check(source.isFile && source.length() > 0L) {
+            "CI artifact source is missing or empty: ${source.absolutePath}"
+        }
+
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+            put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+            put(
+                MediaStore.MediaColumns.RELATIVE_PATH,
+                Environment.DIRECTORY_DOWNLOADS + "/QuestPhoneXR-CI/"
+            )
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val resolver = context.contentResolver
+        val uri = requireNotNull(
+            resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+        ) { "Could not create Downloads entry for $displayName" }
+
+        try {
+            val output = requireNotNull(resolver.openOutputStream(uri, "w")) {
+                "Could not open Downloads output stream for $displayName"
+            }
+            source.inputStream().use { input ->
+                output.use { input.copyTo(it) }
+            }
+            val ready = ContentValues().apply {
+                put(MediaStore.MediaColumns.IS_PENDING, 0)
+            }
+            check(resolver.update(uri, ready, null, null) == 1) {
+                "Could not finalize Downloads entry for $displayName"
+            }
+        } catch (error: Throwable) {
+            resolver.delete(uri, null, null)
+            throw error
+        }
     }
 }
