@@ -9,6 +9,12 @@
 #include <string>
 #include <vector>
 
+#if defined(__ANDROID__)
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES3/gl3.h>
+#endif
+
 namespace {
 
 const char* resultName(XrResult result) {
@@ -123,6 +129,7 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
            << resultText(extensionCountResult) << "\n";
 
     bool androidCreateInstanceExtensionFound = false;
+    bool openGlesExtensionFound = false;
     if (XR_SUCCEEDED(extensionCountResult) && extensionCount > 0) {
         std::vector<XrExtensionProperties> extensions(extensionCount);
         for (auto& extension : extensions) {
@@ -148,6 +155,11 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                         XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME
                     ) == 0) {
                     androidCreateInstanceExtensionFound = true;
+                } else if (std::strcmp(
+                               extension.extensionName,
+                               XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME
+                           ) == 0) {
+                    openGlesExtensionFound = true;
                 }
             }
         }
@@ -156,6 +168,9 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
     }
     report << "runtime_advertises_XR_KHR_android_create_instance="
            << (androidCreateInstanceExtensionFound ? "YES" : "NO_OR_UNAVAILABLE")
+           << "\n";
+    report << "runtime_advertises_XR_KHR_opengl_es_enable="
+           << (openGlesExtensionFound ? "YES" : "NO_OR_UNAVAILABLE")
            << "\n";
 
     XrInstanceCreateInfoAndroidKHR androidCreateInfo{};
@@ -182,9 +197,10 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
     instanceCreateInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
 
     const char* enabledExtensions[] = {
-        XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME
+        XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME,
+        XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME
     };
-    instanceCreateInfo.enabledExtensionCount = 1;
+    instanceCreateInfo.enabledExtensionCount = openGlesExtensionFound ? 2u : 1u;
     instanceCreateInfo.enabledExtensionNames = enabledExtensions;
 
     XrInstance instance = XR_NULL_HANDLE;
@@ -328,6 +344,238 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
             }
         }
     }
+
+    // Exercise a real GLES-bound session from this independent Android process.
+    // This is intentionally separate from the in-app Sandbox EGL context.
+#if defined(__ANDROID__)
+    if (!openGlesExtensionFound) {
+        report << "external_gles_session=SKIPPED (runtime did not advertise XR_KHR_opengl_es_enable)\n";
+    } else {
+        EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+        EGLint eglMajor = 0;
+        EGLint eglMinor = 0;
+        const EGLBoolean initialized = display != EGL_NO_DISPLAY
+            ? eglInitialize(display, &eglMajor, &eglMinor)
+            : EGL_FALSE;
+        report << "external_egl_initialize="
+               << (initialized == EGL_TRUE ? "PASS" : "FAIL")
+               << " version=" << eglMajor << "." << eglMinor << "\n";
+
+        EGLConfig config = nullptr;
+        EGLint configCount = 0;
+        const EGLint configAttributes[] = {
+            EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+            EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT_KHR,
+            EGL_RED_SIZE, 8,
+            EGL_GREEN_SIZE, 8,
+            EGL_BLUE_SIZE, 8,
+            EGL_ALPHA_SIZE, 8,
+            EGL_NONE
+        };
+        const EGLBoolean choseConfig = initialized == EGL_TRUE
+            ? eglChooseConfig(display, configAttributes, &config, 1, &configCount)
+            : EGL_FALSE;
+        EGLSurface surface = EGL_NO_SURFACE;
+        EGLContext context = EGL_NO_CONTEXT;
+        if (choseConfig == EGL_TRUE && configCount > 0) {
+            const EGLint surfaceAttributes[] = {
+                EGL_WIDTH, 64, EGL_HEIGHT, 64, EGL_NONE
+            };
+            surface = eglCreatePbufferSurface(display, config, surfaceAttributes);
+            const EGLint contextAttributes[] = {
+                EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE
+            };
+            context = eglCreateContext(display, config, EGL_NO_CONTEXT, contextAttributes);
+        }
+        const EGLBoolean madeCurrent =
+            surface != EGL_NO_SURFACE && context != EGL_NO_CONTEXT
+                ? eglMakeCurrent(display, surface, surface, context)
+                : EGL_FALSE;
+        report << "external_egl_context="
+               << (madeCurrent == EGL_TRUE ? "PASS" : "FAIL")
+               << " egl_error=0x" << std::hex << eglGetError() << std::dec << "\n";
+
+        if (madeCurrent == EGL_TRUE) {
+            PFN_xrGetOpenGLESGraphicsRequirementsKHR getGlesRequirements = nullptr;
+            XrResult lookupResult = xrGetInstanceProcAddr(
+                instance,
+                "xrGetOpenGLESGraphicsRequirementsKHR",
+                reinterpret_cast<PFN_xrVoidFunction*>(&getGlesRequirements)
+            );
+            report << "xrGetOpenGLESGraphicsRequirementsKHR lookup="
+                   << resultText(lookupResult) << "\n";
+
+            XrGraphicsRequirementsOpenGLESKHR graphicsRequirements{};
+            graphicsRequirements.type = XR_TYPE_GRAPHICS_REQUIREMENTS_OPENGL_ES_KHR;
+            XrResult graphicsResult = XR_ERROR_FUNCTION_UNSUPPORTED;
+            if (XR_SUCCEEDED(lookupResult) && getGlesRequirements != nullptr) {
+                graphicsResult = getGlesRequirements(instance, systemId, &graphicsRequirements);
+            }
+            report << "xrGetOpenGLESGraphicsRequirementsKHR="
+                   << resultText(graphicsResult) << "\n";
+
+            XrSession session = XR_NULL_HANDLE;
+            bool sessionRunning = false;
+            XrSwapchain swapchain = XR_NULL_HANDLE;
+            if (XR_SUCCEEDED(graphicsResult)) {
+                XrGraphicsBindingOpenGLESAndroidKHR graphicsBinding{};
+                graphicsBinding.type = XR_TYPE_GRAPHICS_BINDING_OPENGL_ES_ANDROID_KHR;
+                graphicsBinding.next = nullptr;
+                graphicsBinding.display = display;
+                graphicsBinding.config = config;
+                graphicsBinding.context = context;
+
+                XrSessionCreateInfo sessionCreateInfo{};
+                sessionCreateInfo.type = XR_TYPE_SESSION_CREATE_INFO;
+                sessionCreateInfo.next = &graphicsBinding;
+                sessionCreateInfo.systemId = systemId;
+                const XrResult sessionResult = xrCreateSession(
+                    instance, &sessionCreateInfo, &session
+                );
+                report << "external_xrCreateSession=" << resultText(sessionResult) << "\n";
+
+                if (XR_SUCCEEDED(sessionResult) && session != XR_NULL_HANDLE) {
+                    XrSessionBeginInfo beginInfo{};
+                    beginInfo.type = XR_TYPE_SESSION_BEGIN_INFO;
+                    beginInfo.primaryViewConfigurationType =
+                        XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+                    const XrResult beginResult = xrBeginSession(session, &beginInfo);
+                    sessionRunning = XR_SUCCEEDED(beginResult);
+                    report << "external_xrBeginSession=" << resultText(beginResult) << "\n";
+
+                    if (sessionRunning) {
+                        XrSwapchainCreateInfo swapchainInfo{};
+                        swapchainInfo.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
+                        swapchainInfo.next = nullptr;
+                        swapchainInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+                        swapchainInfo.format = static_cast<std::int64_t>(GL_RGBA8);
+                        swapchainInfo.sampleCount = 1;
+                        swapchainInfo.width = 64;
+                        swapchainInfo.height = 64;
+                        swapchainInfo.faceCount = 1;
+                        swapchainInfo.arraySize = 1;
+                        swapchainInfo.mipCount = 1;
+                        const XrResult swapchainResult = xrCreateSwapchain(
+                            session, &swapchainInfo, &swapchain
+                        );
+                        report << "external_xrCreateSwapchain="
+                               << resultText(swapchainResult) << "\n";
+
+                        if (XR_SUCCEEDED(swapchainResult) && swapchain != XR_NULL_HANDLE) {
+                            std::uint32_t imageCount = 0;
+                            XrResult imageResult = xrEnumerateSwapchainImages(
+                                swapchain, 0, &imageCount, nullptr
+                            );
+                            std::vector<XrSwapchainImageOpenGLESKHR> images(imageCount);
+                            for (auto& image : images) {
+                                image.type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+                                image.next = nullptr;
+                            }
+                            if (XR_SUCCEEDED(imageResult) && imageCount > 0) {
+                                imageResult = xrEnumerateSwapchainImages(
+                                    swapchain, imageCount, &imageCount,
+                                    reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data())
+                                );
+                            }
+                            report << "external_xrEnumerateSwapchainImages="
+                                   << resultText(imageResult)
+                                   << " count=" << imageCount << "\n";
+
+                            std::uint32_t imageIndex = 0;
+                            XrSwapchainImageAcquireInfo acquireInfo{};
+                            acquireInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO;
+                            const XrResult acquireResult = xrAcquireSwapchainImage(
+                                swapchain, &acquireInfo, &imageIndex
+                            );
+                            report << "external_xrAcquireSwapchainImage="
+                                   << resultText(acquireResult)
+                                   << " index=" << imageIndex << "\n";
+                            if (XR_SUCCEEDED(acquireResult)) {
+                                XrSwapchainImageWaitInfo imageWaitInfo{};
+                                imageWaitInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
+                                imageWaitInfo.timeout = XR_INFINITE_DURATION;
+                                const XrResult waitImageResult = xrWaitSwapchainImage(
+                                    swapchain, &imageWaitInfo
+                                );
+                                report << "external_xrWaitSwapchainImage="
+                                       << resultText(waitImageResult) << "\n";
+                                if (XR_SUCCEEDED(waitImageResult)) {
+                                    XrSwapchainImageReleaseInfo releaseInfo{};
+                                    releaseInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
+                                    const XrResult releaseResult = xrReleaseSwapchainImage(
+                                        swapchain, &releaseInfo
+                                    );
+                                    report << "external_xrReleaseSwapchainImage="
+                                           << resultText(releaseResult) << "\n";
+                                }
+                            }
+                        }
+
+                        XrFrameWaitInfo frameWaitInfo{};
+                        frameWaitInfo.type = XR_TYPE_FRAME_WAIT_INFO;
+                        XrFrameState frameState{};
+                        frameState.type = XR_TYPE_FRAME_STATE;
+                        const XrResult waitFrameResult = xrWaitFrame(
+                            session, &frameWaitInfo, &frameState
+                        );
+                        report << "external_xrWaitFrame="
+                               << resultText(waitFrameResult) << "\n";
+                        if (XR_SUCCEEDED(waitFrameResult)) {
+                            XrFrameBeginInfo frameBeginInfo{};
+                            frameBeginInfo.type = XR_TYPE_FRAME_BEGIN_INFO;
+                            const XrResult beginFrameResult = xrBeginFrame(
+                                session, &frameBeginInfo
+                            );
+                            report << "external_xrBeginFrame="
+                                   << resultText(beginFrameResult) << "\n";
+                            if (XR_SUCCEEDED(beginFrameResult)) {
+                                XrFrameEndInfo frameEndInfo{};
+                                frameEndInfo.type = XR_TYPE_FRAME_END_INFO;
+                                frameEndInfo.displayTime = frameState.predictedDisplayTime;
+                                frameEndInfo.environmentBlendMode =
+                                    XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+                                frameEndInfo.layerCount = 0;
+                                frameEndInfo.layers = nullptr;
+                                const XrResult endFrameResult = xrEndFrame(
+                                    session, &frameEndInfo
+                                );
+                                report << "external_xrEndFrame="
+                                       << resultText(endFrameResult) << "\n";
+                            }
+                        }
+                    }
+
+                    if (swapchain != XR_NULL_HANDLE) {
+                        report << "external_xrDestroySwapchain="
+                               << resultText(xrDestroySwapchain(swapchain)) << "\n";
+                    }
+                    if (sessionRunning) {
+                        const XrResult exitResult = xrRequestExitSession(session);
+                        report << "external_xrRequestExitSession="
+                               << resultText(exitResult) << "\n";
+                        if (XR_SUCCEEDED(exitResult)) {
+                            report << "external_xrEndSession="
+                                   << resultText(xrEndSession(session)) << "\n";
+                        }
+                    }
+                    report << "external_xrDestroySession="
+                           << resultText(xrDestroySession(session)) << "\n";
+                }
+            }
+        } else {
+            report << "external_gles_session=SKIPPED (could not create a current GLES 3 context)\n";
+        }
+
+        if (display != EGL_NO_DISPLAY) {
+            eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            if (context != EGL_NO_CONTEXT) eglDestroyContext(display, context);
+            if (surface != EGL_NO_SURFACE) eglDestroySurface(display, surface);
+            if (initialized == EGL_TRUE) eglTerminate(display);
+        }
+    }
+#else
+    report << "external_gles_session=SKIPPED (not an Android build)\n";
+#endif
 
     const XrResult destroyResult = xrDestroyInstance(instance);
     report << "xrDestroyInstance=" << resultText(destroyResult) << "\n";
