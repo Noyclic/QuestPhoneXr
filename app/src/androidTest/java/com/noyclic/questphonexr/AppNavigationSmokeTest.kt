@@ -145,6 +145,15 @@ class AppNavigationSmokeTest {
         )
 
         val report = AndroidRuntimeBrokerProbe.inspect(context)
+        assertEquals(
+            "Broker diagnostics must report the runtime service display name",
+            context.getString(R.string.openxr_runtime_name),
+            report.serviceLabel
+        )
+        assertTrue(
+            "Broker diagnostics must detect the runtime service icon",
+            report.serviceIconDeclared
+        )
         val reportFile = File(context.cacheDir, "runtime-broker-probe.txt")
         reportFile.writeText(report.toDisplayText())
         publishCiArtifact(context, reportFile, "runtime-broker-probe.txt", "text/plain")
