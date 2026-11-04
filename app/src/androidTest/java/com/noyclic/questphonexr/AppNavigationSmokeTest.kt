@@ -64,6 +64,17 @@ class AppNavigationSmokeTest {
             device.wait(Until.hasObject(By.text("Мои APK · импорт и анализ")), 5_000)
         )
         saveScreenshot(context, device, "game-library.png")
+        assertTrue(
+            "EndXR readiness details button is missing from the game library",
+            device.wait(Until.hasObject(By.text("Показать возможности EndXR")), 5_000)
+        )
+        device.findObject(By.text("Показать возможности EndXR")).click()
+        assertTrue(
+            "OpenXR Action API limitation is missing from the readiness report",
+            device.wait(Until.hasObject(By.textContains("OpenXR Action / Input API")), 5_000)
+        )
+        saveScreenshot(context, device, "runtime-readiness.png")
+        device.pressBack()
 
         device.pressBack()
         assertTrue(

@@ -150,7 +150,7 @@ object BuiltInGameInputProfiles {
                 GameInputBinding(GameAction.GRAB, HandSide.RIGHT, ControllerSignal.GRIP),
                 GameInputBinding(GameAction.MENU, HandSide.LEFT, ControllerSignal.ANDROID_KEY, StandardGamepadKeyCodes.BUTTON_START)
             ),
-            note = "Предлагаемая раскладка для отдельного телефонного порта; не проверена с исходной Quest-сборкой."
+            note = "Предлагаемая раскладка для отдельного телефонного порта. Текущий EndXR ещё не передаёт OpenXR Action API в сторонние APK."
         ),
         GameInputProfile(
             gameId = OPEN_SABER,
@@ -160,7 +160,7 @@ object BuiltInGameInputProfiles {
                 GameInputBinding(GameAction.RIGHT_SABER_ACTIVE, HandSide.RIGHT, ControllerSignal.PINCH),
                 GameInputBinding(GameAction.MENU, HandSide.LEFT, ControllerSignal.ANDROID_KEY, StandardGamepadKeyCodes.BUTTON_START)
             ),
-            note = "Профиль передаёт состояния двух рук; траектория сабель требует откалиброванной 3D-позы и отдельной интеграции."
+            note = "Профиль передаёт pinch двух рук; траектория сабель требует 3D-позы. Адаптер пока не подключён к OpenXR Action API сторонней игры."
         ),
         GameInputProfile(
             gameId = GRANNY,
@@ -172,7 +172,7 @@ object BuiltInGameInputProfiles {
                 GameInputBinding(GameAction.PRIMARY, HandSide.RIGHT, ControllerSignal.TRIGGER),
                 GameInputBinding(GameAction.CROUCH, HandSide.LEFT, ControllerSignal.GRIP)
             ),
-            note = "Предлагаемая раскладка для порта; взаимодействия и поведение должны быть привязаны в самом порте."
+            note = "Предлагаемая раскладка для телефонного порта. Quest APK использует controller input, который EndXR пока не экспортирует через OpenXR Actions."
         ),
         GameInputProfile(
             gameId = QUESTCRAFT,

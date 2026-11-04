@@ -43,8 +43,11 @@ adb pull /sdcard/Download/QuestPhoneXR-CI/. ci-results/device-artifacts/ || true
 if compgen -G "ci-results/device-artifacts/*.png" > /dev/null; then
   cp ci-results/device-artifacts/*.png ci-results/screenshots/
 fi
+# MediaStore may append the MIME-derived .txt extension to a .log display name.
 if [[ -s ci-results/device-artifacts/endxr-openxr-latest.log ]]; then
-  cp ci-results/device-artifacts/endxr-openxr-latest.log ci-results/diagnostics/
+  cp ci-results/device-artifacts/endxr-openxr-latest.log ci-results/diagnostics/endxr-openxr-latest.log
+elif [[ -s ci-results/device-artifacts/endxr-openxr-latest.log.txt ]]; then
+  cp ci-results/device-artifacts/endxr-openxr-latest.log.txt ci-results/diagnostics/endxr-openxr-latest.log
 fi
 
 # Keep an independent final emulator screenshot even if a UI test failed.
@@ -72,6 +75,10 @@ if [[ "$test_exit" -eq 0 ]]; then
   }
   test -s ci-results/screenshots/sandbox-diagnostics-button.png || {
     echo "Instrumentation tests passed but the Sandbox diagnostics screenshot is missing."
+    test_exit=1
+  }
+  test -s ci-results/screenshots/runtime-readiness.png || {
+    echo "Instrumentation tests passed but the EndXR readiness screenshot is missing."
     test_exit=1
   }
 fi

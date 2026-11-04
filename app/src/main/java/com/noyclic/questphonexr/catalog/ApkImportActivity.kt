@@ -311,7 +311,7 @@ class ApkImportActivity : ComponentActivity() {
         if (assessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE) {
             runCatching {
                 startActivity(launchIntent)
-                statusView.text = "Передано Android. Собственный EndXR Runtime пока разрабатывается; запуск XR-игры ещё не гарантирован."
+                statusView.text = "Передано Android для экспериментальной проверки. EndXR пока не реализует OpenXR Action / Input API; управление и полноценная игра не гарантированы."
             }.onFailure { error ->
                 statusView.text = "Не удалось открыть приложение: ${error.message ?: "ошибка запуска"}"
             }

@@ -2,6 +2,7 @@ package com.noyclic.questphonexr.catalog
 
 import java.io.File
 import java.util.zip.ZipFile
+import com.noyclic.questphonexr.runtime.EndXrRuntimeReadiness
 
 enum class ApkLaunchRoute(val label: String) {
     DEVICE_REQUIREMENTS_BLOCKED("Телефон не соответствует требованиям APK"),
@@ -133,6 +134,7 @@ object ApkRuntimeCompatibility {
             }
             if (engine != "Не определён") add("Обнаруженный движок: $engine.")
             if (xrTechnologies.isNotEmpty()) add("XR-признаки: ${xrTechnologies.joinToString()}.")
+            addAll(EndXrRuntimeReadiness.warningsFor(xrTechnologies))
             if (questSignals.isNotEmpty()) add("Quest-признаки: ${questSignals.joinToString()}.")
         }
 

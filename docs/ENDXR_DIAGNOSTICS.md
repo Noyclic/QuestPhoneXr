@@ -19,3 +19,17 @@ Android instrumentation tests export the diagnostic report and UI screenshots th
 - `screenshots/emulator-final.png` — final emulator screen capture.
 
 The smoke script treats missing report or UI screenshot exports as a CI failure when the instrumentation tests otherwise pass. This prevents a green run from silently omitting the diagnostic evidence.
+
+
+## Current third-party game boundary
+
+The game library shows the current runtime capability inventory:
+
+- Verified in-process: loader negotiation, Android/GLES session setup, stereo views, swapchain lifecycle and projection-layer composition.
+- Partial: head orientation only; the system reports `positionTracking=false`.
+- Not implemented: OpenXR Action/Input functions (`xrCreateActionSet`, `xrCreateAction`, `xrSyncActions`, `xrGetActionState*`), controller poses/buttons/haptics, and `XR_EXT_hand_tracking`.
+- Not verified: Android RuntimeBroker discovery and loading from a separate third-party application process.
+
+An APK can contain OpenXR or Meta/Oculus markers and still be unplayable on the phone. Apps expecting joystick, trigger, grip, tracked controller poses or hand joints are not ready until those APIs are implemented and tested from an external client process.
+
+The first game targets are kept distinct by build type. Open Saber has a separate phone-oriented Android Mobile Port page that advertises VR/SBS; this is the first build to inspect on the Redmi. Granny and Baldi entries point to Quest-specific builds and retain the Meta/Quest compatibility caveat.

@@ -55,6 +55,7 @@ class ApkRuntimeCompatibilityTest {
 
         assertEquals(ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE, result.route)
         assertTrue(result.xrTechnologies.contains("OpenXR"))
+        assertTrue(result.details.any { it.contains("xrCreateActionSet") })
     }
 
     @Test

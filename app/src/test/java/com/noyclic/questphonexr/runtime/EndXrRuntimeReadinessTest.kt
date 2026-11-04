@@ -1,0 +1,32 @@
+package com.noyclic.questphonexr.runtime
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class EndXrRuntimeReadinessTest {
+    @Test
+    fun inventoryDoesNotClaimUnimplementedGameInputOr6Dof() {
+        val byId = EndXrRuntimeReadiness.capabilities.associateBy { it.id }
+        assertEquals(RuntimeCapabilityState.NOT_IMPLEMENTED, byId.getValue("openxr-actions").state)
+        assertEquals(RuntimeCapabilityState.NOT_IMPLEMENTED, byId.getValue("controller-input").state)
+        assertEquals(RuntimeCapabilityState.NOT_IMPLEMENTED, byId.getValue("position-tracking").state)
+        assertEquals(RuntimeCapabilityState.NOT_IMPLEMENTED, byId.getValue("openxr-hand-tracking").state)
+        assertEquals(RuntimeCapabilityState.NOT_VERIFIED, byId.getValue("runtime-broker").state)
+    }
+
+    @Test
+    fun onlyInternalLoaderSessionAndProjectionPathIsMarkedVerified() {
+        val verified = EndXrRuntimeReadiness.capabilities
+            .filter { it.state == RuntimeCapabilityState.VERIFIED_IN_PROCESS }
+            .map { it.id }
+        assertEquals(listOf("loader-negotiation", "android-gles-session", "stereo-projection"), verified)
+    }
+
+    @Test
+    fun openXrApkWarningNamesTheMissingActionApi() {
+        val warnings = EndXrRuntimeReadiness.warningsFor(listOf("OpenXR"))
+        assertEquals(1, warnings.size)
+        assertTrue(warnings.single().contains("xrCreateActionSet"))
+    }
+}

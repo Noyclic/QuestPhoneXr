@@ -30,6 +30,8 @@ import com.noyclic.questphonexr.performance.OpenGlesEglProbe
 import com.noyclic.questphonexr.performance.AndroidDeviceCompatibilityProbe
 import com.noyclic.questphonexr.performance.DeviceCompatibilityReport
 import com.noyclic.questphonexr.performance.NativeVulkanProbe
+import com.noyclic.questphonexr.runtime.EndXrRuntimeReadiness
+import com.noyclic.questphonexr.runtime.RuntimeCapabilityState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -76,6 +78,37 @@ class GameLibraryActivity : ComponentActivity() {
         deviceCompatibilityStatusView.setTextColor(levelColor)
 
         if (showDetails) showDeviceCompatibilityDetails(report)
+    }
+
+    private fun showRuntimeReadinessDialog() {
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(8), dp(18), dp(8))
+        }
+        EndXrRuntimeReadiness.capabilities.forEach { capability ->
+            val color = when (capability.state) {
+                RuntimeCapabilityState.VERIFIED_IN_PROCESS -> 0xFF8FE0B5.toInt()
+                RuntimeCapabilityState.PARTIAL -> 0xFF9BC7F5.toInt()
+                RuntimeCapabilityState.NOT_IMPLEMENTED -> 0xFFFFD28A.toInt()
+                RuntimeCapabilityState.NOT_VERIFIED -> 0xFFB8C2D0.toInt()
+            }
+            body.addView(text(
+                capability.title + " · " + capability.state.label,
+                12f,
+                color,
+                Typeface.BOLD
+            ).apply { setPadding(0, dp(8), 0, dp(3)) })
+            body.addView(text(capability.details, 11f, 0xFFD0D7E2.toInt()))
+        }
+        val scroll = ScrollView(this).apply {
+            addView(body)
+            isFillViewport = true
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Возможности EndXR")
+            .setView(scroll)
+            .setPositiveButton("Закрыть", null)
+            .show()
     }
 
     private fun showDeviceCompatibilityDetails(report: DeviceCompatibilityReport) {
@@ -201,6 +234,30 @@ class GameLibraryActivity : ComponentActivity() {
         disclaimer.background = rounded(0xFF29251D.toInt(), dp(12).toFloat())
         disclaimer.setPadding(dp(12), dp(10), dp(12), dp(10))
         root.addView(disclaimer)
+
+        val runtimeReadinessPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF202630.toInt(), dp(12).toFloat())
+        }
+        runtimeReadinessPanel.addView(text(
+            "ГОТОВНОСТЬ EndXR ДЛЯ СТОРОННИХ ИГР",
+            12f,
+            0xFF8FD3B5.toInt(),
+            Typeface.BOLD
+        ))
+        runtimeReadinessPanel.addView(text(
+            EndXrRuntimeReadiness.librarySummary,
+            12f,
+            0xFFD0D7E2.toInt()
+        ).apply { setPadding(0, dp(5), 0, dp(7)) })
+        runtimeReadinessPanel.addView(button("Показать возможности EndXR").apply {
+            setOnClickListener { showRuntimeReadinessDialog() }
+        })
+        root.addView(runtimeReadinessPanel, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(8) })
 
         val compatibilityPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
