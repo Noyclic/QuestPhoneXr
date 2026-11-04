@@ -34,7 +34,7 @@ class EndXrInputContentProvider : ContentProvider() {
             arrayOf(
                 snapshot.sequence,
                 snapshot.updatedAtElapsedRealtimeNanos,
-                snapshot.stale,
+                snapshot.stale.asInt(),
                 snapshot.left.active.asInt(),
                 snapshot.left.trigger,
                 snapshot.left.grip,
@@ -60,7 +60,7 @@ class EndXrInputContentProvider : ContentProvider() {
         return MatrixCursor(projection).also { projected ->
             if (cursor.moveToFirst()) {
                 projected.addRow(projection.map { name ->
-                    cursor.getColumnIndexOrThrow(name).let(cursor::get)
+                    cursor.getColumnIndexOrThrow(name).let(cursor::getString)
                 }.toTypedArray())
             }
             cursor.close()
