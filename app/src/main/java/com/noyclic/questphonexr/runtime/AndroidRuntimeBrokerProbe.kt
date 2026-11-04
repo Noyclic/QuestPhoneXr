@@ -15,6 +15,8 @@ data class RuntimeBrokerProbeReport(
     val ownRuntimeServiceExported: Boolean,
     val servicePackage: String?,
     val serviceName: String?,
+    val serviceLabel: String?,
+    val serviceIconDeclared: Boolean,
     val majorVersion: Int?,
     val soFilename: String?,
     val nativeLibraryPath: String?,
@@ -30,6 +32,8 @@ data class RuntimeBrokerProbeReport(
         appendLine("EndXR service exported: ${if (ownRuntimeServiceExported) "YES" else "NO"}")
         servicePackage?.let { appendLine("Service package: $it") }
         serviceName?.let { appendLine("Service class: $it") }
+        serviceLabel?.let { appendLine("Service display name: $it") }
+        appendLine("Service icon declared: ${if (serviceIconDeclared) "YES" else "NO"}")
         appendLine("OpenXR major version metadata: ${majorVersion ?: "missing"}")
         appendLine("SoFilename metadata: ${soFilename ?: "missing"}")
         nativeLibraryPath?.let { appendLine("Runtime library path: $it") }
@@ -87,6 +91,8 @@ object AndroidRuntimeBrokerProbe {
             ownRuntimeServiceExported = ownService?.exported == true,
             servicePackage = ownService?.packageName,
             serviceName = ownService?.name,
+            serviceLabel = ownService?.loadLabel(packageManager)?.toString()?.takeIf { it.isNotBlank() },
+            serviceIconDeclared = ownService?.icon?.let { it != 0 } == true,
             majorVersion = majorVersion,
             soFilename = soFilename,
             nativeLibraryPath = nativeLibraryPath,
