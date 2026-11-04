@@ -6,7 +6,7 @@ import org.junit.Test
 
 class EndXrRuntimeReadinessTest {
     @Test
-    fun inventoryMarksSandboxInputPartialButDoesNotClaimCrossProcessInputOr6Dof() {
+    fun inventoryMarksCrossProcessInputPartialAndDoesNotClaim6Dof() {
         val byId = EndXrRuntimeReadiness.capabilities.associateBy { it.id }
         assertEquals(RuntimeCapabilityState.PARTIAL, byId.getValue("openxr-actions").state)
         assertEquals(RuntimeCapabilityState.PARTIAL, byId.getValue("controller-input").state)
@@ -30,8 +30,8 @@ class EndXrRuntimeReadinessTest {
         val warnings = EndXrRuntimeReadiness.warningsFor(listOf("OpenXR"))
         assertEquals(1, warnings.size)
         assertTrue(warnings.single().contains("ввод Sandbox уже отображается"))
-        assertTrue(warnings.single().contains("Отдельный игровой процесс"))
-        assertTrue(warnings.single().contains("foreground service"))
+        assertTrue(warnings.single().contains("во внешнюю игру"))
+        assertTrue(warnings.single().contains("camera foreground service"))
         assertTrue(warnings.single().contains("haptics"))
     }
 }

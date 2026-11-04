@@ -37,7 +37,7 @@ object EndXrRuntimeReadiness {
             "The current OpenXR system properties explicitly advertise positionTracking=false."),
         RuntimeCapability("openxr-actions", "OpenXR Action / Input API",
             RuntimeCapabilityState.PARTIAL,
-            "Action sets, action lifecycle, paths, binding suggestions, action spaces and xrSyncActions are implemented. Boolean/Float/Vector2 values now resolve from left/right Sandbox input samples inside the same process; third-party process input is not connected."),
+            "Action sets, action lifecycle, paths, binding suggestions, action spaces and xrSyncActions are implemented. Each sync captures one immutable left/right controller snapshot; Boolean/Float/Vector2 values and changedSinceLastSync are resolved from that snapshot. Android clients receive the producer snapshot through the read-only IPC provider."),
         RuntimeCapability("controller-input", "Controller input and cross-process transport",
             RuntimeCapabilityState.PARTIAL,
             "MediaPipe pinch/grip samples can be published by a user-started camera foreground service after Sandbox pauses; the read-only IPC provider exposes them to EndXR inside a separate game process. Android gamepad key/motion events are not globally captured when another app owns focus. Controller poses and haptic transport are also unavailable."),
@@ -51,7 +51,7 @@ object EndXrRuntimeReadiness {
 
     val librarySummary: String =
         "Внутри Sandbox проверены loader negotiation, Android/GLES session и stereo projection layer. " +
-            "OpenXR Actions API частично реализован: отдельный процесс уже может читать IPC-снимок контроллеров, но источник данных пока работает только в Sandbox и очищается при его паузе; постоянная передача во время внешней игры ещё не готова. Позы контроллеров и haptics также отсутствуют. " +
+            "OpenXR Actions API частично реализован: отдельный процесс читает IPC-снимок контроллеров во время xrSyncActions, а user-started camera foreground service продолжает передавать pinch/grip при открытой внешней игре. Android gamepad events, controller poses и haptics пока отсутствуют. " +
             "Также не хватает 6DoF position и XR hand tracking; выбор runtime через RuntimeBroker ещё не подтверждён на физическом телефоне."
 
     const val OPEN_XR_GAME_WARNING =

@@ -16,6 +16,8 @@ import androidx.test.uiautomator.Until
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.junit.runners.MethodSorters
+import org.junit.FixMethodOrder
 import java.io.File
 
 /**
@@ -27,10 +29,11 @@ import java.io.File
  * collect it.
  */
 @RunWith(AndroidJUnit4::class)
+@FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class AppNavigationSmokeTest {
 
     @Test
-    fun launchLibraryAndReturnToModeSelection() {
+    fun aLaunchLibraryAndReturnToModeSelection() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val device = UiDevice.getInstance(instrumentation)
@@ -43,6 +46,11 @@ class AppNavigationSmokeTest {
         context.startActivity(launchIntent)
 
         device.waitForIdle()
+        assertTrue(
+            "Mode selection Activity did not render its title",
+            device.wait(Until.hasObject(By.text("Выбери режим")), 20_000)
+        )
+        saveScreenshot(context, device, "mode-selection-initial.png")
         // A pending crash-report dialog from an earlier emulator test can appear
         // before the mode selector. Dismiss it, then wait for the real mode action.
         if (device.wait(Until.hasObject(By.text("Предыдущий запуск завершился с ошибкой")), 1_000)) {
@@ -50,7 +58,7 @@ class AppNavigationSmokeTest {
         }
         assertTrue(
             "Mode selection screen did not expose its library action",
-            device.wait(Until.hasObject(By.text("Открыть библиотеку")), 20_000)
+            device.wait(Until.hasObject(By.textContains("Открыть библиотеку")), 20_000)
         )
         assertTrue(
             "APK / Quest mode card is missing",
@@ -59,9 +67,9 @@ class AppNavigationSmokeTest {
         saveScreenshot(context, device, "mode-selection.png")
         assertTrue(
             "Open library button did not appear",
-            device.wait(Until.hasObject(By.text("Открыть библиотеку")), 5_000)
+            device.wait(Until.hasObject(By.textContains("Открыть библиотеку")), 5_000)
         )
-        device.findObject(By.text("Открыть библиотеку")).click()
+        device.findObject(By.textContains("Открыть библиотеку")).click()
 
         assertTrue(
             "Game library did not open; check the emulator logcat artifact",
@@ -111,7 +119,7 @@ class AppNavigationSmokeTest {
     }
 
     @Test
-    fun runtimeServiceIsDiscoverableAndItsNativePayloadExists() {
+    fun bRuntimeServiceIsDiscoverableAndItsNativePayloadExists() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val report = AndroidRuntimeBrokerProbe.inspect(context)
         val reportFile = File(context.cacheDir, "runtime-broker-probe.txt")
@@ -145,7 +153,7 @@ class AppNavigationSmokeTest {
     }
 
     @Test
-    fun sandboxRunsLoaderFacingOpenXrProbeOnCurrentGlesContext() {
+    fun zSandboxRunsLoaderFacingOpenXrProbeOnCurrentGlesContext() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val device = UiDevice.getInstance(instrumentation)
