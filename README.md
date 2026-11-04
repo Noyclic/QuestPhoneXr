@@ -41,6 +41,26 @@ The repository contains several working foundations:
 
 See [the EndXR runtime status](docs/ENDXR_RUNTIME.md) for the detailed implementation notes and limitations.
 
+## Visual overview
+
+These illustrations show the main systems being explored in QuestPhoneXR. They are conceptual diagrams, not screenshots of a finished runtime or proof of device compatibility.
+
+<p align="center">
+  <img src="docs/assets/sandbox.svg" alt="Concept illustration of the EndXR Sandbox test scene" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/assets/hand-tracking.svg" alt="Illustration of camera-based hand tracking landmarks" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/assets/joycon-controls.svg" alt="Nintendo Switch Joy-Con input concept" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/assets/openxr-flow.svg" alt="Simplified OpenXR application, loader and EndXR runtime flow" width="100%" />
+</p>
+
 ## Important: what this does not mean
 
 QuestPhoneXR is **not yet a universal Quest APK launcher**.
