@@ -5,12 +5,20 @@ find_package(OpenXR REQUIRED CONFIG)
 
 find_library(android-lib android)
 find_library(log-lib log)
+find_library(egl-lib EGL)
+find_library(gles-lib GLESv3)
 
 if(NOT android-lib)
     message(FATAL_ERROR "Android NDK android library was not found")
 endif()
 if(NOT log-lib)
     message(FATAL_ERROR "Android log library was not found")
+endif()
+if(NOT egl-lib)
+    message(FATAL_ERROR "Android EGL library was not found")
+endif()
+if(NOT gles-lib)
+    message(FATAL_ERROR "Android OpenGL ES 3 library was not found")
 endif()
 
 add_library(openxr_loader_probe SHARED
@@ -27,4 +35,6 @@ target_link_libraries(
     OpenXR::openxr_loader
     ${android-lib}
     ${log-lib}
+    ${egl-lib}
+    ${gles-lib}
 )
