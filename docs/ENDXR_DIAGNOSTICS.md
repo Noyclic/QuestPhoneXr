@@ -40,3 +40,12 @@ The first game targets are kept distinct by build type. Open Saber has a separat
 The diagnostics dialog now performs a read-only check of the Android OpenXR runtime service, its exported flag, the Khronos metadata keys, and the actual `libendxr_openxr.so` file under the service package's native library directory. It also checks whether the installable and system RuntimeBroker content providers are visible and whether either provider reports an active runtime for the device ABI.
 
 The instrumentation suite saves this as `diagnostics/runtime-broker-probe.txt`. A passing service-discovery check is still not an external-game test: the separate client process must independently select/load EndXR, create its own OpenXR instance/session and submit a frame before third-party RuntimeBroker compatibility can be marked verified.
+
+
+## Separate-package runtime discovery test
+
+A second Android application module, `runtime-client-probe`, uses its own application ID and manifest queries for the Khronos OpenXR runtime service and broker authorities. CI first tests QuestPhoneXR, reinstalls its APK, then installs/runs this independent client test package. It checks whether another Android package can discover the exported EndXR service, read its Khronos metadata, and see the runtime shared library in the provider package's native library directory.
+
+The client also queries the installable and system RuntimeBroker active-runtime endpoints. If the Khronos installable broker is not installed or no runtime is selected, the report says so; the test does not pretend that package visibility alone means a loader has selected EndXR. The `external-client-probe.txt` report is preserved in the CI diagnostics artifact.
+
+This is a separate-process service-discovery test, not yet a native OpenXR-loader test: it does not call `dlopen`, `xrCreateInstance`, create an EGL session, or submit a frame from the external package.

@@ -76,6 +76,9 @@ jobs:
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
 
+      - name: Build external runtime client probe APK
+        run: gradle --no-daemon :runtime-client-probe:assembleDebug
+
       - name: Validate APK package and required payload
         run: |
           set -euo pipefail
@@ -126,6 +129,17 @@ jobs:
             ci-results/**
             app/build/reports/tests/testDebugUnitTest/**
             app/build/test-results/testDebugUnitTest/**
+            runtime-client-probe/build/reports/androidTests/connected/**
+            runtime-client-probe/build/outputs/androidTest-results/connected/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload external runtime client probe APK
+        if: always() && !cancelled() && hashFiles('runtime-client-probe/build/outputs/apk/debug/runtime-client-probe-debug.apk') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuestPhoneXR-external-client-probe-apk
+          path: runtime-client-probe/build/outputs/apk/debug/runtime-client-probe-debug.apk
           if-no-files-found: warn
           retention-days: 14
 
