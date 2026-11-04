@@ -99,8 +99,12 @@ class AppNavigationSmokeTest {
             probePassed
         )
         assertTrue(
-            "OpenXR probe did not persist a schema-v2 diagnostic report:\n" + report,
-            report.contains("diagnostic_schema=2") &&
+            "OpenXR probe did not persist a schema-v3 projection-layer report:\n" + report,
+            report.contains("diagnostic_schema=3") &&
+                report.contains("projection_layer_composition=PASS") &&
+                report.contains("check_7=stereo projection layer composition + GLES backbuffer readback | PASS") &&
+                report.contains("projection_layer_left_pixel_rgba=") &&
+                report.contains("projection_layer_right_pixel_rgba=") &&
                 report.contains("gl_renderer=") &&
                 report.contains("gles_last_texture_allocation_error=")
         )
