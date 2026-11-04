@@ -15,6 +15,12 @@ Only the third item affects the device-specific compatibility badge. Project ava
 - **Granny VR** — the project page describes Android and Quest versions, but device compatibility is unverified. Source: https://gogozooom.itch.io/granny-vr
 - **QuestCraft** — an open-source standalone Minecraft Java VR project for compatible VR headsets. Phone support would require a substantial port/adaptation and is considered high-load until measured. Source: https://github.com/QuestCraftPlusPlus/QuestCraft
 
+## First phone-game launch: Open Saber Mobile
+
+The first practical launch target is the separately published Android Mobile Port, not the Quest-only APK. Its publisher lists Android, touch controls and VR/SBS support; these are publisher claims and still require a physical-device test. QuestPhoneXR's library has a direct launcher shortcut that searches installed launcher apps for the Open Saber name and opens the Android port. It does not inject hand tracking into the game or convert the Quest APK.
+
+Install the Android/SBS build from https://sasukidasprime.itch.io/open-saber-port, then use **Запустить Open Saber Mobile · Android/SBS** in the game library. If it is not installed, the shortcut opens the port page. Record launch, stereo mode, controls, FPS and heat separately.
+
 ## Test status rules
 
 - Not tested on this phone
