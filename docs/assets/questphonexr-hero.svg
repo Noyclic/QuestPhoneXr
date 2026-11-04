@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="360" viewBox="0 0 1000 360" fill="none">
+  <rect width="1000" height="360" rx="18" fill="#F8F9FF"/>
+  <g stroke="#667085" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <!-- VR headset -->
+    <path d="M355 119c8-27 33-45 65-45h160c32 0 57 18 65 45l16 81c5 27-15 51-43 51H382c-28 0-48-24-43-51l16-81Z" fill="#E8EAFE"/>
+    <path d="M368 129c15-13 34-20 54-20h156c20 0 39 7 54 20l11 57c4 20-11 37-32 37H389c-21 0-36-17-32-37l11-57Z" fill="#252B43"/>
+    <path d="M421 74c8-28 31-45 59-45h40c28 0 51 17 59 45" stroke="#98A2B3" stroke-width="11"/>
+    <path d="M355 144 322 156M645 144l33 12" stroke="#98A2B3" stroke-width="9"/>
+    <path d="M458 223v16m84-16v16" stroke="#98A2B3"/>
+  </g>
+  <!-- left MediaPipe hand skeleton -->
+  <g stroke="#7C6CF2" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M171 256 153 206 130 160 112 116M153 206 157 147 159 92M153 206 187 148 201 101M153 206 213 172 238 137M153 206 224 211 260 190"/>
+    <path d="M171 256 153 206M171 256 224 211M171 256 153 206 187 148M171 256 153 206 130 160"/>
+  </g>
+  <g fill="#FFFFFF" stroke="#7C6CF2" stroke-width="3">
+    <circle cx="171" cy="256" r="7"/><circle cx="153" cy="206" r="7"/><circle cx="130" cy="160" r="6"/><circle cx="112" cy="116" r="6"/>
+    <circle cx="157" cy="147" r="6"/><circle cx="159" cy="92" r="6"/><circle cx="187" cy="148" r="6"/><circle cx="201" cy="101" r="6"/>
+    <circle cx="213" cy="172" r="6"/><circle cx="238" cy="137" r="6"/><circle cx="224" cy="211" r="6"/><circle cx="260" cy="190" r="6"/>
+  </g>
+  <!-- right MediaPipe hand skeleton -->
+  <g stroke="#38B7A6" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M829 256 847 206 870 160 888 116M847 206 843 147 841 92M847 206 813 148 799 101M847 206 787 172 762 137M847 206 776 211 740 190"/>
+    <path d="M829 256 847 206M829 256 776 211M829 256 847 206 813 148M829 256 847 206 870 160"/>
+  </g>
+  <g fill="#FFFFFF" stroke="#38B7A6" stroke-width="3">
+    <circle cx="829" cy="256" r="7"/><circle cx="847" cy="206" r="7"/><circle cx="870" cy="160" r="6"/><circle cx="888" cy="116" r="6"/>
+    <circle cx="843" cy="147" r="6"/><circle cx="841" cy="92" r="6"/><circle cx="813" cy="148" r="6"/><circle cx="799" cy="101" r="6"/>
+    <circle cx="787" cy="172" r="6"/><circle cx="762" cy="137" r="6"/><circle cx="776" cy="211" r="6"/><circle cx="740" cy="190" r="6"/>
+  </g>
+  <!-- Quest Touch style controllers -->
+  <g stroke="#667085" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M300 278c-12-12-10-31 4-40l31-19c19-12 43-4 48 17l9 42c4 17-8 32-25 32h-31c-14 0-26-13-36-32Z" fill="#FFFFFF"/>
+    <path d="M315 247c-2-19 9-34 27-38 17-4 34 6 39 23" />
+    <circle cx="347" cy="260" r="7" fill="#DDE2F3"/><circle cx="372" cy="250" r="4" fill="#DDE2F3"/>
+    <path d="M700 278c12-12 10-31-4-40l-31-19c-19-12-43-4-48 17l-9 42c-4 17 8 32 25 32h31c14 0 26-13 36-32Z" fill="#FFFFFF"/>
+    <path d="M685 247c2-19-9-34-27-38-17-4-34 6-39 23"/>
+    <circle cx="653" cy="260" r="7" fill="#DDE2F3"/><circle cx="628" cy="250" r="4" fill="#DDE2F3"/>
+  </g>
+  <g stroke="#AAB3C5" stroke-width="2" stroke-linecap="round">
+    <path d="M480 274h40M500 254v40"/>
+  </g>
+</svg>
