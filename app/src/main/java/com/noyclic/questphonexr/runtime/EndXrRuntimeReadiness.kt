@@ -40,7 +40,7 @@ object EndXrRuntimeReadiness {
             "Action sets, action lifecycle, paths, binding suggestions, action spaces and xrSyncActions are implemented. Each sync captures one immutable left/right controller snapshot; Boolean/Float/Vector2 values and changedSinceLastSync are resolved from that snapshot. Android clients receive the producer snapshot through the read-only IPC provider."),
         RuntimeCapability("controller-input", "Controller input and cross-process transport",
             RuntimeCapabilityState.PARTIAL,
-            "MediaPipe pinch/grip samples can be published by a user-started camera foreground service after Sandbox pauses; the read-only IPC provider exposes them to EndXR inside a separate game process. Android gamepad key/motion events are not globally captured when another app owns focus. Controller poses and haptic transport are also unavailable."),
+            "A user-started camera foreground service publishes MediaPipe pinch/grip and approximate left/right palm poses through the read-only IPC provider. OpenXR POSE_INPUT / xrLocateSpace expose these estimates with POSITION_VALID and ORIENTATION_VALID but never TRACKED flags. Android gamepad key/motion events are not globally captured when another app owns focus; true controller tracking and haptic transport are unavailable."),
         RuntimeCapability("openxr-hand-tracking", "OpenXR hand-tracking extension",
             RuntimeCapabilityState.NOT_IMPLEMENTED,
             "MediaPipe tracking is app-internal; XR_EXT_hand_tracking is not advertised by the runtime."),
@@ -51,11 +51,11 @@ object EndXrRuntimeReadiness {
 
     val librarySummary: String =
         "Внутри Sandbox проверены loader negotiation, Android/GLES session и stereo projection layer. " +
-            "OpenXR Actions API частично реализован: отдельный процесс читает IPC-снимок контроллеров во время xrSyncActions, а user-started camera foreground service передаёт pinch/grip и ориентацию головы при открытой внешней игре. Android gamepad events, controller poses и haptics пока отсутствуют; позиционного 6DoF нет. " +
+            "OpenXR Actions API частично реализован: отдельный процесс читает IPC-снимок во время xrSyncActions, а user-started camera foreground service передаёт pinch/grip, приближённые palm grip poses и ориентацию головы. Пози ладони доступны через POSE_INPUT/xrLocateSpace без TRACKED-флагов; Android gamepad events, настоящее 6DoF и haptics пока отсутствуют. " +
             "Также не хватает 6DoF position и XR hand tracking; выбор runtime через RuntimeBroker ещё не подтверждён на физическом телефоне."
 
     const val OPEN_XR_GAME_WARNING =
-        "EndXR экспортирует базовый OpenXR Action / Input API. Перед запуском внешней игры можно включить camera foreground service в Sandbox: он передаёт MediaPipe pinch/grip и ориентацию головы через IPC. Позиционного 6DoF, Android gamepad capture, controller poses и haptics пока нет, поэтому полноценная игра ещё не подтверждена."
+        "EndXR экспортирует базовый OpenXR Action / Input API. Перед запуском внешней игры можно включить camera foreground service в Sandbox: он передаёт MediaPipe pinch/grip, приближённую позу ладони и ориентацию головы через IPC. Это не настоящие tracked controller poses и не 6DoF; Android gamepad capture и haptics пока отсутствуют, поэтому полноценная игра ещё не подтверждена."
 
     const val QUEST_GAME_WARNING =
         "Quest APK может зависеть от Meta/Oculus Runtime и системных сервисов гарнитуры. На обычном Android " +

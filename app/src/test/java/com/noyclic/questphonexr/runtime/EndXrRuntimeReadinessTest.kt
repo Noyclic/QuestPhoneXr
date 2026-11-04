@@ -12,6 +12,8 @@ class EndXrRuntimeReadinessTest {
         assertEquals(RuntimeCapabilityState.PARTIAL, byId.getValue("controller-input").state)
         assertTrue(byId.getValue("controller-input").details.contains("foreground service"))
         assertTrue(byId.getValue("controller-input").details.contains("not globally captured"))
+        assertTrue(byId.getValue("controller-input").details.contains("POSE_INPUT"))
+        assertTrue(byId.getValue("controller-input").details.contains("never TRACKED"))
         assertTrue(byId.getValue("head-orientation").details.contains("Android IPC provider"))
         assertTrue(byId.getValue("head-orientation").details.contains("not positional 6DoF"))
         assertEquals(RuntimeCapabilityState.NOT_IMPLEMENTED, byId.getValue("position-tracking").state)
@@ -35,7 +37,8 @@ class EndXrRuntimeReadinessTest {
         assertTrue(warnings.single().contains("camera foreground service"))
         assertTrue(warnings.single().contains("ориентацию головы"))
         assertTrue(warnings.single().contains("Android gamepad capture"))
-        assertTrue(warnings.single().contains("controller poses"))
+        assertTrue(warnings.single().contains("приближённую позу ладони"))
+        assertTrue(warnings.single().contains("не настоящие tracked controller poses"))
         assertTrue(warnings.single().contains("haptics"))
     }
 }

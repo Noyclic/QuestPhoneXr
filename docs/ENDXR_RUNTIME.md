@@ -42,14 +42,15 @@ Monado is not a required dependency in the active architecture or build path.
   paused, and clears the IPC snapshot when stopped. It must be started while
   QuestPhoneXR is visible and camera permission is granted; Android keeps a
   persistent notification while the camera remains active.
-- The foreground producer provides phone head orientation and camera-hand
-  pinch/grip, but it does not globally intercept Android gamepad key or motion
-  events after another app receives focus. Controller poses and haptics are
-  still unavailable; phone translation is not measured, so this is not 6DoF.
-  Physical-device sensor/camera lifecycle and thermal impact remain to be
-  verified on the Redmi.
-- Pose actions remain inactive: camera-relative hand landmarks are not yet
-  calibrated into an OpenXR reference-space pose.
+- The foreground producer provides phone head orientation, camera-hand
+  pinch/grip and approximate left/right palm grip poses. Pose estimates use
+  image position, monocular apparent palm width and MediaPipe hand-local
+  landmarks. OpenXR POSE_INPUT / xrLocateSpace expose POSITION_VALID and
+  ORIENTATION_VALID, deliberately without TRACKED flags. Android gamepad key
+  or motion events are not globally intercepted after another app receives
+  focus; true controller tracking and haptics remain unavailable. Phone
+  translation is not measured, so this is not 6DoF. Physical-device
+  sensor/camera lifecycle and thermal impact remain to be verified on Redmi.
 - Haptic output entry points validate their inputs but return
   XR_ERROR_FEATURE_UNSUPPORTED until a device haptic transport exists.
 - In-process Sandbox diagnostics have exercised 30 consecutive stereo
@@ -90,8 +91,9 @@ purpose Quest runtime. It currently does not implement:
   another app owns focus, and no input is injected into another app's window.
 - Haptic output transport.
 - 6DoF positional tracking.
-- The XR_EXT_hand_tracking runtime extension. MediaPipe hand tracking in
-  QuestPhoneXR is app-internal until it is connected to the OpenXR API.
+- The XR_EXT_hand_tracking runtime extension. Estimated MediaPipe palm grip
+  poses are available through POSE_INPUT, but this is not joint-level
+  XR_EXT_hand_tracking.
 - Meta/Oculus Android runtime services required by many Quest-only APKs.
 - A tested third-party graphics session and rendered frame on the Redmi.
 
@@ -116,9 +118,10 @@ graphics backend and vendor services.
    entry points are implemented and host-tested. This is an API milestone,
    not live controller input.
 6. **In-process Sandbox-to-EndXR input bridge** — initial implementation
-   maps left/right gamepad and MediaPipe pinch/grip samples to Boolean, Float
-   and Vector2 action states. Native tests cover hand isolation, active profile
-   selection and bound-source enumeration.
+   maps left/right MediaPipe pinch/grip samples to Boolean/Float actions and
+   estimated palm grip poses to POSE_INPUT / xrLocateSpace. Native tests cover
+   hand isolation, active profile selection, pose location and bound-source
+   enumeration. Estimated poses are not marked TRACKED.
 7. **Cross-process input IPC** — snapshot provider and native runtime polling
    are implemented; separate-package Android CI verifies the endpoint.
    User-started foreground camera publication is implemented; Android-wide
