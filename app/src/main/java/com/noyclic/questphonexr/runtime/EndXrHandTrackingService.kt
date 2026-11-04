@@ -134,6 +134,12 @@ internal object EndXrHandTrackingDiagnostics {
             append("service_last_result_hands=").append(lastResultHands).append('\n')
             append("service_last_result_age_ms=").append(resultAgeMs).append('\n')
             append("service_last_preprocessing_ms=").append(snapshot.lastPreprocessingMs).append('\n')
+            append("service_last_frame_width_px=").append(snapshot.lastFrameWidthPx).append('\n')
+            append("service_last_frame_height_px=").append(snapshot.lastFrameHeightPx).append('\n')
+            append("service_last_frame_format=").append(snapshot.lastFrameFormat).append('\n')
+            append("service_last_frame_rotation_degrees=").append(snapshot.lastFrameRotationDegrees).append('\n')
+            append("service_last_frame_row_stride=").append(snapshot.lastFrameRowStride).append('\n')
+            append("service_last_frame_pixel_stride=").append(snapshot.lastFramePixelStride).append('\n')
             append("service_last_error=").append(lastError).append('\n')
         }
     }

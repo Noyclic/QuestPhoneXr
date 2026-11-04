@@ -59,6 +59,12 @@ class HandLandmarkerController(
     private val preprocessingSamples = AtomicLong(0L)
     private val totalPreprocessingNanos = AtomicLong(0L)
     private val lastPreprocessingMs = AtomicLong(0L)
+    @Volatile private var lastFrameWidthPx = 0
+    @Volatile private var lastFrameHeightPx = 0
+    @Volatile private var lastFrameFormat = 0
+    @Volatile private var lastFrameRotationDegrees = 0
+    @Volatile private var lastFrameRowStride = 0
+    @Volatile private var lastFramePixelStride = 0
 
     // Analyzer-thread confined. The processing gate permits only one frame to use these at once.
     private var sourceBitmap: Bitmap? = null
@@ -116,7 +122,13 @@ class HandLandmarkerController(
             droppedBusyFrames = droppedBusyFrames.get(),
             droppedIntervalFrames = droppedIntervalFrames.get(),
             lastPreprocessingMs = lastPreprocessingMs.get(),
-            averagePreprocessingMs = averagePreprocessingMs
+            averagePreprocessingMs = averagePreprocessingMs,
+            lastFrameWidthPx = lastFrameWidthPx,
+            lastFrameHeightPx = lastFrameHeightPx,
+            lastFrameFormat = lastFrameFormat,
+            lastFrameRotationDegrees = lastFrameRotationDegrees,
+            lastFrameRowStride = lastFrameRowStride,
+            lastFramePixelStride = lastFramePixelStride
         )
     }
 
@@ -127,6 +139,14 @@ class HandLandmarkerController(
 
     fun analyze(imageProxy: ImageProxy) {
         receivedFrames.incrementAndGet()
+        lastFrameWidthPx = imageProxy.width
+        lastFrameHeightPx = imageProxy.height
+        lastFrameFormat = imageProxy.format
+        lastFrameRotationDegrees = imageProxy.imageInfo.rotationDegrees
+        imageProxy.planes.firstOrNull()?.let { plane ->
+            lastFrameRowStride = plane.rowStride
+            lastFramePixelStride = plane.pixelStride
+        }
         publishMetrics()
         if (closed.get()) {
             imageProxy.close()
