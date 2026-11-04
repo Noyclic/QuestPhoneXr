@@ -1204,7 +1204,51 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrLocateSpace(
         return XR_ERROR_VALIDATION_FAILURE;
     }
     if (time <= 0) return XR_ERROR_TIME_INVALID;
-    if (object->isActionSpace || base->isActionSpace) {
+    if (object->isActionSpace) {
+        location->pose.orientation = {0.0f, 0.0f, 0.0f, 1.0f};
+        location->pose.position = {0.0f, 0.0f, 0.0f};
+        location->locationFlags = 0;
+        if (base->isActionSpace) return XR_SUCCESS;
+
+        XrSession_T* sessionOwner = getSession(object->owner);
+        if (sessionOwner == nullptr) return XR_ERROR_HANDLE_INVALID;
+#if defined(__ANDROID__)
+        refreshExternalControllerInput(getInstance(sessionOwner->owner));
+#endif
+        XrAction_T* action = getAction(object->action);
+        const ResolvedActionPose resolved =
+            resolveActionPose(sessionOwner, action, object->actionSubactionPath);
+        if (!resolved.active) return XR_SUCCESS;
+
+        XrPosef pose = composePose(resolved.pose, object->poseInReferenceSpace);
+        if (base->type == XR_REFERENCE_SPACE_TYPE_LOCAL) {
+            XrQuaternionf headOrientation{};
+            bool headOrientationActive = false;
+            {
+                std::lock_guard<std::mutex> lock(g_headPoseMutex);
+                headOrientation = g_headOrientation;
+                headOrientationActive = g_hasHeadOrientation;
+            }
+            if (!headOrientationActive) return XR_SUCCESS;
+            XrPosef headPose{};
+            headPose.orientation = headOrientation;
+            headPose.position = {0.0f, 0.0f, 0.0f};
+            pose = composePose(headPose, pose);
+        } else if (base->type != XR_REFERENCE_SPACE_TYPE_VIEW) {
+            return XR_SUCCESS;
+        }
+
+        // Reference-space offsets are applied as the inverse base transform.
+        pose = composePose(inversePose(base->poseInReferenceSpace), pose);
+        location->pose = pose;
+        // The palm pose is estimated from camera landmarks and monocular depth.
+        // It is usable as a grip interaction pose, but deliberately not TRACKED.
+        location->locationFlags =
+            XR_SPACE_LOCATION_POSITION_VALID_BIT |
+            XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+        return XR_SUCCESS;
+    }
+    if (base->isActionSpace) {
         location->pose.orientation = {0.0f, 0.0f, 0.0f, 1.0f};
         location->pose.position = {0.0f, 0.0f, 0.0f};
         location->locationFlags = 0;
@@ -1866,6 +1910,142 @@ ResolvedActionInput resolveActionInput(XrSession_T* session, XrAction_T* action,
             result.booleanValue = result.booleanValue || pressed;
             result.scalarValue = std::max(result.scalarValue, scalar);
             result.vectorValue = vector;
+        }
+    }
+    return result;
+}
+
+struct ResolvedActionPose {
+    bool active = false;
+    XrPosef pose{{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f}};
+};
+
+XrQuaternionf normalizedQuaternion(const XrQuaternionf& value) {
+    const double magnitude = std::sqrt(
+        static_cast<double>(value.x) * value.x +
+        static_cast<double>(value.y) * value.y +
+        static_cast<double>(value.z) * value.z +
+        static_cast<double>(value.w) * value.w
+    );
+    if (!std::isfinite(magnitude) || magnitude < 0.5 || magnitude > 1.5) {
+        return {0.0f, 0.0f, 0.0f, 1.0f};
+    }
+    return {
+        static_cast<float>(value.x / magnitude),
+        static_cast<float>(value.y / magnitude),
+        static_cast<float>(value.z / magnitude),
+        static_cast<float>(value.w / magnitude)
+    };
+}
+
+XrQuaternionf multiplyQuaternion(const XrQuaternionf& a, const XrQuaternionf& b) {
+    return normalizedQuaternion({
+        a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+        a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+        a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+        a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z
+    });
+}
+
+XrVector3f rotateVector(const XrQuaternionf& orientation, const XrVector3f& value) {
+    const XrQuaternionf q = normalizedQuaternion(orientation);
+    const XrVector3f qv{q.x, q.y, q.z};
+    const XrVector3f t{
+        2.0f * (qv.y * value.z - qv.z * value.y),
+        2.0f * (qv.z * value.x - qv.x * value.z),
+        2.0f * (qv.x * value.y - qv.y * value.x)
+    };
+    const XrVector3f cross{
+        qv.y * t.z - qv.z * t.y,
+        qv.z * t.x - qv.x * t.z,
+        qv.x * t.y - qv.y * t.x
+    };
+    return {
+        value.x + q.w * t.x + cross.x,
+        value.y + q.w * t.y + cross.y,
+        value.z + q.w * t.z + cross.z
+    };
+}
+
+XrPosef composePose(const XrPosef& parent, const XrPosef& child) {
+    const XrQuaternionf orientation = normalizedQuaternion(parent.orientation);
+    const XrVector3f offset = rotateVector(orientation, child.position);
+    return {
+        multiplyQuaternion(orientation, child.orientation),
+        {
+            parent.position.x + offset.x,
+            parent.position.y + offset.y,
+            parent.position.z + offset.z
+        }
+    };
+}
+
+XrPosef inversePose(const XrPosef& value) {
+    const XrQuaternionf q = normalizedQuaternion(value.orientation);
+    const XrQuaternionf inverse{-q.x, -q.y, -q.z, q.w};
+    const XrVector3f negative{-value.position.x, -value.position.y, -value.position.z};
+    return {inverse, rotateVector(inverse, negative)};
+}
+
+ResolvedActionPose resolveActionPose(
+    XrSession_T* session, XrAction_T* action, XrPath requestedHand
+) {
+    ResolvedActionPose result{};
+    if (session == nullptr || action == nullptr) return result;
+
+    const bool actionSetActive = std::any_of(
+        session->activeActionSets.begin(), session->activeActionSets.end(),
+        [&](const XrActiveActionSet& active) {
+            return active.actionSet == action->owner &&
+                (active.subactionPath == XR_NULL_PATH || requestedHand == XR_NULL_PATH ||
+                 active.subactionPath == requestedHand);
+        });
+    if (!actionSetActive) return result;
+
+    XrInstance_T* instance = getInstance(session->owner);
+    if (instance == nullptr) return result;
+    const auto requested = instance->pathStrings.find(requestedHand);
+    const int firstHand = requestedHand == XR_NULL_PATH ? 0 :
+        (requested == instance->pathStrings.end()
+            ? -1 : handIndexFromPath(requested->second));
+    const int lastHand = requestedHand == XR_NULL_PATH ? 1 : firstHand;
+    if (firstHand < 0) return result;
+
+    for (int hand = firstHand; hand <= lastHand; ++hand) {
+        const XrPath handPath = hand == 0
+            ? (instance->pathHandles.count("/user/hand/left")
+                ? instance->pathHandles.at("/user/hand/left") : XR_NULL_PATH)
+            : (instance->pathHandles.count("/user/hand/right")
+                ? instance->pathHandles.at("/user/hand/right") : XR_NULL_PATH);
+        const bool handSetActive = std::any_of(
+            session->activeActionSets.begin(), session->activeActionSets.end(),
+            [&](const XrActiveActionSet& active) {
+                return active.actionSet == action->owner &&
+                    (active.subactionPath == XR_NULL_PATH || active.subactionPath == handPath);
+            });
+        if (!handSetActive) continue;
+
+        const auto& input =
+            session->synchronizedControllerInputs[static_cast<std::size_t>(hand)];
+        if (!input.active || !input.poseActive) continue;
+
+        const XrPath profile = currentProfileForHand(session, hand);
+        const auto profileBindings = instance->suggestedBindings.find(profile);
+        if (profile == XR_NULL_PATH || profileBindings == instance->suggestedBindings.end()) {
+            continue;
+        }
+        for (const auto& binding : profileBindings->second) {
+            if (binding.action != reinterpret_cast<XrAction>(action)) continue;
+            std::string path;
+            if (!pathBelongsToInstance(session->owner, binding.binding, &path) ||
+                handIndexFromPath(path) != hand) continue;
+            const auto marker = path.find("/input/");
+            if (marker == std::string::npos) continue;
+            const std::string component = path.substr(marker + 7);
+            if (component != "grip/pose" && component != "aim/pose") continue;
+            result.active = true;
+            result.pose = input.gripPose;
+            return result;
         }
     }
     return result;
