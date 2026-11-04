@@ -259,6 +259,28 @@ static std::string runEndXrOpenXrAndroidSelfTestImpl(JavaVM* vm, jobject activit
             }
         };
 
+
+
+        if (swapchain != XR_NULL_HANDLE && api.destroySwapchain != nullptr) {
+            if (imageAcquired && api.waitSwapchainImage != nullptr &&
+                api.releaseSwapchainImage != nullptr) {
+                if (!imageWaited) {
+                    XrSwapchainImageWaitInfo waitInfo{};
+                    waitInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
+                    waitInfo.timeout = XR_INFINITE_DURATION;
+                    const XrResult waitResult = api.waitSwapchainImage(swapchain, &waitInfo);
+                    rememberFailure("cleanup xrWaitSwapchainImage", waitResult);
+                    imageWaited = waitResult == XR_SUCCESS;
+                }
+                if (imageWaited) {
+                    XrSwapchainImageReleaseInfo releaseInfo{};
+                    releaseInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
+                    const XrResult releaseResult =
+                        api.releaseSwapchainImage(swapchain, &releaseInfo);
+                    rememberFailure("cleanup xrReleaseSwapchainImage", releaseResult);
+                    if (releaseResult == XR_SUCCESS) imageAcquired = false;
+                }
+            }
         if (frameWaited && session != XR_NULL_HANDLE && api.beginFrame != nullptr &&
             api.endFrame != nullptr) {
             if (!frameBegun) {
@@ -282,26 +304,6 @@ static std::string runEndXrOpenXrAndroidSelfTestImpl(JavaVM* vm, jobject activit
             }
         }
 
-        if (swapchain != XR_NULL_HANDLE && api.destroySwapchain != nullptr) {
-            if (imageAcquired && api.waitSwapchainImage != nullptr &&
-                api.releaseSwapchainImage != nullptr) {
-                if (!imageWaited) {
-                    XrSwapchainImageWaitInfo waitInfo{};
-                    waitInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
-                    waitInfo.timeout = XR_INFINITE_DURATION;
-                    const XrResult waitResult = api.waitSwapchainImage(swapchain, &waitInfo);
-                    rememberFailure("cleanup xrWaitSwapchainImage", waitResult);
-                    imageWaited = waitResult == XR_SUCCESS;
-                }
-                if (imageWaited) {
-                    XrSwapchainImageReleaseInfo releaseInfo{};
-                    releaseInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
-                    const XrResult releaseResult =
-                        api.releaseSwapchainImage(swapchain, &releaseInfo);
-                    rememberFailure("cleanup xrReleaseSwapchainImage", releaseResult);
-                    if (releaseResult == XR_SUCCESS) imageAcquired = false;
-                }
-            }
             if (!imageAcquired) {
                 const XrResult destroyResult = api.destroySwapchain(swapchain);
                 rememberFailure("cleanup xrDestroySwapchain", destroyResult);
@@ -493,36 +495,6 @@ static std::string runEndXrOpenXrAndroidSelfTestImpl(JavaVM* vm, jobject activit
         return fail("GLES swapchain texture handles", XR_ERROR_RUNTIME_FAILURE);
     }
 
-    XrSwapchainImageAcquireInfo acquireInfo{};
-    acquireInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO;
-    result = api.acquireSwapchainImage(swapchain, &acquireInfo, &acquiredImageIndex);
-    if (result != XR_SUCCESS) return fail("xrAcquireSwapchainImage", result);
-    imageAcquired = true;
-
-    XrSwapchainImageWaitInfo imageWaitInfo{};
-    imageWaitInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
-    imageWaitInfo.timeout = XR_INFINITE_DURATION;
-    result = api.waitSwapchainImage(swapchain, &imageWaitInfo);
-    if (result != XR_SUCCESS) return fail("xrWaitSwapchainImage", result);
-    imageWaited = true;
-    if (acquiredImageIndex >= images.size()) {
-        return fail("acquired GLES swapchain image index", XR_ERROR_RUNTIME_FAILURE);
-    }
-    if (!paintStereoDiagnosticPattern(
-            images[acquiredImageIndex].image,
-            static_cast<GLsizei>(swapchainInfo.width),
-            static_cast<GLsizei>(swapchainInfo.height))) {
-        return fail("render stereo pattern into swapchain image", XR_ERROR_RUNTIME_FAILURE);
-    }
-    glFlush();
-
-    XrSwapchainImageReleaseInfo releaseInfo{};
-    releaseInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
-    result = api.releaseSwapchainImage(swapchain, &releaseInfo);
-    if (result != XR_SUCCESS) return fail("xrReleaseSwapchainImage", result);
-    imageAcquired = false;
-    imageWaited = false;
-
     XrSessionBeginInfo beginSessionInfo{};
     beginSessionInfo.type = XR_TYPE_SESSION_BEGIN_INFO;
     beginSessionInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
@@ -532,46 +504,23 @@ static std::string runEndXrOpenXrAndroidSelfTestImpl(JavaVM* vm, jobject activit
 
     XrFrameWaitInfo frameWaitInfo{};
     frameWaitInfo.type = XR_TYPE_FRAME_WAIT_INFO;
-    result = api.waitFrame(session, &frameWaitInfo, &frameState);
-    if (result != XR_SUCCESS) return fail("xrWaitFrame", result);
-    frameWaited = true;
-
     XrFrameBeginInfo frameBeginInfo{};
     frameBeginInfo.type = XR_TYPE_FRAME_BEGIN_INFO;
-    result = api.beginFrame(session, &frameBeginInfo);
-    if (result != XR_SUCCESS) return fail("xrBeginFrame", result);
-    frameBegun = true;
-
     XrViewLocateInfo locateInfo{};
     locateInfo.type = XR_TYPE_VIEW_LOCATE_INFO;
     locateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
-    locateInfo.displayTime = frameState.predictedDisplayTime;
     locateInfo.space = space;
-    XrViewState viewState{};
-    viewState.type = XR_TYPE_VIEW_STATE;
-    std::array<XrView, 2> locatedViews{};
-    for (auto& view : locatedViews) view.type = XR_TYPE_VIEW;
-    std::uint32_t locatedViewCount = 0;
-    result = api.locateViews(session, &locateInfo, &viewState,
-                             static_cast<std::uint32_t>(locatedViews.size()),
-                             &locatedViewCount, locatedViews.data());
-    if (result != XR_SUCCESS || locatedViewCount != 2) {
-        return fail("xrLocateViews (stereo pose)", result == XR_SUCCESS
-            ? XR_ERROR_VIEW_CONFIGURATION_TYPE_UNSUPPORTED : result);
-    }
 
     XrSpaceLocation spaceLocation{};
     spaceLocation.type = XR_TYPE_SPACE_LOCATION;
-    result = api.locateSpace(space, space, frameState.predictedDisplayTime, &spaceLocation);
-    if (result != XR_SUCCESS) return fail("xrLocateSpace", result);
+    std::array<XrView, 2> locatedViews{};
+    for (auto& view : locatedViews) view.type = XR_TYPE_VIEW;
 
-    const std::uint32_t eyeImageWidth = swapchainInfo.width / 2;
     std::array<XrCompositionLayerProjectionView, 2> projectionViews{};
+    const std::uint32_t eyeImageWidth = swapchainInfo.width / 2;
     for (std::uint32_t eye = 0; eye < 2; ++eye) {
         auto& projectionView = projectionViews[eye];
         projectionView.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
-        projectionView.pose = locatedViews[eye].pose;
-        projectionView.fov = locatedViews[eye].fov;
         projectionView.subImage.swapchain = swapchain;
         projectionView.subImage.imageArrayIndex = 0;
         projectionView.subImage.imageRect.offset.x =
@@ -592,42 +541,123 @@ static std::string runEndXrOpenXrAndroidSelfTestImpl(JavaVM* vm, jobject activit
     const XrCompositionLayerBaseHeader* layers[] = {
         reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projectionLayer)
     };
-
     XrFrameEndInfo frameEndInfo{};
     frameEndInfo.type = XR_TYPE_FRAME_END_INFO;
-    frameEndInfo.displayTime = frameState.predictedDisplayTime;
     frameEndInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
     frameEndInfo.layerCount = 1;
     frameEndInfo.layers = layers;
-    result = api.endFrame(session, &frameEndInfo);
-    if (result != XR_SUCCESS) return fail("xrEndFrame (projection layer)", result);
-    frameBegun = false;
-    frameWaited = false;
 
-    // Read back one pixel from each half of the real EGL window backbuffer.
-    // The compositor must have copied red-left and blue-right from the layer.
-    glFinish();
+    XrSwapchainImageAcquireInfo acquireInfo{};
+    acquireInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO;
+    XrSwapchainImageWaitInfo imageWaitInfo{};
+    imageWaitInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
+    imageWaitInfo.timeout = XR_INFINITE_DURATION;
+    XrSwapchainImageReleaseInfo releaseInfo{};
+    releaseInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
+
+    constexpr std::uint32_t kProbeFrameCount = 30;
+    std::array<bool, 3> seenSwapchainImages{};
+    std::uint32_t submittedFrameCount = 0;
     std::array<GLubyte, 4> leftPixel{};
     std::array<GLubyte, 4> rightPixel{};
-    glReadPixels(surfaceWidth / 4, surfaceHeight / 2, 1, 1,
-                 GL_RGBA, GL_UNSIGNED_BYTE, leftPixel.data());
-    glReadPixels((surfaceWidth * 3) / 4, surfaceHeight / 2, 1, 1,
-                 GL_RGBA, GL_UNSIGNED_BYTE, rightPixel.data());
-    const GLenum readbackError = glGetError();
-    if (readbackError != GL_NO_ERROR) {
-        return fail("projection layer pixel readback", XR_ERROR_RUNTIME_FAILURE);
+
+    for (std::uint32_t frameIndex = 0; frameIndex < kProbeFrameCount; ++frameIndex) {
+        frameState = XrFrameState{};
+        frameState.type = XR_TYPE_FRAME_STATE;
+        result = api.waitFrame(session, &frameWaitInfo, &frameState);
+        if (result != XR_SUCCESS) return fail("xrWaitFrame", result);
+        frameWaited = true;
+
+        result = api.beginFrame(session, &frameBeginInfo);
+        if (result != XR_SUCCESS) return fail("xrBeginFrame", result);
+        frameBegun = true;
+
+        locateInfo.displayTime = frameState.predictedDisplayTime;
+        XrViewState viewState{};
+        viewState.type = XR_TYPE_VIEW_STATE;
+        std::uint32_t locatedViewCount = 0;
+        result = api.locateViews(session, &locateInfo, &viewState,
+                                 static_cast<std::uint32_t>(locatedViews.size()),
+                                 &locatedViewCount, locatedViews.data());
+        if (result != XR_SUCCESS || locatedViewCount != 2) {
+            return fail("xrLocateViews (stereo pose)", result == XR_SUCCESS
+                ? XR_ERROR_VIEW_CONFIGURATION_TYPE_UNSUPPORTED : result);
+        }
+
+        result = api.locateSpace(space, space, frameState.predictedDisplayTime,
+                                 &spaceLocation);
+        if (result != XR_SUCCESS) return fail("xrLocateSpace", result);
+
+        result = api.acquireSwapchainImage(swapchain, &acquireInfo, &acquiredImageIndex);
+        if (result != XR_SUCCESS) return fail("xrAcquireSwapchainImage", result);
+        imageAcquired = true;
+
+        result = api.waitSwapchainImage(swapchain, &imageWaitInfo);
+        if (result != XR_SUCCESS) return fail("xrWaitSwapchainImage", result);
+        imageWaited = true;
+        if (acquiredImageIndex >= images.size() ||
+            acquiredImageIndex >= seenSwapchainImages.size()) {
+            return fail("acquired GLES swapchain image index", XR_ERROR_RUNTIME_FAILURE);
+        }
+        seenSwapchainImages[acquiredImageIndex] = true;
+
+        if (!paintStereoDiagnosticPattern(
+                images[acquiredImageIndex].image,
+                static_cast<GLsizei>(swapchainInfo.width),
+                static_cast<GLsizei>(swapchainInfo.height))) {
+            return fail("render stereo pattern into swapchain image", XR_ERROR_RUNTIME_FAILURE);
+        }
+        glFlush();
+
+        result = api.releaseSwapchainImage(swapchain, &releaseInfo);
+        if (result != XR_SUCCESS) return fail("xrReleaseSwapchainImage", result);
+        imageAcquired = false;
+        imageWaited = false;
+
+        for (std::uint32_t eye = 0; eye < 2; ++eye) {
+            projectionViews[eye].pose = locatedViews[eye].pose;
+            projectionViews[eye].fov = locatedViews[eye].fov;
+        }
+        frameEndInfo.displayTime = frameState.predictedDisplayTime;
+        result = api.endFrame(session, &frameEndInfo);
+        if (result != XR_SUCCESS) {
+            // The runtime closes its frame state when composition reports an error.
+            frameBegun = false;
+            frameWaited = false;
+            return fail("xrEndFrame (projection layer)", result);
+        }
+        frameBegun = false;
+        frameWaited = false;
+
+        glFinish();
+        glReadPixels(surfaceWidth / 4, surfaceHeight / 2, 1, 1,
+                     GL_RGBA, GL_UNSIGNED_BYTE, leftPixel.data());
+        glReadPixels((surfaceWidth * 3) / 4, surfaceHeight / 2, 1, 1,
+                     GL_RGBA, GL_UNSIGNED_BYTE, rightPixel.data());
+        const GLenum readbackError = glGetError();
+        if (readbackError != GL_NO_ERROR) {
+            return fail("projection layer pixel readback", XR_ERROR_RUNTIME_FAILURE);
+        }
+        const bool leftEyeIsRed = leftPixel[0] > 160 &&
+                                  leftPixel[1] < 90 && leftPixel[2] < 90;
+        const bool rightEyeIsBlue = rightPixel[2] > 160 &&
+                                    rightPixel[0] < 90 && rightPixel[1] < 110;
+        if (!leftEyeIsRed || !rightEyeIsBlue) {
+            char pixels[160]{};
+            std::snprintf(pixels, sizeof(pixels),
+                          "projection layer pixel verification frame=%u left=%u,%u,%u right=%u,%u,%u",
+                          frameIndex + 1, leftPixel[0], leftPixel[1], leftPixel[2],
+                          rightPixel[0], rightPixel[1], rightPixel[2]);
+            return fail(pixels, XR_ERROR_RUNTIME_FAILURE);
+        }
+        ++submittedFrameCount;
     }
-    const bool leftEyeIsRed = leftPixel[0] > 160 &&
-                              leftPixel[1] < 90 && leftPixel[2] < 90;
-    const bool rightEyeIsBlue = rightPixel[2] > 160 &&
-                                rightPixel[0] < 90 && rightPixel[1] < 110;
-    if (!leftEyeIsRed || !rightEyeIsBlue) {
-        char pixels[128]{};
-        std::snprintf(pixels, sizeof(pixels),
-                      "projection layer pixel verification left=%u,%u,%u right=%u,%u,%u",
-                      leftPixel[0], leftPixel[1], leftPixel[2],
-                      rightPixel[0], rightPixel[1], rightPixel[2]);
-        return fail(pixels, XR_ERROR_RUNTIME_FAILURE);
+
+    const std::size_t distinctSwapchainImages = static_cast<std::size_t>(
+        std::count(seenSwapchainImages.begin(), seenSwapchainImages.end(), true));
+    if (submittedFrameCount != kProbeFrameCount || distinctSwapchainImages != 3) {
+        return fail("30-frame lifecycle / triple-buffer rotation",
+                    XR_ERROR_RUNTIME_FAILURE);
     }
 
     const std::string cleanupResult = cleanup();
@@ -644,6 +674,9 @@ static std::string runEndXrOpenXrAndroidSelfTestImpl(JavaVM* vm, jobject activit
             << static_cast<unsigned int>(leftPixel[1]) << ","
             << static_cast<unsigned int>(leftPixel[2]) << ","
             << static_cast<unsigned int>(leftPixel[3]) << '\n';
+    success << "projection_layer_frames_submitted=30\n";
+    success << "projection_layer_swapchain_images_seen="
+            << std::count(seenSwapchainImages.begin(), seenSwapchainImages.end(), true) << '\n';
     success << "projection_layer_right_pixel_rgba="
             << static_cast<unsigned int>(rightPixel[0]) << ","
             << static_cast<unsigned int>(rightPixel[1]) << ","
@@ -689,7 +722,7 @@ std::string runEndXrOpenXrAndroidSelfTest(JavaVM* vm, jobject activity) {
     std::ostringstream out;
     const std::string nativeResult = runEndXrOpenXrAndroidSelfTestImpl(vm, activity);
     out << nativeResult << '\n';
-    out << "diagnostic_schema=3\n";
+    out << "diagnostic_schema=4\n";
     out << "probe_scope=direct bundled runtime call on Sandbox GLSurfaceView EGL context\n";
     out << "runtime_broker_discovery=NOT_TESTED\n";
     out << "third_party_game_process=NOT_TESTED\n";
@@ -697,7 +730,7 @@ std::string runEndXrOpenXrAndroidSelfTest(JavaVM* vm, jobject activity) {
     const bool projectionLayerAttempted =
         nativeResult.find("projection layer") != std::string::npos;
     out << "projection_layer_composition="
-        << (probePassed ? "PASS (two-eye test pattern submitted and read back)"
+        << (probePassed ? "PASS (30 consecutive two-eye frames submitted and read back)"
             : projectionLayerAttempted ? "FAIL" : "NOT_REACHED") << '\n';
     out << "android_vm=" << (vm == nullptr ? "missing" : "present") << '\n';
     out << "android_activity=" << (activity == nullptr ? "missing" : "present") << '\n';
@@ -777,6 +810,7 @@ std::string runEndXrOpenXrAndroidSelfTest(JavaVM* vm, jobject activity) {
         out << "check_5=space pose + frame lifecycle | PASS\n";
         out << "check_6=resource teardown | PASS\n";
         out << "check_7=stereo projection layer composition + GLES backbuffer readback | PASS\n";
+        out << "check_8=30 consecutive OpenXR frames + triple-buffer rotation | PASS\n";
     }
     return out.str();
 }

@@ -101,42 +101,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none -memory 4096 -cores 4
           script: |
-            set -eu
-            adb wait-for-device
-            api_level="$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
-            case "$api_level" in
-              ''|*[!0-9]*) echo "Invalid emulator SDK value: '$api_level'"; adb devices -l; exit 1 ;;
-            esac
-            if [ "$api_level" -lt 30 ]; then
-              echo "Emulator did not finish booting (SDK=$api_level); refusing to install APK."
-              adb devices -l
-              adb shell getprop ro.build.version.sdk || true
-              exit 1
-            fi
-            echo "Emulator ready: Android SDK $api_level"
-            adb shell settings put global window_animation_scale 0 || true
-            adb shell settings put global transition_animation_scale 0 || true
-            adb shell settings put global animator_duration_scale 0 || true
-            set +e
-            gradle --no-daemon :app:connectedDebugAndroidTest
-            test_exit=$?
-
-            mkdir -p ci-results/screenshots
-            adb logcat -b all -d -v threadtime > ci-results/emulator-logcat.txt
-            grep -Ei 'endxr|vulkan|OpenGLRenderer|FATAL EXCEPTION|Fatal signal|DEBUG   :' ci-results/emulator-logcat.txt > ci-results/endxr-native-filtered.log || true
-
-            adb pull /sdcard/Android/data/com.noyclic.questphonexr/files/ci-screenshots/. ci-results/screenshots/ || true
-            mkdir -p ci-results/diagnostics
-            adb pull /sdcard/Android/data/com.noyclic.questphonexr/files/ci-diagnostics/. ci-results/diagnostics/ || true
-
-            if [ -d app/build/reports/androidTests/connected ]; then
-              cp -R app/build/reports/androidTests/connected ci-results/
-            fi
-            if [ -d app/build/outputs/androidTest-results/connected ]; then
-              cp -R app/build/outputs/androidTest-results/connected ci-results/
-            fi
-
-            exit "$test_exit"
+            bash .github/scripts/run-android-emulator-smoke.sh
 
       - name: Upload emulator screenshots, logs and test reports
         if: always()
