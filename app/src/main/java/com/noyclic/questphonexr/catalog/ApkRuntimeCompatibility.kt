@@ -20,6 +20,7 @@ data class ApkStaticAudit(
     val nativeLibraries: List<String> = emptyList(),
     val sdkRuntimeMarkers: List<String> = emptyList(),
     val manifestReferences: List<String> = emptyList(),
+    val metadataValues: List<String> = emptyList(),
     val componentReferences: List<String> = emptyList(),
     val abiSummary: String = "ABI не проверен."
 )
@@ -70,6 +71,7 @@ object ApkRuntimeCompatibility {
         val endGvrAssessment = EndGvrCompatibility.inspect(
             packageName = info.packageName,
             metadataKeys = info.vrMetadataKeys,
+            metadataValues = info.vrMetadataValues.values,
             requiredFeatures = info.requiredFeatures,
             archiveEntries = lowerEntries,
             requestedPermissions = info.requestedPermissions,
@@ -141,6 +143,7 @@ object ApkRuntimeCompatibility {
         val manifestReferences = (
             info.packageName.let(::listOf) +
                 info.vrMetadataKeys +
+                info.vrMetadataValues.values +
                 info.requiredFeatures +
                 info.requestedPermissions
             ).filter(::looksLikeXrReference).distinct().sorted()
@@ -160,6 +163,7 @@ object ApkRuntimeCompatibility {
             nativeLibraries = packagedLibraries,
             sdkRuntimeMarkers = sdkRuntimeMarkers,
             manifestReferences = manifestReferences,
+            metadataValues = info.vrMetadataValues.values.filter(::looksLikeXrReference).distinct().sorted(),
             componentReferences = componentReferences,
             abiSummary = abiSummary
         )

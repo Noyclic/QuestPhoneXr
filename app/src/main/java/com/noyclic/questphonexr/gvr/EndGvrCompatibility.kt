@@ -35,6 +35,7 @@ object EndGvrCompatibility {
     fun inspect(
         packageName: String,
         metadataKeys: Collection<String>,
+        metadataValues: Collection<String> = emptyList(),
         requiredFeatures: Collection<String>,
         archiveEntries: Collection<String>,
         requestedPermissions: Collection<String> = emptyList(),
@@ -44,6 +45,7 @@ object EndGvrCompatibility {
     ): EndGvrAssessment {
         val normalizedPackage = packageName.lowercase()
         val normalizedMetadata = metadataKeys.map { it.lowercase() }
+        val normalizedMetadataValues = metadataValues.map { it.lowercase() }
         val normalizedFeatures = requiredFeatures.map { it.lowercase() }
         val normalizedEntries = archiveEntries.map { it.lowercase() }
         val normalizedPermissions = requestedPermissions.map { it.lowercase() }
@@ -60,7 +62,11 @@ object EndGvrCompatibility {
 
         normalizedMetadata
             .filter { key -> gearVrMetadataMarkers.any { marker -> key.contains(marker) } }
-            .forEach { gearMarkers += "Gear VR manifest metadata: $it" }
+            .forEach { gearMarkers += "Gear VR manifest metadata key: $it" }
+
+        normalizedMetadataValues
+            .filter(::containsGearVrMarker)
+            .forEach { gearMarkers += "Gear VR manifest metadata value: $it" }
 
         normalizedPermissions
             .filter(::containsGearVrMarker)

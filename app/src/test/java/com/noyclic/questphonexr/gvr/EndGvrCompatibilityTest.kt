@@ -20,6 +20,33 @@ class EndGvrCompatibilityTest {
     }
 
     @Test
+    fun recognizesExplicitSamsungGearVrMarkerInsideMetadataValue() {
+        val result = EndGvrCompatibility.inspect(
+            packageName = "com.example.classicvr",
+            metadataKeys = listOf("com.example.vr.mode"),
+            metadataValues = listOf("com.samsung.android.hmt.vrsvc"),
+            requiredFeatures = emptyList(),
+            archiveEntries = emptyList()
+        )
+
+        assertEquals(EndGvrClassification.GEAR_VR_MARKED, result.classification)
+        assertTrue(result.gearVrMarkers.any { it.contains("metadata value") })
+    }
+
+    @Test
+    fun doesNotClassifyOrdinaryQuestMetadataValueAsGearVr() {
+        val result = EndGvrCompatibility.inspect(
+            packageName = "com.oculus.quest.example",
+            metadataKeys = listOf("com.oculus.vr.application.mode"),
+            metadataValues = listOf("quest"),
+            requiredFeatures = emptyList(),
+            archiveEntries = listOf("lib/arm64-v8a/libOVRPlugin.so")
+        )
+
+        assertEquals(EndGvrClassification.NO_GEAR_VR_EVIDENCE, result.classification)
+    }
+
+    @Test
     fun recognizesLegacyVrApiWithoutClaimingItIsDefinitelyGearVr() {
         val result = EndGvrCompatibility.inspect(
             packageName = "com.example.legacyvr",

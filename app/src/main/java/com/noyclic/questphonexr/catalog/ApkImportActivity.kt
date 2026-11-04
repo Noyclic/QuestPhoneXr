@@ -269,6 +269,9 @@ class ApkImportActivity : ComponentActivity() {
         if (audit.manifestReferences.isNotEmpty()) {
             addAuditLine(card, "VR-записи манифеста", audit.manifestReferences)
         }
+        if (audit.metadataValues.isNotEmpty()) {
+            addAuditLine(card, "VR-значения метаданных", audit.metadataValues)
+        }
         if (audit.componentReferences.isNotEmpty()) {
             addAuditLine(card, "VR-компоненты Android", audit.componentReferences)
         }
@@ -427,6 +430,7 @@ class ApkImportActivity : ComponentActivity() {
             appendLine("Нативные библиотеки: ${audit.nativeLibraries.joinToString().ifBlank { "не обнаружены" }}")
             appendLine("SDK/Runtime-маркеры: ${audit.sdkRuntimeMarkers.joinToString().ifBlank { "не обнаружены" }}")
             appendLine("VR-маркеры манифеста: ${audit.manifestReferences.joinToString().ifBlank { "не обнаружены" }}")
+            appendLine("VR-значения метаданных: ${audit.metadataValues.joinToString().ifBlank { "не обнаружены" }}")
             appendLine("VR-компоненты: ${audit.componentReferences.joinToString().ifBlank { "не обнаружены" }}")
             appendLine("Разрешения: ${info.requestedPermissions.joinToString().ifBlank { "не перечислены" }}")
             appendLine("Activities: ${info.activityNames.joinToString().ifBlank { "не перечислены" }}")

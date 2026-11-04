@@ -28,7 +28,8 @@ data class ImportedApkInfo(
     val activityNames: List<String> = emptyList(),
     val serviceNames: List<String> = emptyList(),
     val providerNames: List<String> = emptyList(),
-    val sha256: String = ""
+    val sha256: String = "",
+    val vrMetadataValues: Map<String, String> = emptyMap()
 )
 
 /** Streaming APK fingerprint. The file is never loaded fully into memory. */
@@ -84,6 +85,9 @@ internal object ApkArchiveInspector {
             }
             ?.sorted()
             .orEmpty()
+        val vrMetadataValues = vrMetadataKeys.associateWith { key ->
+            appInfo.metaData?.get(key)?.toString()?.take(512).orEmpty()
+        }
         val requestedPermissions = packageInfo.requestedPermissions
             ?.filter(String::isNotBlank)?.distinct()?.sorted().orEmpty()
         val activityNames = packageInfo.activities
@@ -112,6 +116,7 @@ internal object ApkArchiveInspector {
             serviceNames = serviceNames,
             providerNames = providerNames,
             sha256 = ApkArchiveFingerprint.sha256(file),
+            vrMetadataValues = vrMetadataValues,
             importedAtEpochMs = System.currentTimeMillis()
         )
     }
@@ -215,6 +220,9 @@ class ImportedApkStore(context: Context) {
                 put("serviceNames", JSONArray(info.serviceNames))
                 put("providerNames", JSONArray(info.providerNames))
                 put("sha256", info.sha256)
+                put("vrMetadataValues", JSONObject().apply {
+                    info.vrMetadataValues.forEach { (key, value) -> put(key, value) }
+                })
                 put("sizeBytes", info.sizeBytes)
                 put("importedAtEpochMs", info.importedAtEpochMs)
             })
@@ -241,6 +249,15 @@ class ImportedApkStore(context: Context) {
         serviceNames = optStringList("serviceNames"),
         providerNames = optStringList("providerNames"),
         sha256 = optString("sha256"),
+        vrMetadataValues = optJSONObject("vrMetadataValues")?.let { values ->
+            buildMap {
+                val keys = values.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    put(key, values.optString(key).take(512))
+                }
+            }
+        }.orEmpty(),
         importedAtEpochMs = optLong("importedAtEpochMs")
     )
 

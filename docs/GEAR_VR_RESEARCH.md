@@ -43,12 +43,12 @@ classification only and distinguishes:
   claiming that the APK is definitely a Gear VR title;
 - no Gear VR evidence found.
 
-The APK importer retains Samsung/HMT Gear VR metadata keys and records
-requested permissions plus declared activities, services and content
+The APK importer retains Samsung/HMT Gear VR metadata keys and values, and
+records requested permissions plus declared activities, services and content
 providers. The APK card presents a grouped static audit and can copy the
 complete report, including the APK SHA-256, device and Android version,
 package/version data, ABI overlap, packaged libraries, recognized runtime
-markers and manifest dependency names. The fingerprint lets a report refer
+markers, VR metadata values and manifest dependency names. The fingerprint lets a report refer
 to one exact APK build without uploading or redistributing the APK. The
 report is heuristic evidence only: it does not inspect native binary symbols,
 decompile bytecode, resolve dynamic service binding, or prove that a referenced

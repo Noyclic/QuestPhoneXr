@@ -12,7 +12,8 @@ class ApkRuntimeCompatibilityTest {
         minSdk: Int = 29,
         nativeAbis: List<String> = listOf("arm64-v8a"),
         requiredFeatures: List<String> = emptyList(),
-        vrMetadataKeys: List<String> = emptyList()
+        vrMetadataKeys: List<String> = emptyList(),
+        vrMetadataValues: Map<String, String> = emptyMap()
     ) = ImportedApkInfo(
         id = "test",
         fileName = "test.apk",
@@ -26,6 +27,7 @@ class ApkRuntimeCompatibilityTest {
         nativeAbis = nativeAbis,
         requiredFeatures = requiredFeatures,
         vrMetadataKeys = vrMetadataKeys,
+        vrMetadataValues = vrMetadataValues,
         sizeBytes = 1L,
         importedAtEpochMs = 1L
     )
@@ -78,6 +80,23 @@ class ApkRuntimeCompatibilityTest {
         assertEquals(ApkLaunchRoute.GEAR_VR_LEGACY_CANDIDATE, result.route)
         assertTrue(result.xrTechnologies.contains("Gear VR (legacy)"))
         assertTrue(result.details.any { it.contains("EndGVR") })
+    }
+
+    @Test
+    fun metadataValuesAreIncludedInTheStaticAudit() {
+        val result = ApkRuntimeCompatibility.assess(
+            info = sample(
+                vrMetadataKeys = listOf("com.example.vr.mode"),
+                vrMetadataValues = mapOf("com.example.vr.mode" to "com.samsung.android.hmt.vrsvc")
+            ),
+            archiveEntries = listOf("lib/armeabi-v7a/libvrapi.so"),
+            deviceApiLevel = 35,
+            supportedAbis = listOf("armeabi-v7a"),
+            missingRequiredFeatures = emptySet()
+        )
+
+        assertEquals(ApkLaunchRoute.GEAR_VR_LEGACY_CANDIDATE, result.route)
+        assertTrue(result.audit.metadataValues.contains("com.samsung.android.hmt.vrsvc"))
     }
 
     @Test
