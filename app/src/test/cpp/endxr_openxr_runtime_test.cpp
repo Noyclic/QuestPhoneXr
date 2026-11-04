@@ -822,6 +822,23 @@ void testActionInputApiLifecycleAndNeutralState() {
                location.locationFlags == 0,
            "do not invent a controller pose when no input source is available");
 
+    endxrClearHeadOrientation();
+    expect(locateSpace(localSpace, localSpace, 1, &location) == XR_SUCCESS &&
+               location.locationFlags == 0,
+           "head orientation is not marked valid before the phone sensor publishes");
+    endxrSetHeadOrientation(0.0f, 0.0f, 0.70710678f, 0.70710678f);
+    expect(locateSpace(localSpace, localSpace, 1, &location) == XR_SUCCESS &&
+               location.locationFlags ==
+                   (XR_SPACE_LOCATION_ORIENTATION_VALID_BIT |
+                    XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT) &&
+               std::abs(location.pose.orientation.z - 0.70710678f) < 0.001f &&
+               std::abs(location.pose.orientation.w - 0.70710678f) < 0.001f,
+           "publish normalized phone head orientation in the reference space");
+    endxrClearHeadOrientation();
+    expect(locateSpace(localSpace, localSpace, 1, &location) == XR_SUCCESS &&
+               location.locationFlags == 0,
+           "clearing phone sensor orientation removes stale tracked flags");
+
     auto applyHaptic = reinterpret_cast<PFN_xrApplyHapticFeedback>(
         resolve(request.getInstanceProcAddr, instance, "xrApplyHapticFeedback"));
     XrHapticActionInfo hapticActionInfo{};

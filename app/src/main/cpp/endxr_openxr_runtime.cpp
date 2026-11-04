@@ -1210,6 +1210,14 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrLocateSpace(
         orientation = g_headOrientation;
         hasOrientation = g_hasHeadOrientation;
     }
+#if defined(__ANDROID__)
+    refreshExternalControllerInput(getInstance(owner->owner));
+    {
+        std::lock_guard<std::mutex> lock(g_headPoseMutex);
+        orientation = g_headOrientation;
+        hasOrientation = g_hasHeadOrientation;
+    }
+#endif
     location->pose.orientation = orientation;
     location->pose.position = {0.0f, 0.0f, 0.0f};
     location->locationFlags = hasOrientation
@@ -1241,6 +1249,9 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrLocateViews(
     if (views == nullptr) return XR_ERROR_VALIDATION_FAILURE;
     if (capacity < 2) return XR_ERROR_SIZE_INSUFFICIENT;
 
+#if defined(__ANDROID__)
+    refreshExternalControllerInput(getInstance(owner->owner));
+#endif
     XrQuaternionf orientation{};
     bool tracked = false;
     {
@@ -1248,10 +1259,9 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrLocateViews(
         orientation = g_headOrientation;
         tracked = g_hasHeadOrientation;
     }
-    viewState->viewStateFlags = XR_VIEW_STATE_ORIENTATION_VALID_BIT;
-    if (tracked) {
-        viewState->viewStateFlags |= XR_VIEW_STATE_ORIENTATION_TRACKED_BIT;
-    }
+    viewState->viewStateFlags = tracked
+        ? XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_ORIENTATION_TRACKED_BIT
+        : 0;
     for (std::uint32_t eye = 0; eye < 2; ++eye) {
         if (views[eye].type != XR_TYPE_VIEW) return XR_ERROR_VALIDATION_FAILURE;
         views[eye].pose.orientation = orientation;
@@ -1645,8 +1655,10 @@ bool refreshExternalControllerInput(XrInstance_T* instance) {
 
             jint stale = 1;
             jint leftActive = 0, leftButtons = 0, rightActive = 0, rightButtons = 0;
+            jint headActive = 0, headStale = 1;
             jfloat leftTrigger = 0, leftGrip = 0, leftStickX = 0, leftStickY = 0;
             jfloat rightTrigger = 0, rightGrip = 0, rightStickX = 0, rightStickY = 0;
+            jfloat headX = 0, headY = 0, headZ = 0, headW = 1;
             const bool columnsRead =
                 readInt("stale", &stale) &&
                 readInt("left_active", &leftActive) &&
@@ -1660,7 +1672,13 @@ bool refreshExternalControllerInput(XrInstance_T* instance) {
                 readFloat("right_grip", &rightGrip) &&
                 readFloat("right_stick_x", &rightStickX) &&
                 readFloat("right_stick_y", &rightStickY) &&
-                readInt("right_buttons", &rightButtons);
+                readInt("right_buttons", &rightButtons) &&
+                readInt("head_orientation_active", &headActive) &&
+                readInt("head_orientation_stale", &headStale) &&
+                readFloat("head_orientation_x", &headX) &&
+                readFloat("head_orientation_y", &headY) &&
+                readFloat("head_orientation_z", &headZ) &&
+                readFloat("head_orientation_w", &headW);
             if (env->ExceptionCheck()) env->ExceptionClear();
             env->CallVoidMethod(cursor, close);
             if (env->ExceptionCheck()) {
@@ -1671,6 +1689,7 @@ bool refreshExternalControllerInput(XrInstance_T* instance) {
 
             if (stale != 0) {
                 endxrClearControllerInput();
+            endxrClearHeadOrientation();
             } else {
                 endxrSetControllerInput(0, static_cast<std::uint32_t>(leftActive != 0),
                     leftTrigger, leftGrip, leftStickX, leftStickY,
@@ -1679,17 +1698,24 @@ bool refreshExternalControllerInput(XrInstance_T* instance) {
                     rightTrigger, rightGrip, rightStickX, rightStickY,
                     static_cast<std::uint32_t>(rightButtons));
             }
+            if (headStale != 0 || headActive == 0) {
+                endxrClearHeadOrientation();
+            } else {
+                endxrSetHeadOrientation(headX, headY, headZ, headW);
+            }
             success = true;
         } while (false);
 
         if (env->ExceptionCheck()) {
             env->ExceptionClear();
             endxrClearControllerInput();
+            endxrClearHeadOrientation();
         }
         env->PopLocalFrame(nullptr);
     } else {
         if (env->ExceptionCheck()) env->ExceptionClear();
         endxrClearControllerInput();
+            endxrClearHeadOrientation();
     }
 
     if (attachedHere) instance->applicationVm->DetachCurrentThread();
@@ -2619,6 +2645,12 @@ extern "C" __attribute__((visibility("default"))) void endxrSetHeadOrientation(
         static_cast<float>(w / magnitude)
     };
     g_hasHeadOrientation = true;
+}
+
+extern "C" __attribute__((visibility("default"))) void endxrClearHeadOrientation() {
+    std::lock_guard<std::mutex> lock(g_headPoseMutex);
+    g_headOrientation = {0.0f, 0.0f, 0.0f, 1.0f};
+    g_hasHeadOrientation = false;
 }
 
 extern "C" __attribute__((visibility("default"))) std::uint32_t
