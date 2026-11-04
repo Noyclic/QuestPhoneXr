@@ -12,7 +12,9 @@ permissions:
 
 concurrency:
   group: questphonexr-android-${{ github.ref }}
-  cancel-in-progress: true
+  # Do not kill a running emulator validation when another agent pushes a newer commit.
+  # GitHub keeps one active run and queues the newest pending run.
+  cancel-in-progress: false
 
 jobs:
   android-ci:
