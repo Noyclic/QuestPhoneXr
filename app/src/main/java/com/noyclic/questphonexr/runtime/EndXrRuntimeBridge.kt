@@ -54,6 +54,11 @@ class EndXrRuntimeBridge {
         invokeNative { nativeInitialize(width, height, targetFps) }
     fun createSession(): String? = invokeNative { nativeCreateSession() }
     fun beginSession(): String? = invokeNative { nativeBeginSession() }
+    fun setHeadOrientation(x: Float, y: Float, z: Float, w: Float) {
+        if (isAvailable) runCatching {
+            nativeSetHeadOrientation(x, y, z, w)
+        }
+    }
     fun waitFrame(monotonicNowNanos: Long): EndXrFrameWaitResult {
         if (!isAvailable) return EndXrFrameWaitResult(
             null, nativeLoadError ?: "Native EndXR library is unavailable."
@@ -105,6 +110,7 @@ class EndXrRuntimeBridge {
     private external fun nativeInitialize(width: Int, height: Int, targetFps: Int): String?
     private external fun nativeCreateSession(): String?
     private external fun nativeBeginSession(): String?
+    private external fun nativeSetHeadOrientation(x: Float, y: Float, z: Float, w: Float)
     private external fun nativeWaitFrame(monotonicNowNanos: Long): LongArray?
     private external fun nativeEndFrame(
         frameIndex: Long, predictedDisplayTimeNanos: Long,

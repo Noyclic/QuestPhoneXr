@@ -1129,6 +1129,11 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         if (remapped) {
             renderer.updateHeadRotation(displayRotationMatrix)
             latestHeadRotationMatrix = displayRotationMatrix.copyOf()
+            val quaternion = FloatArray(4)
+            SensorManager.getQuaternionFromVector(quaternion, event.values)
+            endXrRuntime.setHeadOrientation(
+                quaternion[1], quaternion[2], quaternion[3], quaternion[0]
+            )
             trackingSender?.updateHeadRotation(displayRotationMatrix)
         }
     }

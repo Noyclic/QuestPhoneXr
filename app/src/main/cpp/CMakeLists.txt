@@ -50,6 +50,8 @@ target_include_directories(endxr_openxr PRIVATE
 )
 target_compile_features(endxr_openxr PRIVATE cxx_std_17)
 target_compile_options(endxr_openxr PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(endxr_openxr PRIVATE ${egl-lib} ${gles-lib})
+target_link_libraries(questphonexr_native PRIVATE endxr_openxr)
 set_target_properties(endxr_openxr PROPERTIES
     OUTPUT_NAME "endxr_openxr"
     CXX_VISIBILITY_PRESET hidden

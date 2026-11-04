@@ -194,3 +194,13 @@ Java_com_noyclic_questphonexr_runtime_EndXrRuntimeBridge_nativeLastError(
 ) {
     return makeError(env, g_runtime_core.snapshot().last_error);
 }
+
+
+extern "C" void endxrSetHeadOrientation(float x, float y, float z, float w);
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_noyclic_questphonexr_runtime_EndXrRuntimeBridge_nativeSetHeadOrientation(
+    JNIEnv*, jobject, jfloat x, jfloat y, jfloat z, jfloat w
+) {
+    endxrSetHeadOrientation(x, y, z, w);
+}
