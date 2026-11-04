@@ -70,6 +70,11 @@ debug client APK on an Android 15 emulator. It saves the service report,
 RuntimeBroker report, Khronos loader report, OpenXR Sandbox report, screenshots
 and instrumentation results in the `QuestPhoneXR-CI-diagnostics` artifact.
 
+The external client probe also queries QuestPhoneXR's read-only input snapshot
+provider from its separate package. This confirms that the IPC endpoint is
+visible across the Android application boundary; it does not prove that input
+continues to be published after Sandbox pauses.
+
 The emulator currently has no Android RuntimeBroker provider, so the
 `xrCreateInstance` result may correctly report that no runtime is selected.
 The CI assertion is that the official loader initializes and returns a

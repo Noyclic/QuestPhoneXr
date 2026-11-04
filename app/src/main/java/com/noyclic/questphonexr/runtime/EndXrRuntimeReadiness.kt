@@ -38,9 +38,9 @@ object EndXrRuntimeReadiness {
         RuntimeCapability("openxr-actions", "OpenXR Action / Input API",
             RuntimeCapabilityState.PARTIAL,
             "Action sets, action lifecycle, paths, binding suggestions, action spaces and xrSyncActions are implemented. Boolean/Float/Vector2 values now resolve from left/right Sandbox input samples inside the same process; third-party process input is not connected."),
-        RuntimeCapability("controller-input", "Controller poses, buttons and haptics",
+        RuntimeCapability("controller-input", "Controller input and cross-process transport",
             RuntimeCapabilityState.PARTIAL,
-            "MediaPipe pinch/grip and Android gamepad trigger/grip/stick/button samples reach EndXR Action states inside Sandbox. Cross-process delivery, real controller poses and haptic transport are not implemented."),
+            "MediaPipe pinch/grip and Android gamepad samples are published to a read-only Android IPC provider. EndXR polls that provider from xrSyncActions, and CI checks access from a separate package. The producer is still the Sandbox Activity and clears input onPause, so continuous input while an external game is foreground is not implemented. Controller poses and haptic transport are also unavailable."),
         RuntimeCapability("openxr-hand-tracking", "OpenXR hand-tracking extension",
             RuntimeCapabilityState.NOT_IMPLEMENTED,
             "MediaPipe tracking is app-internal; XR_EXT_hand_tracking is not advertised by the runtime."),
@@ -51,12 +51,12 @@ object EndXrRuntimeReadiness {
 
     val librarySummary: String =
         "Внутри Sandbox проверены loader negotiation, Android/GLES session и stereo projection layer. " +
-            "OpenXR Actions API частично реализован: ввод Sandbox поступает в Action states внутри того же процесса, но не передаётся сторонним приложениям; позы контроллеров и haptics ещё не готовы. " +
+            "OpenXR Actions API частично реализован: отдельный процесс уже может читать IPC-снимок контроллеров, но источник данных пока работает только в Sandbox и очищается при его паузе; постоянная передача во время внешней игры ещё не готова. Позы контроллеров и haptics также отсутствуют. " +
             "Также не хватает 6DoF position и XR hand tracking; выбор runtime через RuntimeBroker ещё не подтверждён на физическом телефоне."
 
     const val OPEN_XR_GAME_WARNING =
         "EndXR экспортирует базовый OpenXR Action / Input API, а ввод Sandbox уже отображается в Action states внутри QuestPhoneXR. " +
-            "Отдельный игровой процесс пока не получает эти состояния; controller poses и haptics не поддерживаются. Игры, требующие внешнего ввода или поз контроллеров, ещё не готовы к полноценной игре."
+            "Отдельный игровой процесс может прочитать снимок через IPC, но источник ввода пока останавливается и очищает данные при уходе Sandbox в фон. Для непрерывного управления нужна отдельная foreground-служба ввода. Controller poses и haptics также не поддерживаются, поэтому полноценная игра пока не подтверждена."
 
     const val QUEST_GAME_WARNING =
         "Quest APK может зависеть от Meta/Oculus Runtime и системных сервисов гарнитуры. На обычном Android " +

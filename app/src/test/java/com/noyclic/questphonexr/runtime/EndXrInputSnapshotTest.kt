@@ -1,6 +1,5 @@
 package com.noyclic.questphonexr.runtime
 
-import android.os.SystemClock
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

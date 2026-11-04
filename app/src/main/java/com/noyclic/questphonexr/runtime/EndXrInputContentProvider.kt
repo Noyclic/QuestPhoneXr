@@ -55,7 +55,7 @@ class EndXrInputContentProvider : ContentProvider() {
         val unknown = requested - COLUMNS.toSet()
         if (unknown.isNotEmpty()) {
             cursor.close()
-            throw IllegalArgumentException("Unknown EndXR input columns: \${unknown.joinToString()}")
+            throw IllegalArgumentException("Unknown EndXR input columns: ${unknown.joinToString()}")
         }
         return MatrixCursor(projection).also { projected ->
             if (cursor.moveToFirst()) {
