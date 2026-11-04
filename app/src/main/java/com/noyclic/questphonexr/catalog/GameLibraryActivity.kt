@@ -387,58 +387,6 @@ class GameLibraryActivity : ComponentActivity() {
         ).apply { topMargin = dp(4) })
 
 
-    /**
-     * Launches the separately published Android/SBS Open Saber port when installed.
-     * This intentionally does not route the Quest-only APK through EndXR.
-     */
-    private fun launchOpenSaberMobile() {
-        val candidates = OpenSaberMobileLauncher.findInstalledApps(packageManager)
-        if (candidates.isEmpty()) {
-            AlertDialog.Builder(this)
-                .setTitle("Open Saber Mobile не найден")
-                .setMessage(
-                    "Нужна отдельная Android/SBS-сборка Mobile Port, а не Quest APK. " +
-                        "Установи её, затем вернись сюда и нажми эту кнопку снова."
-                )
-                .setPositiveButton("Открыть страницу Android-порта") { _, _ ->
-                    openProject("https://sasukidasprime.itch.io/open-saber-port")
-                }
-                .setNegativeButton("Закрыть", null)
-                .show()
-            return
-        }
-
-        fun launch(packageName: String) {
-            val intent = packageManager.getLaunchIntentForPackage(packageName)
-            if (intent == null) {
-                Toast.makeText(this, "У приложения не найден экран запуска.", Toast.LENGTH_LONG).show()
-                return
-            }
-            runCatching {
-                startActivity(intent)
-            }.onFailure { error ->
-                Toast.makeText(
-                    this,
-                    "Не удалось запустить Open Saber Mobile: ${error.message ?: "ошибка Android"}",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-        }
-
-        if (candidates.size == 1) {
-            launch(candidates.first().packageName)
-        } else {
-            AlertDialog.Builder(this)
-                .setTitle("Выбери установленную сборку")
-                .setItems(candidates.map { "${it.label} · ${it.packageName}" }.toTypedArray()) { _, index ->
-                    launch(candidates[index].packageName)
-                }
-                .setNegativeButton("Отмена", null)
-                .show()
-        }
-    }
-
-
         val openSaberMobileButton = button("Запустить Open Saber Mobile · Android/SBS").apply {
             setOnClickListener { launchOpenSaberMobile() }
         }
@@ -497,6 +445,59 @@ class GameLibraryActivity : ComponentActivity() {
         }
         setContentView(pageScroll)
     }
+
+
+    /**
+     * Launches the separately published Android/SBS Open Saber port when installed.
+     * This intentionally does not route the Quest-only APK through EndXR.
+     */
+    private fun launchOpenSaberMobile() {
+        val candidates = OpenSaberMobileLauncher.findInstalledApps(packageManager)
+        if (candidates.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("Open Saber Mobile не найден")
+                .setMessage(
+                    "Нужна отдельная Android/SBS-сборка Mobile Port, а не Quest APK. " +
+                        "Установи её, затем вернись сюда и нажми эту кнопку снова."
+                )
+                .setPositiveButton("Открыть страницу Android-порта") { _, _ ->
+                    openProject("https://sasukidasprime.itch.io/open-saber-port")
+                }
+                .setNegativeButton("Закрыть", null)
+                .show()
+            return
+        }
+
+        fun launch(packageName: String) {
+            val intent = packageManager.getLaunchIntentForPackage(packageName)
+            if (intent == null) {
+                Toast.makeText(this, "У приложения не найден экран запуска.", Toast.LENGTH_LONG).show()
+                return
+            }
+            runCatching {
+                startActivity(intent)
+            }.onFailure { error ->
+                Toast.makeText(
+                    this,
+                    "Не удалось запустить Open Saber Mobile: ${error.message ?: "ошибка Android"}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+
+        if (candidates.size == 1) {
+            launch(candidates.first().packageName)
+        } else {
+            AlertDialog.Builder(this)
+                .setTitle("Выбери установленную сборку")
+                .setItems(candidates.map { "${it.label} · ${it.packageName}" }.toTypedArray()) { _, index ->
+                    launch(candidates[index].packageName)
+                }
+                .setNegativeButton("Отмена", null)
+                .show()
+        }
+    }
+
 
 
     private fun showCrashReportDialog() {
