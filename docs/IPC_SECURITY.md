@@ -30,6 +30,6 @@ Until that flow exists, the provider must remain closed to unrelated packages. D
 
 ## Validation
 
-The Android CI instrumentation test launches the probe as a separate package. It checks that the probe reports the expected signature permission and can read the snapshot. The test must be run using the two APKs from the same workflow run.
+The Android CI instrumentation test launches the probe as a separate package. It checks that the probe reports the expected signature permission and can read the snapshot. The smoke script also attempts the same query as the untrusted `adb shell` UID and requires Android to deny it. These tests must be run using the two APKs from the same workflow run.
 
 Physical-device testing is still required to validate the complete OpenXR runtime selection and external-game lifecycle on the target phone.
