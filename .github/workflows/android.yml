@@ -57,6 +57,17 @@ jobs:
             -o ci-results/endxr-runtime-core-tests
           ci-results/endxr-runtime-core-tests
 
+      - name: Run native OpenXR bootstrap tests
+        run: |
+          set -euo pipefail
+          c++ -std=c++17 -pthread -Wall -Wextra -Werror \
+            -I app/src/main/cpp \
+            -I app/src/main/cpp/third_party/openxr/include \
+            app/src/test/cpp/endxr_openxr_runtime_test.cpp \
+            app/src/main/cpp/endxr_openxr_runtime.cpp \
+            -o ci-results/endxr-openxr-runtime-tests
+          ci-results/endxr-openxr-runtime-tests
+
       - name: Run JVM unit tests
         run: gradle --no-daemon :app:testDebugUnitTest
 
@@ -75,7 +86,8 @@ jobs:
           APK_FILES="$(unzip -Z1 "$APK")"
           grep -qx "assets/hand_landmarker.task" <<< "$APK_FILES"
           grep -qx "lib/arm64-v8a/libquestphonexr_native.so" <<< "$APK_FILES"
-          echo "APK package, MediaPipe model and arm64 native library are present." | tee ci-results/apk-validation.txt
+          grep -qx "lib/arm64-v8a/libendxr_openxr.so" <<< "$APK_FILES"
+          echo "APK package, MediaPipe model, JNI library and OpenXR runtime library are present." | tee ci-results/apk-validation.txt
 
       - name: Run navigation smoke test on Android emulator
         if: github.event_name == 'workflow_dispatch'

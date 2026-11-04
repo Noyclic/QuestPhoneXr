@@ -37,3 +37,21 @@ target_link_libraries(
     ${android-log-lib}
     ${dl-lib}
 )
+
+
+# Loader-facing runtime. Kept separate from the app's JNI library because
+# OpenXR loads this .so by the filename in Android runtime metadata.
+add_library(endxr_openxr SHARED
+    endxr_openxr_runtime.cpp
+)
+target_include_directories(endxr_openxr PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/openxr/include
+)
+target_compile_features(endxr_openxr PRIVATE cxx_std_17)
+target_compile_options(endxr_openxr PRIVATE -Wall -Wextra -Werror)
+set_target_properties(endxr_openxr PROPERTIES
+    OUTPUT_NAME "endxr_openxr"
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES
+)
