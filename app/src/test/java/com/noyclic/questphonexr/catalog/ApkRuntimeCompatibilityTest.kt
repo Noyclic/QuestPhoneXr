@@ -92,6 +92,51 @@ class ApkRuntimeCompatibilityTest {
     }
 
     @Test
+    fun buildsStaticAuditForLegacyGearVrSdkAndManifestReferences() {
+        val info = sample().copy(
+            vrMetadataKeys = listOf("com.samsung.android.vr.application.mode"),
+            requestedPermissions = listOf("com.samsung.android.hmt.vrsvc.permission.READ"),
+            serviceNames = listOf("com.samsung.android.hmt.vrsvc.system.SystemService")
+        )
+        val result = ApkRuntimeCompatibility.assess(
+            info = info,
+            archiveEntries = listOf(
+                "lib/armeabi-v7a/libvrapi.so",
+                "lib/armeabi-v7a/libunity.so"
+            ),
+            deviceApiLevel = 35,
+            supportedAbis = listOf("arm64-v8a", "armeabi-v7a"),
+            missingRequiredFeatures = emptySet()
+        )
+
+        assertEquals(ApkLaunchRoute.GEAR_VR_LEGACY_CANDIDATE, result.route)
+        assertTrue(result.audit.nativeLibraries.contains("libvrapi.so"))
+        assertTrue(result.audit.nativeLibraries.contains("libunity.so"))
+        assertTrue(result.audit.sdkRuntimeMarkers.contains("libvrapi.so"))
+        assertTrue(result.audit.manifestReferences.any { it.contains("samsung.android.hmt") })
+        assertTrue(result.audit.componentReferences.any { it.contains("SystemService") })
+        assertTrue(result.audit.abiSummary.contains("armeabi-v7a"))
+    }
+
+    @Test
+    fun openXrLoaderIsReportedWithoutBeingMislabelledAsLegacyOculusRuntime() {
+        val result = ApkRuntimeCompatibility.assess(
+            info = sample(),
+            archiveEntries = listOf(
+                "lib/arm64-v8a/libopenxr_loader.so",
+                "lib/arm64-v8a/libunity.so"
+            ),
+            deviceApiLevel = 35,
+            supportedAbis = listOf("arm64-v8a"),
+            missingRequiredFeatures = emptySet()
+        )
+
+        assertTrue(result.audit.nativeLibraries.contains("libopenxr_loader.so"))
+        assertTrue(result.audit.sdkRuntimeMarkers.contains("libopenxr_loader.so"))
+        assertTrue(result.audit.sdkRuntimeMarkers.none { it == "libvrapi.so" })
+    }
+
+    @Test
     fun identifiesOpenXrProjectAsNeedingActiveRuntime() {
         val result = ApkRuntimeCompatibility.assess(
             info = sample(),

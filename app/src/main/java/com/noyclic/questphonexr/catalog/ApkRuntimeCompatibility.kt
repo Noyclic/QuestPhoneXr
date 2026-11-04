@@ -16,11 +16,20 @@ enum class ApkLaunchRoute(val label: String) {
     ANDROID_APP_CANDIDATE("Кандидат на обычный Android-запуск")
 }
 
+data class ApkStaticAudit(
+    val nativeLibraries: List<String> = emptyList(),
+    val sdkRuntimeMarkers: List<String> = emptyList(),
+    val manifestReferences: List<String> = emptyList(),
+    val componentReferences: List<String> = emptyList(),
+    val abiSummary: String = "ABI не проверен."
+)
+
 data class ApkRuntimeAssessment(
     val route: ApkLaunchRoute,
     val engine: String,
     val xrTechnologies: List<String>,
-    val details: List<String>
+    val details: List<String>,
+    val audit: ApkStaticAudit = ApkStaticAudit()
 )
 
 /**
@@ -117,6 +126,44 @@ object ApkRuntimeCompatibility {
             if (xrTechnologiesEmptyFallback(info, lowerEntries)) add("Android VR feature declaration")
         }.distinct()
 
+        val apkAbis = info.nativeAbis.distinct().sorted()
+        val deviceAbis = supportedAbis.distinct().toList()
+        val matchingAbis = apkAbis.filter { it in deviceAbis }
+        val abiSummary = when {
+            apkAbis.isEmpty() ->
+                "Нативные ABI в APK не найдены; возможно, это Java/Kotlin APK или неполный split-набор."
+            matchingAbis.isNotEmpty() ->
+                "APK: ${apkAbis.joinToString()}. Телефон: ${deviceAbis.joinToString()}. Совпадение: ${matchingAbis.joinToString()}."
+            else ->
+                "APK: ${apkAbis.joinToString()}. Телефон: ${deviceAbis.joinToString()}. Совпадений нет."
+        }
+
+        val manifestReferences = (
+            info.packageName.let(::listOf) +
+                info.vrMetadataKeys +
+                info.requiredFeatures +
+                info.requestedPermissions
+            ).filter(::looksLikeXrReference).distinct().sorted()
+        val componentReferences = (
+            info.activityNames + info.serviceNames + info.providerNames
+            ).filter(::looksLikeXrReference).distinct().sorted()
+        val packagedLibraries = nativeLibraries
+            .map { it.substringAfterLast('/') }
+            .distinct()
+            .sorted()
+        val sdkRuntimeMarkers = (
+            packagedLibraries.filter(::looksLikeSdkRuntimeLibrary) +
+                manifestReferences.filter(::looksLikeSdkRuntimeReference) +
+                componentReferences.filter(::looksLikeSdkRuntimeReference)
+            ).distinct().sorted()
+        val audit = ApkStaticAudit(
+            nativeLibraries = packagedLibraries,
+            sdkRuntimeMarkers = sdkRuntimeMarkers,
+            manifestReferences = manifestReferences,
+            componentReferences = componentReferences,
+            abiSummary = abiSummary
+        )
+
         val blockers = buildList {
             if (info.minSdk > deviceApiLevel) {
                 add("Требуется Android API ${info.minSdk}, на телефоне API $deviceApiLevel.")
@@ -171,7 +218,31 @@ object ApkRuntimeCompatibility {
             }
         }
 
-        return ApkRuntimeAssessment(route, engine, xrTechnologies, details)
+        return ApkRuntimeAssessment(route, engine, xrTechnologies, details, audit)
+    }
+
+    private fun looksLikeXrReference(value: String): Boolean {
+        val normalized = value.lowercase()
+        return listOf(
+            "samsung.android.vr", "samsung.android.hmt", "gearvr", "gear_vr",
+            "gear-vr", "oculus", "openxr", "openvr", "steamvr", "quest", "meta"
+        ).any { marker -> normalized.contains(marker) }
+    }
+
+    private fun looksLikeSdkRuntimeLibrary(name: String): Boolean {
+        val normalized = name.lowercase()
+        return listOf(
+            "vrapi", "ovr", "oculus", "openxr", "openvr", "steamvr"
+        ).any { marker -> normalized.contains(marker) }
+    }
+
+    private fun looksLikeSdkRuntimeReference(value: String): Boolean {
+        val normalized = value.lowercase()
+        return listOf(
+            "vrapi", "ovr", "oculus", "samsung.android.hmt",
+            "samsung.android.vr", "gearvr", "gear_vr", "gear-vr",
+            "openxr", "openvr", "steamvr"
+        ).any { marker -> normalized.contains(marker) }
     }
 
     private fun xrTechnologiesEmptyFallback(

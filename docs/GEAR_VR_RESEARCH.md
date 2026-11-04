@@ -43,13 +43,15 @@ classification only and distinguishes:
   claiming that the APK is definitely a Gear VR title;
 - no Gear VR evidence found.
 
-The APK importer retains Samsung/HMT Gear VR metadata keys and now records
+The APK importer retains Samsung/HMT Gear VR metadata keys and records
 requested permissions plus declared activities, services and content
-providers. EndGVR checks those manifest component/permission names alongside
-package names, metadata, required features and archive paths. This improves
-the first-pass evidence report without executing or decoding application
-code. Older saved catalogue entries remain readable because these new fields
-are optional.
+providers. The APK card now presents a grouped static audit: packaged native
+library names, recognized SDK/Runtime filename markers, VR-related manifest
+references, relevant Android components, and an ABI overlap summary against
+the current phone. The report is heuristic evidence only: it does not inspect
+native binary symbols, decompile bytecode, resolve dynamic service binding, or
+prove that a referenced service is installed or callable. Older saved
+catalogue entries remain readable because the added fields are optional.
 
 **This is not a Gear VR runtime.** It does not load legacy VrApi, emulate Gear
 VR services, create a VR session, patch APKs or launch games. Static markers

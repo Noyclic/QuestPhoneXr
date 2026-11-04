@@ -253,6 +253,22 @@ class ApkImportActivity : ComponentActivity() {
             11f,
             0xFFB8C7DB.toInt()
         ))
+        val audit = runtimeAssessment.audit
+        addAuditLine(card, "ABI-проверка", audit.abiSummary)
+        addAuditLine(
+            card,
+            "Нативные библиотеки",
+            audit.nativeLibraries.takeIf { it.isNotEmpty() }?.joinToString() ?: "не обнаружены"
+        )
+        if (audit.sdkRuntimeMarkers.isNotEmpty()) {
+            addAuditLine(card, "SDK / Runtime следы", audit.sdkRuntimeMarkers)
+        }
+        if (audit.manifestReferences.isNotEmpty()) {
+            addAuditLine(card, "VR-записи манифеста", audit.manifestReferences)
+        }
+        if (audit.componentReferences.isNotEmpty()) {
+            addAuditLine(card, "VR-компоненты Android", audit.componentReferences)
+        }
         runtimeAssessment.details.forEach { detail ->
             card.addView(text("• $detail", 11f, 0xFFAAB4C2.toInt())
                 .apply { setPadding(0, dp(4), 0, 0) })
@@ -384,6 +400,20 @@ class ApkImportActivity : ComponentActivity() {
         }.onFailure { error ->
             statusView.text = "Не удалось открыть системный установщик: ${error.message ?: "ошибка"}"
         }
+    }
+
+    private fun addAuditLine(container: LinearLayout, label: String, value: String) {
+        container.addView(text(
+            "$label: $value",
+            11f,
+            0xFF9FB7D1.toInt()
+        ).apply { setPadding(0, dp(4), 0, 0) })
+    }
+
+    private fun addAuditLine(container: LinearLayout, label: String, values: List<String>) {
+        val visible = values.take(6)
+        val suffix = if (values.size > visible.size) " и ещё ${values.size - visible.size}" else ""
+        addAuditLine(container, label, visible.joinToString() + suffix)
     }
 
     private fun formatSize(bytes: Long): String =
