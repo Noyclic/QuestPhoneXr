@@ -27,7 +27,9 @@ class EndXrHandInputEncoderTest {
 
         assertTrue(encoded.leftPose.active)
         assertTrue(encoded.rightPose.active)
-        assertEquals(0f, encoded.leftPose.x, 0.02f)
+        val estimatedDistance = 2.55f * 0.18f / 0.20f
+        val expectedLeftX = (0.49f - 0.5f) * estimatedDistance * 2.4f
+        assertEquals(expectedLeftX, encoded.leftPose.x, 0.002f)
         assertTrue(encoded.rightPose.x > encoded.leftPose.x)
         assertTrue(encoded.leftPose.z < -0.25f)
         assertTrue(encoded.leftPose.z >= -6f)

@@ -431,6 +431,7 @@ void testActionInputApiLifecycleAndNeutralState() {
     XrPath rightSelect = XR_NULL_PATH;
     XrPath leftTriggerValue = XR_NULL_PATH, rightTriggerValue = XR_NULL_PATH;
     XrPath leftThumbstick = XR_NULL_PATH, rightThumbstick = XR_NULL_PATH;
+    XrPath leftGripPose = XR_NULL_PATH, rightGripPose = XR_NULL_PATH;
     expect(stringToPath(instance, "/user/hand/left", &leftHand) == XR_SUCCESS &&
                leftHand != XR_NULL_PATH,
            "intern left hand subaction path");
@@ -452,6 +453,9 @@ void testActionInputApiLifecycleAndNeutralState() {
     expect(stringToPath(instance, "/user/hand/left/input/thumbstick", &leftThumbstick) == XR_SUCCESS &&
                stringToPath(instance, "/user/hand/right/input/thumbstick", &rightThumbstick) == XR_SUCCESS,
            "intern per-hand thumbstick paths");
+    expect(stringToPath(instance, "/user/hand/left/input/grip/pose", &leftGripPose) == XR_SUCCESS &&
+               stringToPath(instance, "/user/hand/right/input/grip/pose", &rightGripPose) == XR_SUCCESS,
+           "intern per-hand grip pose paths");
     XrPath leftHandAgain = XR_NULL_PATH;
     expect(stringToPath(instance, "/user/hand/left", &leftHandAgain) == XR_SUCCESS &&
                leftHandAgain == leftHand,
@@ -548,12 +552,13 @@ void testActionInputApiLifecycleAndNeutralState() {
     const XrActionSuggestedBinding bindings[] = {
         {triggerAction, leftSelect}, {triggerAction, rightSelect},
         {triggerValueAction, leftTriggerValue}, {triggerValueAction, rightTriggerValue},
-        {stickAction, leftThumbstick}, {stickAction, rightThumbstick}
+        {stickAction, leftThumbstick}, {stickAction, rightThumbstick},
+        {poseAction, leftGripPose}, {poseAction, rightGripPose}
     };
     XrInteractionProfileSuggestedBinding suggested{};
     suggested.type = XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING;
     suggested.interactionProfile = profile;
-    suggested.countSuggestedBindings = 6;
+    suggested.countSuggestedBindings = 8;
     suggested.suggestedBindings = bindings;
     expect(suggestBindings(instance, &suggested) == XR_SUCCESS,
            "accept validated interaction-profile binding suggestions");
@@ -862,6 +867,30 @@ void testActionInputApiLifecycleAndNeutralState() {
     expect(locateSpace(actionSpace, localSpace, 1, &location) == XR_SUCCESS &&
                location.locationFlags == 0,
            "do not invent a controller pose when no input source is available");
+
+    endxrSetHeadOrientation(0.0f, 0.0f, 0.0f, 1.0f);
+    endxrSetHandPose(0, 1, 0.30f, 0.20f, -1.80f, 0.0f, 0.0f, 0.0f, 1.0f);
+    expect(syncActions(session, &syncInfo) == XR_SUCCESS,
+           "synchronize estimated left palm pose");
+    expect(getPose(session, &poseStateInfo, &poseState) == XR_SUCCESS &&
+               poseState.isActive == XR_TRUE,
+           "activate grip pose action from an estimated hand pose");
+    expect(locateSpace(actionSpace, localSpace, 1, &location) == XR_SUCCESS &&
+               location.locationFlags ==
+                   (XR_SPACE_LOCATION_POSITION_VALID_BIT |
+                    XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) &&
+               std::abs(location.pose.position.x - 0.30f) < 0.001f &&
+               std::abs(location.pose.position.y - 0.20f) < 0.001f &&
+               std::abs(location.pose.position.z + 1.80f) < 0.001f &&
+               std::abs(location.pose.orientation.w - 1.0f) < 0.001f,
+           "locate approximate palm pose without claiming tracked 6DoF");
+    endxrClearHandPoses();
+    expect(syncActions(session, &syncInfo) == XR_SUCCESS &&
+               getPose(session, &poseStateInfo, &poseState) == XR_SUCCESS &&
+               poseState.isActive == XR_FALSE &&
+               locateSpace(actionSpace, localSpace, 1, &location) == XR_SUCCESS &&
+               location.locationFlags == 0,
+           "clearing estimated hand pose deactivates grip pose and its space");
 
     endxrClearHeadOrientation();
     expect(locateSpace(localSpace, localSpace, 1, &location) == XR_SUCCESS &&

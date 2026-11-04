@@ -114,7 +114,12 @@ object ExternalRuntimeClientProbe {
                     "head_orientation_active", "head_orientation_stale",
                     "head_orientation_updated_at_elapsed_realtime_nanos",
                     "head_orientation_x", "head_orientation_y",
-                    "head_orientation_z", "head_orientation_w"
+                    "head_orientation_z", "head_orientation_w",
+                    "hand_pose_stale", "hand_pose_updated_at_elapsed_realtime_nanos",
+                    "left_pose_active", "left_pose_x", "left_pose_y", "left_pose_z",
+                    "left_pose_qx", "left_pose_qy", "left_pose_qz", "left_pose_qw",
+                    "right_pose_active", "right_pose_x", "right_pose_y", "right_pose_z",
+                    "right_pose_qx", "right_pose_qy", "right_pose_qz", "right_pose_qw"
                 )
                 val missing = expected.filter { name -> it.getColumnIndex(name) < 0 }
                 if (missing.isNotEmpty()) {
@@ -123,10 +128,14 @@ object ExternalRuntimeClientProbe {
                 val stale = it.getInt(it.getColumnIndexOrThrow("stale")) != 0
                 val headActive = it.getInt(it.getColumnIndexOrThrow("head_orientation_active")) != 0
                 val headStale = it.getInt(it.getColumnIndexOrThrow("head_orientation_stale")) != 0
+                val handPoseStale = it.getInt(it.getColumnIndexOrThrow("hand_pose_stale")) != 0
+                val leftPoseActive = it.getInt(it.getColumnIndexOrThrow("left_pose_active")) != 0
+                val rightPoseActive = it.getInt(it.getColumnIndexOrThrow("right_pose_active")) != 0
                 val sequence = it.getLong(it.getColumnIndexOrThrow("sequence"))
                 "provider_query=PASS; provider=${provider.packageName}; " +
                     "sequence=$sequence; stale=$stale; head_active=$headActive; " +
-                    "head_stale=$headStale; columns=${expected.size}"
+                    "head_stale=$headStale; hand_pose_stale=$handPoseStale; " +
+                    "left_pose=$leftPoseActive; right_pose=$rightPoseActive; columns=${expected.size}"
             }
         }.getOrElse {
             "provider_query=FAIL; ${it.message ?: it.javaClass.simpleName}"
