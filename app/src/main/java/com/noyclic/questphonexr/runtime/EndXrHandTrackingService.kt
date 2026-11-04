@@ -126,14 +126,17 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
             var newTracker: HandLandmarkerController? = null
             try {
                 val provider = providerFuture.get()
-                val useBackCamera = provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
-                val selector = if (useBackCamera) {
-                    CameraSelector.DEFAULT_BACK_CAMERA
-                } else {
+                // Hand tracking is a user-facing interaction: prefer the front camera.
+                // The previous back-camera-first choice made users present their hands
+                // away from the lens while looking at the phone display.
+                val useFrontCamera = provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)
+                val selector = if (useFrontCamera) {
                     CameraSelector.DEFAULT_FRONT_CAMERA
+                } else {
+                    CameraSelector.DEFAULT_BACK_CAMERA
                 }
                 check(provider.hasCamera(selector)) {
-                    "Android did not expose a usable camera to the foreground service."
+                    "Android did not expose a usable front or back camera to the foreground service."
                 }
 
                 analysisUseCase?.clearAnalyzer()
@@ -145,7 +148,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
 
                 newTracker = HandLandmarkerController(
                     context = applicationContext,
-                    mirrorFrontCamera = !useBackCamera,
+                    mirrorFrontCamera = useFrontCamera,
                     onFrame = { frame ->
                         val encoded = EndXrHandInputEncoder.encode(frame)
                         EndXrInputSnapshotStore.publish(encoded.leftRow, encoded.rightRow)
@@ -185,6 +188,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                     TAG,
                     "Persistent hand tracking active: " + cameraWidthPx + "x" +
                         cameraHeightPx + ", hands=" + maxHands +
+                        ", lens=" + if (useFrontCamera) "front" else "back" +
                         ", interval=" + minimumInferenceIntervalMs + "ms"
                 )
                 updateNotification("MediaPipe работает · руки передаются в EndXR")
