@@ -101,10 +101,10 @@ object ExternalRuntimeClientProbe {
         )
         return runCatching {
             val cursor = context.contentResolver.query(uri, null, null, null, null)
-                ?: return@runCatching "provider found (\${provider.packageName}); query returned null"
+                ?: return@runCatching "provider found (${provider.packageName}); query returned null"
             cursor.use {
                 if (!it.moveToFirst()) {
-                    return@use "provider_query=EMPTY; provider=\${provider.packageName}"
+                    return@use "provider_query=EMPTY; provider=${provider.packageName}"
                 }
                 val expected = listOf(
                     "sequence", "updated_at_elapsed_realtime_nanos", "stale",
@@ -114,15 +114,15 @@ object ExternalRuntimeClientProbe {
                 )
                 val missing = expected.filter { name -> it.getColumnIndex(name) < 0 }
                 if (missing.isNotEmpty()) {
-                    return@use "provider_query=FAIL; missing_columns=\${missing.joinToString()}"
+                    return@use "provider_query=FAIL; missing_columns=${missing.joinToString()}"
                 }
                 val stale = it.getInt(it.getColumnIndexOrThrow("stale")) != 0
                 val sequence = it.getLong(it.getColumnIndexOrThrow("sequence"))
-                "provider_query=PASS; provider=\${provider.packageName}; " +
-                    "sequence=$sequence; stale=$stale; columns=\${expected.size}"
+                "provider_query=PASS; provider=${provider.packageName}; " +
+                    "sequence=$sequence; stale=$stale; columns=${expected.size}"
             }
         }.getOrElse {
-            "provider_query=FAIL; \${it.message ?: it.javaClass.simpleName}"
+            "provider_query=FAIL; ${it.message ?: it.javaClass.simpleName}"
         }
     }
 
