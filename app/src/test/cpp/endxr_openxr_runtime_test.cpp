@@ -300,6 +300,43 @@ void testGlesSessionSwapchainAndFrameLifecycle() {
                "session state transition event is queued");
     }
 
+    auto createReferenceSpace = reinterpret_cast<PFN_xrCreateReferenceSpace>(
+        resolve(request.getInstanceProcAddr, instance, "xrCreateReferenceSpace"));
+    XrReferenceSpaceCreateInfo referenceInfo{};
+    referenceInfo.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
+    referenceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+    referenceInfo.poseInReferenceSpace.orientation.w = 1.0f;
+    XrSpace localSpace = XR_NULL_HANDLE;
+    expect(createReferenceSpace(session, &referenceInfo, &localSpace) == XR_SUCCESS,
+           "create a local space for external head orientation tests");
+    auto locateViews = reinterpret_cast<PFN_xrLocateViews>(
+        resolve(request.getInstanceProcAddr, instance, "xrLocateViews"));
+    XrViewLocateInfo locateInfo{};
+    locateInfo.type = XR_TYPE_VIEW_LOCATE_INFO;
+    locateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+    locateInfo.displayTime = 1;
+    locateInfo.space = localSpace;
+    XrViewState viewState{};
+    viewState.type = XR_TYPE_VIEW_STATE;
+    XrView locatedViews[2]{};
+    for (auto& view : locatedViews) view.type = XR_TYPE_VIEW;
+    std::uint32_t locatedViewCount = 0;
+
+    endxrClearHeadOrientation();
+    expect(locateViews(session, &locateInfo, &viewState, 2, &locatedViewCount,
+                       locatedViews) == XR_SUCCESS &&
+               locatedViewCount == 2 && viewState.viewStateFlags == 0,
+           "do not claim tracked view orientation before receiving a phone sensor sample");
+    endxrSetHeadOrientation(0.0f, 0.0f, 0.70710678f, 0.70710678f);
+    expect(locateViews(session, &locateInfo, &viewState, 2, &locatedViewCount,
+                       locatedViews) == XR_SUCCESS &&
+               (viewState.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT) != 0 &&
+               (viewState.viewStateFlags & XR_VIEW_STATE_ORIENTATION_TRACKED_BIT) != 0 &&
+               std::abs(locatedViews[0].pose.orientation.z - 0.70710678f) < 0.001f &&
+               std::abs(locatedViews[0].pose.orientation.w - 0.70710678f) < 0.001f,
+           "apply phone rotation-vector quaternion to external stereo views");
+    endxrClearHeadOrientation();
+
     auto waitFrame = reinterpret_cast<PFN_xrWaitFrame>(
         resolve(request.getInstanceProcAddr, instance, "xrWaitFrame"));
     auto beginFrame = reinterpret_cast<PFN_xrBeginFrame>(
@@ -360,6 +397,10 @@ void testGlesSessionSwapchainAndFrameLifecycle() {
                    XR_SESSION_STATE_IDLE,
            "queue IDLE event");
 
+    auto destroySpace = reinterpret_cast<PFN_xrDestroySpace>(
+        resolve(request.getInstanceProcAddr, instance, "xrDestroySpace"));
+    expect(destroySpace(localSpace) == XR_SUCCESS,
+           "destroy local reference space after view orientation tests");
     auto destroySwapchain = reinterpret_cast<PFN_xrDestroySwapchain>(
         resolve(request.getInstanceProcAddr, instance, "xrDestroySwapchain"));
     expect(destroySwapchain(left) == XR_SUCCESS, "destroy left swapchain");
