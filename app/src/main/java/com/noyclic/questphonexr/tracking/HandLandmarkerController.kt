@@ -364,7 +364,8 @@ class HandLandmarkerController(
             targetWidthPx = outputWidthPx,
             targetHeightPx = outputHeightPx,
             rotatedWidthPx = rotatedWidth,
-            rotatedHeightPx = rotatedHeight
+            rotatedHeightPx = rotatedHeight,
+            mirroredHorizontally = mirror
         )
     }
 
