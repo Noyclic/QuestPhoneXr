@@ -949,6 +949,9 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                                                         report << "external_projection_layer_submission="
                                                                << (readbackPassed ? "PASS" : "SUBMITTED_BUT_READBACK_FAILED")
                                                                << "\n";
+                                                    } else {
+                                                        report << "external_projection_layer_submission="
+                                                                  "REJECTED_BY_RUNTIME\n";
                                                     }
                                                 } else {
                                                     report << "external_projection_layer=SKIPPED "
