@@ -98,8 +98,12 @@ internal object EndXrHandTrackingDiagnostics {
     }
 
     fun markStopped() {
-        cameraState = "stopped"
+        // Keep the failure reason visible after stopSelf() triggers onDestroy().
+        // A new start calls begin(), which resets the previous error.
+        if (cameraState != "error") cameraState = "stopped"
     }
+
+    fun currentState(): String = cameraState
 
     fun updateMetrics(snapshot: HandTrackingMetricsSnapshot) {
         metrics = snapshot
@@ -164,6 +168,9 @@ internal object EndXrHandTrackingDiagnostics {
 class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener {
     private val lifecycleRegistry = LifecycleRegistry(this)
     private val cameraExecutor = Executors.newSingleThreadExecutor()
+    private val servicePreferences by lazy {
+        getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+    }
     private val sensorManager by lazy { getSystemService(SENSOR_SERVICE) as SensorManager }
     private val rotationSensor by lazy {
         sensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
@@ -190,6 +197,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            activeOrPending = false
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -223,20 +231,38 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
         }
         startHeadOrientationTracking()
         startCamera()
-        return START_NOT_STICKY
+        // This camera service is explicitly enabled by the user and should recover
+        // if Android reclaims the app process under memory pressure. A null restart
+        // intent restores the last user-selected camera configuration below.
+        return START_STICKY
     }
 
     private fun readConfiguration(intent: Intent?) {
-        cameraWidthPx = (intent?.getIntExtra(EXTRA_WIDTH, DEFAULT_WIDTH_PX)
-            ?: DEFAULT_WIDTH_PX).coerceIn(MIN_WIDTH_PX, MAX_WIDTH_PX)
-        cameraHeightPx = (intent?.getIntExtra(EXTRA_HEIGHT, DEFAULT_HEIGHT_PX)
-            ?: DEFAULT_HEIGHT_PX).coerceIn(MIN_HEIGHT_PX, MAX_HEIGHT_PX)
-        maxHands = (intent?.getIntExtra(EXTRA_MAX_HANDS, DEFAULT_MAX_HANDS)
-            ?: DEFAULT_MAX_HANDS).coerceIn(1, 2)
-        minimumInferenceIntervalMs = (intent?.getLongExtra(
+        // START_STICKY restarts are delivered with a null Intent. Retain the latest
+        // user-selected settings so recovery does not silently fall back to 320x240.
+        val savedWidth = servicePreferences.getInt(EXTRA_WIDTH, DEFAULT_WIDTH_PX)
+        val savedHeight = servicePreferences.getInt(EXTRA_HEIGHT, DEFAULT_HEIGHT_PX)
+        val savedMaxHands = servicePreferences.getInt(EXTRA_MAX_HANDS, DEFAULT_MAX_HANDS)
+        val savedInterval = servicePreferences.getLong(
             EXTRA_INTERVAL_MS,
             DEFAULT_INFERENCE_INTERVAL_MS
-        ) ?: DEFAULT_INFERENCE_INTERVAL_MS).coerceIn(0L, 1_000L)
+        )
+
+        cameraWidthPx = (intent?.getIntExtra(EXTRA_WIDTH, savedWidth)
+            ?: savedWidth).coerceIn(MIN_WIDTH_PX, MAX_WIDTH_PX)
+        cameraHeightPx = (intent?.getIntExtra(EXTRA_HEIGHT, savedHeight)
+            ?: savedHeight).coerceIn(MIN_HEIGHT_PX, MAX_HEIGHT_PX)
+        maxHands = (intent?.getIntExtra(EXTRA_MAX_HANDS, savedMaxHands)
+            ?: savedMaxHands).coerceIn(1, 2)
+        minimumInferenceIntervalMs = (intent?.getLongExtra(EXTRA_INTERVAL_MS, savedInterval)
+            ?: savedInterval).coerceIn(0L, 1_000L)
+
+        servicePreferences.edit()
+            .putInt(EXTRA_WIDTH, cameraWidthPx)
+            .putInt(EXTRA_HEIGHT, cameraHeightPx)
+            .putInt(EXTRA_MAX_HANDS, maxHands)
+            .putLong(EXTRA_INTERVAL_MS, minimumInferenceIntervalMs)
+            .apply()
     }
 
     private fun startCamera() {
@@ -442,6 +468,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
         private const val CHANNEL_ID = "endxr_hand_tracking"
         private const val NOTIFICATION_ID = 7412
         private const val STOP_REQUEST_CODE = 7413
+        private const val PREFERENCES_NAME = "endxr_hand_tracking_service"
 
         private const val ACTION_STOP = "com.noyclic.questphonexr.action.STOP_ENDXR_HANDS"
         private const val EXTRA_WIDTH = "endxr.camera.width"
@@ -464,12 +491,17 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
 
         fun diagnosticReport(): String = EndXrHandTrackingDiagnostics.report()
 
+        fun diagnosticState(): String = EndXrHandTrackingDiagnostics.currentState()
+
         fun diagnosticFps(): Float = EndXrHandTrackingDiagnostics.latestFps()
 
         fun diagnosticHandCount(): Int = EndXrHandTrackingDiagnostics.latestHands()
 
-        fun markStartFailed() {
+        fun markStartFailed(message: String? = null) {
             activeOrPending = false
+            if (!message.isNullOrBlank()) {
+                EndXrHandTrackingDiagnostics.markError(message)
+            }
         }
 
         fun createStartIntent(

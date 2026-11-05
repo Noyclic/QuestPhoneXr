@@ -106,6 +106,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private var endXrLastAttemptMs = 0L
     private lateinit var sensorManager: SensorManager
     private lateinit var statusView: TextView
+    private var persistentHandTrackingButton: Button? = null
     private lateinit var endXrProbeStatusView: TextView
     private lateinit var viewerProfileStore: ViewerProfileStore
     private lateinit var handCalibrationStore: SandboxHandCalibrationStore
@@ -715,10 +716,15 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 )
             )
+            persistentHandTrackingButton = controlButton(
+                "Включить фоновую камеру рук для Quest-игр"
+            ) {
+                togglePersistentHandTracking()
+            }.apply {
+                contentDescription = "Включить фоновую камеру рук для внешних XR-игр"
+            }
             addView(
-                controlButton("Фоновое отслеживание рук для Quest-игр") {
-                    togglePersistentHandTracking()
-                },
+                persistentHandTrackingButton,
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
@@ -1005,7 +1011,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             cameraStatusMessage =
                 "EndXR: запускаем фоновую камеру рук. Оставь уведомление активным перед запуском игры."
         }.onFailure { error ->
-            EndXrHandTrackingService.markStartFailed()
+            EndXrHandTrackingService.markStartFailed(
+                error.message ?: error.javaClass.simpleName
+            )
             cameraStatusMessage = "Не удалось запустить фоновую камеру: " +
                 (error.message ?: error.javaClass.simpleName)
             startHandTracking()
@@ -1256,7 +1264,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 ContextCompat.startForegroundService(this, intent)
                 cameraStatusMessage = "EndXR: обновляем параметры фоновой камеры…"
             }.onFailure { error ->
-                EndXrHandTrackingService.markStartFailed()
+                EndXrHandTrackingService.markStartFailed(
+                error.message ?: error.javaClass.simpleName
+            )
                 cameraStatusMessage = "Не удалось обновить фоновую камеру: " +
                     (error.message ?: error.javaClass.simpleName)
             }
@@ -1505,6 +1515,18 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             append('\n')
             append(cameraStatusMessage).append(" · рук: ").append(latestHandFrame.handCount)
             append('\n')
+            val serviceRunning = EndXrHandTrackingService.isRunning()
+            val serviceState = EndXrHandTrackingService.diagnosticState()
+            append("Фоновая камера EndXR: ")
+            append(
+                when {
+                    serviceRunning && serviceState == "running" -> "РАБОТАЕТ"
+                    serviceRunning -> "ЗАПУСКАЕТСЯ ($serviceState)"
+                    serviceState == "error" -> "ОШИБКА · смотри service_last_error"
+                    else -> "ВЫКЛЮЧЕНА"
+                }
+            )
+            append('\n')
             val trackerMetrics = handTracker?.metricsSnapshot()
             append("MediaPipe: ").append(handFpsText)
             append(" FPS · подготовка ").append(latestPreprocessingLatencyMs)
@@ -1543,6 +1565,18 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
     private fun updateStatus() {
         if (::statusView.isInitialized) statusView.text = statusText()
+
+        val running = EndXrHandTrackingService.isRunning()
+        val state = EndXrHandTrackingService.diagnosticState()
+        val label = when {
+            running && state == "running" -> "Остановить фоновую камеру рук · работает"
+            running -> "Остановить фоновую камеру рук · запускается"
+            else -> "Включить фоновую камеру рук для Quest-игр"
+        }
+        persistentHandTrackingButton?.let { button ->
+            if (button.text.toString() != label) button.text = label
+            button.contentDescription = label
+        }
     }
 
     private fun controlButton(label: String, action: () -> Unit): Button =
