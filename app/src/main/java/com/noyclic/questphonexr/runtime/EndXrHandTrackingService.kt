@@ -54,6 +54,8 @@ internal object EndXrHandTrackingDiagnostics {
     @Volatile private var lastResultHands = -1
     @Volatile private var resultFps = 0f
     @Volatile private var lastError = ""
+    @Volatile private var latestFrame = HandTrackingFrame(0L, emptyList())
+    @Volatile private var latestFrameReceivedAtMs = 0L
 
     fun begin(widthPx: Int, heightPx: Int) {
         cameraState = "starting"
@@ -82,6 +84,8 @@ internal object EndXrHandTrackingDiagnostics {
         lastResultHands = -1
         resultFps = 0f
         lastError = ""
+        latestFrame = HandTrackingFrame(0L, emptyList())
+        latestFrameReceivedAtMs = 0L
     }
 
     fun cameraSelected(frontCamera: Boolean) {
@@ -118,7 +122,17 @@ internal object EndXrHandTrackingDiagnostics {
         lastResultTimestampMs = frame.timestampMs
         lastResultHands = frame.handCount
         resultCount += 1L
+        latestFrame = frame
+        latestFrameReceivedAtMs = android.os.SystemClock.uptimeMillis()
     }
+
+    fun latestHandFrame(): HandTrackingFrame = latestFrame
+
+    fun latestHandFrameReceivedAtMs(): Long = latestFrameReceivedAtMs
+
+    fun currentMetrics(): HandTrackingMetricsSnapshot = metrics
+
+    fun currentError(): String = lastError
 
     fun latestFps(): Float = resultFps
 
@@ -488,6 +502,14 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
         fun diagnosticState(): String = EndXrHandTrackingDiagnostics.currentState()
 
         fun diagnosticFps(): Float = EndXrHandTrackingDiagnostics.latestFps()
+
+        fun diagnosticMetrics(): HandTrackingMetricsSnapshot = EndXrHandTrackingDiagnostics.currentMetrics()
+
+        fun diagnosticLastError(): String = EndXrHandTrackingDiagnostics.currentError()
+
+        fun latestFrame(): HandTrackingFrame = EndXrHandTrackingDiagnostics.latestHandFrame()
+
+        fun latestFrameReceivedAtMs(): Long = EndXrHandTrackingDiagnostics.latestHandFrameReceivedAtMs()
 
         fun diagnosticHandCount(): Int = EndXrHandTrackingDiagnostics.latestHands()
 

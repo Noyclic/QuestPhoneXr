@@ -86,6 +86,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     @Volatile private var cameraSourceSizeLabel = "—"
     @Volatile private var mediaPipeInputSizeLabel = "—"
     private var previousHandFrameTimestampMs = 0L
+    private var lastPublishedServiceFrameMs = 0L
+    private var handDiagnosticsRunning = false
     private val cameraExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
     private var cameraProvider: ProcessCameraProvider? = null
     private var handTracker: HandLandmarkerController? = null
@@ -150,11 +152,18 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             if (isFinishing || !::glView.isInitialized) return
 
             val nowMs = SystemClock.uptimeMillis()
+            val serviceActive = EndXrHandTrackingService.isRunning()
+            val currentHandTrackingFps = if (serviceActive) {
+                EndXrHandTrackingService.diagnosticFps()
+            } else measuredHandTrackingFps
+            val currentPipelineLatencyMs = if (serviceActive) {
+                EndXrHandTrackingService.latestFrame().pipelineLatencyMs
+            } else latestHandPipelineLatencyMs
             val updatedAdaptiveState = adaptivePerformance.observe(
                 nowMs = nowMs,
                 renderFps = renderer.measuredFps,
-                handTrackingFps = measuredHandTrackingFps,
-                pipelineLatencyMs = latestHandPipelineLatencyMs
+                handTrackingFps = currentHandTrackingFps,
+                pipelineLatencyMs = currentPipelineLatencyMs
             )
             if (updatedAdaptiveState != adaptivePerformanceState) {
                 adaptivePerformanceState = updatedAdaptiveState
@@ -176,22 +185,39 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 }
                 lastFrameNanos = frameTimeNanos
                 val snapshot = controllerSnapshots
-                val latestHands = latestHandFrame
-                // HandTrackingFrame.timestampMs is the camera submission timestamp returned by
-                // MediaPipe, not the time its asynchronous result reached this Activity.
-                // Comparing it with uptime can expire a valid result before Sandbox ever renders it.
-                val receivedAtMs = latestHandFrameReceivedAtMs
-                val handStaleTimeoutMs = sandboxHandFrameStaleTimeoutMs(measuredHandTrackingFps)
+                // The foreground service owns CameraX while persistent hand tracking is active.
+                // Read its latest MediaPipe output instead of rendering Sandbox-local empty frames.
+                val latestHands = if (serviceActive) {
+                    EndXrHandTrackingService.latestFrame()
+                } else latestHandFrame
+                val receivedAtMs = if (serviceActive) {
+                    EndXrHandTrackingService.latestFrameReceivedAtMs()
+                } else latestHandFrameReceivedAtMs
+                val handStaleTimeoutMs = sandboxHandFrameStaleTimeoutMs(currentHandTrackingFps)
+                val serviceFrameStale = serviceActive && latestHands.hands.isNotEmpty() &&
+                    isSandboxHandFrameStale(nowMs, receivedAtMs, handStaleTimeoutMs)
                 val hands = if (latestHands.hands.isNotEmpty() &&
                     isSandboxHandFrameStale(nowMs, receivedAtMs, handStaleTimeoutMs)
                 ) {
-                    HandTrackingFrame(SystemClock.uptimeMillis(), emptyList()).also {
-                        latestHandFrame = it
-                        latestHandFrameReceivedAtMs = 0L
-                        trackingSender?.publish(it)
+                    HandTrackingFrame(nowMs, emptyList()).also { emptyFrame ->
+                        if (serviceActive) {
+                            // Send one empty frame when the last service result expires.
+                            if (latestHands.timestampMs != lastPublishedServiceFrameMs) {
+                                lastPublishedServiceFrameMs = latestHands.timestampMs
+                                trackingSender?.publish(emptyFrame)
+                            }
+                        } else {
+                            latestHandFrame = emptyFrame
+                            latestHandFrameReceivedAtMs = 0L
+                            trackingSender?.publish(emptyFrame)
+                        }
                     }
-                } else {
-                    latestHands
+                } else latestHands
+                if (serviceActive && !serviceFrameStale && latestHands.timestampMs > 0L &&
+                    latestHands.timestampMs != lastPublishedServiceFrameMs
+                ) {
+                    lastPublishedServiceFrameMs = latestHands.timestampMs
+                    trackingSender?.publish(latestHands)
                 }
                 publishOpenXrInput(hands, snapshot)
                 val cameraToWorldRotation = renderer.cameraToWorldRotation()
@@ -745,6 +771,13 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 )
             )
+            addView(
+                controlButton("Диагностика рук (4 с)") { runHandDiagnostics() },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
             persistentHandTrackingButton = controlButton(
                 "Включить фоновую камеру рук для Quest-игр"
             ) {
@@ -1057,6 +1090,136 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 handTrackingPreset.cameraHeightPx
             } else viewerProfile.cameraHeightPx
         )
+
+    private fun currentHandMetrics(): HandTrackingMetricsSnapshot? =
+        if (EndXrHandTrackingService.isRunning()) EndXrHandTrackingService.diagnosticMetrics()
+        else handTracker?.metricsSnapshot() ?: latestSandboxTrackingMetrics
+
+    private fun currentDiagnosticHandFrame(): HandTrackingFrame =
+        if (EndXrHandTrackingService.isRunning()) EndXrHandTrackingService.latestFrame()
+        else latestHandFrame
+
+    private fun handTrackingOwner() = when {
+        EndXrHandTrackingService.isRunning() -> HandTrackingOwner.SERVICE
+        handTracker != null -> HandTrackingOwner.SANDBOX
+        else -> HandTrackingOwner.NONE
+    }
+
+    private fun bundledModelBytes(): Long = runCatching {
+        assets.open("hand_landmarker.task").use { stream ->
+            val buffer = ByteArray(64 * 1024)
+            var total = 0L
+            while (true) {
+                val read = stream.read(buffer)
+                if (read < 0) break
+                total += read
+            }
+            total
+        }
+    }.getOrDefault(-1L)
+
+    private fun runHandDiagnostics() {
+        if (isFinishing || isDestroyed || handDiagnosticsRunning) return
+        handDiagnosticsRunning = true
+        val permissionGranted = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+        val startedHere = permissionGranted &&
+            handTrackingOwner() == HandTrackingOwner.NONE && !handTrackingStartPending
+        if (startedHere) startHandTracking()
+
+        Toast.makeText(
+            this, "Проверка рук: покажи ладони камере",
+            Toast.LENGTH_LONG
+        ).show()
+
+        val handler = Handler(Looper.getMainLooper())
+        val warmupMs = if (startedHere) 1_500L else 0L
+        handler.postDelayed({
+            if (isFinishing || isDestroyed) {
+                handDiagnosticsRunning = false
+                return@postDelayed
+            }
+            val before = currentHandMetrics()
+            val baselineAtMs = SystemClock.uptimeMillis()
+            var maxHands = currentDiagnosticHandFrame().handCount
+            val sampler = object : Runnable {
+                override fun run() {
+                    if (isFinishing || isDestroyed) {
+                        handDiagnosticsRunning = false
+                        return
+                    }
+                    maxHands = maxOf(maxHands, currentDiagnosticHandFrame().handCount)
+                    if (SystemClock.uptimeMillis() - baselineAtMs < 4_000L) {
+                        handler.postDelayed(this, 200L)
+                    } else {
+                        finishHandDiagnostics(permissionGranted, before, maxHands, baselineAtMs)
+                    }
+                }
+            }
+            handler.post(sampler)
+        }, warmupMs)
+    }
+
+    private fun finishHandDiagnostics(
+        permissionGranted: Boolean,
+        before: HandTrackingMetricsSnapshot?,
+        maxHands: Int,
+        baselineAtMs: Long
+    ) {
+        handDiagnosticsRunning = false
+        if (isFinishing || isDestroyed) return
+        val owner = handTrackingOwner()
+        val status = cameraStatusMessage
+        val sandboxFailure = owner != HandTrackingOwner.SERVICE &&
+            (status.startsWith("Не удалось") ||
+                (status.startsWith("MediaPipe: ") && !status.contains("pinch включён")))
+        val lastError = when {
+            owner == HandTrackingOwner.SERVICE -> EndXrHandTrackingService.diagnosticLastError()
+            sandboxFailure -> status
+            else -> ""
+        }
+        val report = HandTrackingDiagnostician.diagnose(
+            HandDiagnosisInput(
+                cameraPermissionGranted = permissionGranted,
+                modelAssetBytes = bundledModelBytes(),
+                hasAnyCamera = packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY),
+                hasFrontCamera = packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_FRONT),
+                owner = owner,
+                windowMs = (SystemClock.uptimeMillis() - baselineAtMs).coerceAtLeast(1L),
+                before = before,
+                after = currentHandMetrics(),
+                maxHandsSeen = maxHands,
+                lastPipelineLatencyMs = currentDiagnosticHandFrame().pipelineLatencyMs,
+                inferenceIntervalMs = adaptivePerformanceState.minimumInferenceIntervalMs,
+                lastError = lastError
+            )
+        )
+        val reportText = report.render() + "\n— Статус камеры: " + status +
+            "\n— Устройство: " + android.os.Build.MANUFACTURER + " " +
+            android.os.Build.MODEL + " · Android " +
+            android.os.Build.VERSION.RELEASE + "\n"
+        Log.i("QuestPhoneXR.HandDiag", reportText)
+
+        val reportView = TextView(this).apply {
+            text = reportText
+            typeface = android.graphics.Typeface.MONOSPACE
+            textSize = 12f
+            setTextIsSelectable(true)
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Диагностика рук")
+            .setView(android.widget.ScrollView(this).apply { addView(reportView) })
+            .setNegativeButton("Закрыть", null)
+            .setNeutralButton("Повторить") { _, _ -> runHandDiagnostics() }
+            .setPositiveButton("Копировать") { _, _ ->
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Hand tracking diagnosis", reportText))
+                Toast.makeText(this, "Отчёт скопирован", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
 
     private fun showHandTrackingPresetDialog() {
         val presets = HandTrackingPreset.entries.toTypedArray()
