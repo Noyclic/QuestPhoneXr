@@ -279,8 +279,7 @@ class HandLandmarkerController(
             modelCanvas = Canvas(checkNotNull(modelBitmap))
         }
         val canvas = checkNotNull(modelCanvas)
-        val rotation = ((rotationDegrees % 360) + 360) % 360
-            .let { if (it % 90 == 0) it else 0 }
+        val rotation = normalizeCameraRotationDegrees(rotationDegrees)
         val rotatedWidth = if (rotation == 90 || rotation == 270) source.height else source.width
         val rotatedHeight = if (rotation == 90 || rotation == 270) source.width else source.height
         val scale = minOf(
