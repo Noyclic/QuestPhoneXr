@@ -7,6 +7,16 @@ import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.TrackedHand
 import kotlin.math.sqrt
 
+/**
+ * Keep the last valid hand pose alive for a few inference intervals.
+ * Phone CPU inference can be slower than the nominal camera frame rate; a fixed
+ * 500 ms timeout drops otherwise valid hands between MediaPipe callbacks.
+ */
+internal fun sandboxHandFrameStaleTimeoutMs(measuredFps: Float): Long {
+    if (!measuredFps.isFinite() || measuredFps <= 0f) return 1_200L
+    return (2_500f / measuredFps).toLong().coerceIn(900L, 2_200L)
+}
+
 enum class SandboxObjectType { CUBE, BALL, TARGET }
 
 data class SandboxVector3(
