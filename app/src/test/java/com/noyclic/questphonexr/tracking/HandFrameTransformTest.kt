@@ -5,6 +5,18 @@ import org.junit.Test
 
 class HandFrameTransformTest {
     @Test
+    fun normalizesCameraRotationAndHandlesNegativeValues() {
+        assertEquals(0, normalizeCameraRotationDegrees(0))
+        assertEquals(90, normalizeCameraRotationDegrees(90))
+        assertEquals(180, normalizeCameraRotationDegrees(180))
+        assertEquals(270, normalizeCameraRotationDegrees(270))
+        assertEquals(90, normalizeCameraRotationDegrees(450))
+        assertEquals(270, normalizeCameraRotationDegrees(-90))
+        assertEquals(0, normalizeCameraRotationDegrees(45))
+        assertEquals(0, normalizeCameraRotationDegrees(361))
+    }
+
+    @Test
     fun mapsLetterboxedCenterToSourceCenter() {
         val transform = HandFrameTransform(
             leftPx = 105f,
