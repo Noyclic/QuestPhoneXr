@@ -365,8 +365,7 @@ class HandLandmarkerController(
             targetHeightPx = outputHeightPx,
             rotatedWidthPx = rotatedWidth,
             rotatedHeightPx = rotatedHeight,
-            mirroredHorizontally = mirror,
-            rotationDegrees = rotation
+            mirroredHorizontally = mirror
         )
     }
 
@@ -395,7 +394,7 @@ class HandLandmarkerController(
 
             val hands = landmarkLists.mapIndexed { index, landmarks ->
                 val points = landmarks.map { landmark ->
-                    val mapped = transform?.toSourceNormalized(landmark.x(), landmark.y())
+                    val mapped = transform?.toRotatedFrameNormalized(landmark.x(), landmark.y())
                     if (mapped == null) {
                         HandPoint(landmark.x(), landmark.y(), landmark.z())
                     } else {
