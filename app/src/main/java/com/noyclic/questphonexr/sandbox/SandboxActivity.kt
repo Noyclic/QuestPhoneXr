@@ -178,11 +178,6 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 // MediaPipe, not the time its asynchronous result reached this Activity.
                 // Comparing it with uptime can expire a valid result before Sandbox ever renders it.
                 val receivedAtMs = latestHandFrameReceivedAtMs
-                val handsAgeMs = if (receivedAtMs > 0L) {
-                    (nowMs - receivedAtMs).coerceAtLeast(0L)
-                } else {
-                    Long.MAX_VALUE
-                }
                 val handStaleTimeoutMs = sandboxHandFrameStaleTimeoutMs(measuredHandTrackingFps)
                 val hands = if (latestHands.hands.isNotEmpty() &&
                     isSandboxHandFrameStale(nowMs, receivedAtMs, handStaleTimeoutMs)
