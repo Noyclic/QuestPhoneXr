@@ -40,6 +40,7 @@ import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
 import com.noyclic.questphonexr.input.VirtualControllerFrame
 import com.noyclic.questphonexr.input.VirtualControllerMapper
 import com.noyclic.questphonexr.tracking.HandLandmarkerController
+import com.noyclic.questphonexr.tracking.HandCameraPreference
 import com.noyclic.questphonexr.tracking.HandSide
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import java.util.Locale
@@ -249,27 +250,24 @@ class MainActivity : ComponentActivity(), InputManager.InputDeviceListener {
     private fun startPhoneCamera() {
         if (isFinishing) return
 
-        try {
-            if (handTracker == null) {
-                handTracker = HandLandmarkerController(
-                    context = applicationContext,
-                    mirrorFrontCamera = true,
-                    onFrame = ::onHandFrame,
-                    onError = { message ->
-                        runOnUiThread { showStatus("MediaPipe: " + message) }
-                    }
-                )
-            }
-        } catch (error: Exception) {
-            showStatus("Не удалось запустить MediaPipe: " + (error.message ?: "неизвестная ошибка"))
-            return
-        }
-
         val providerFuture = ProcessCameraProvider.getInstance(this)
         providerFuture.addListener({
             try {
                 val provider = providerFuture.get()
                 cameraProvider = provider
+                val cameraSelection = HandCameraPreference.resolve(this@MainActivity, provider)
+                val useFrontCamera = cameraSelection.isFrontCamera
+
+                if (handTracker == null) {
+                    handTracker = HandLandmarkerController(
+                        context = applicationContext,
+                        mirrorFrontCamera = useFrontCamera,
+                        onFrame = ::onHandFrame,
+                        onError = { message ->
+                            runOnUiThread { showStatus("MediaPipe: " + message) }
+                        }
+                    )
+                }
 
                 val preview = Preview.Builder().build().also {
                     it.surfaceProvider = previewView.surfaceProvider
@@ -286,14 +284,17 @@ class MainActivity : ComponentActivity(), InputManager.InputDeviceListener {
                     }
 
                 provider.unbindAll()
-                val selector = if (provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)) {
-                    CameraSelector.DEFAULT_FRONT_CAMERA
-                } else {
-                    CameraSelector.DEFAULT_BACK_CAMERA
-                }
-                provider.bindToLifecycle(this, selector, preview, analysis)
-                showStatus("Камера запущена · MediaPipe обнаруживает руки…")
+                provider.bindToLifecycle(this, cameraSelection.selector, preview, analysis)
+                showStatus(
+                    if (useFrontCamera) {
+                        "Фронтальная камера включена вручную · MediaPipe обнаруживает руки…"
+                    } else {
+                        "Задняя камера · фронтальная выключена · MediaPipe обнаруживает руки…"
+                    }
+                )
             } catch (error: Exception) {
+                handTracker?.close()
+                handTracker = null
                 showStatus("Камеру не удалось запустить: " + (error.message ?: "неизвестная ошибка"))
             }
         }, ContextCompat.getMainExecutor(this))

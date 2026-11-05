@@ -16,10 +16,11 @@ The VR sandbox is the first interactive scene for testing QuestPhoneXR's phone-b
 ## Camera hand controls
 
 1. Allow camera permission when the sandbox opens.
-2. The app uses the rear camera when available; it falls back to the front camera if needed.
-3. Keep your hands visible to the camera's field of view.
-4. Move a hand to move its colored cursor.
-5. Move the index fingertip toward an object. Pinch thumb and index to grab at the midpoint between those fingertips; release to drop it. Moving the pinched point while holding gives the object a simple throw velocity.
+2. The rear camera is selected by default. The front camera remains disabled until you explicitly enable **Разрешить фронтальную камеру** in Sandbox settings. The app never switches to the front camera automatically if the rear camera is unavailable.
+3. Use **Диагностика рук (4 с)** in Sandbox settings to inspect camera permission, model availability, incoming frames, MediaPipe results, lighting and detected hands. The report can be copied and shared for troubleshooting.
+4. Keep your hands visible to the selected camera's field of view.
+5. Move a hand to move its colored cursor.
+6. Move the index fingertip toward an object. Pinch thumb and index to grab at the midpoint between those fingertips; release to drop it. Moving the pinched point while holding gives the object a simple throw velocity.
 
 The MediaPipe tracker reports left/right hand labels, 21 landmarks, and a filtered pinch state with hysteresis. The sandbox maps all 21 landmarks into the phone-VR reach plane, smooths the joint positions, and builds rounded palm, finger and fingertip geometry at render time. For interaction, an open hand points with the index fingertip; during a pinch, the grab point moves to the midpoint between thumb and index tips. Pinching highlights the thumb and index tips; when a full hand pose is unavailable, the colored cursor remains as a fallback.
 
