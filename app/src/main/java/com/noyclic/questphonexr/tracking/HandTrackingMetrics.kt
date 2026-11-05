@@ -14,7 +14,9 @@ data class HandTrackingMetricsSnapshot(
     val lastFrameFormat: Int = 0,
     val lastFrameRotationDegrees: Int = 0,
     val lastFrameRowStride: Int = 0,
-    val lastFramePixelStride: Int = 0
+    val lastFramePixelStride: Int = 0,
+    val lastFrameLumaMean: Float = 0f,
+    val lastFrameLumaStdDev: Float = 0f
 ) {
     val droppedFrames: Long
         get() = droppedBusyFrames + droppedIntervalFrames
