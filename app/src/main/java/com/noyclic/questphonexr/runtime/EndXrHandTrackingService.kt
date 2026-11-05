@@ -140,6 +140,8 @@ internal object EndXrHandTrackingDiagnostics {
             append("service_last_frame_rotation_degrees=").append(snapshot.lastFrameRotationDegrees).append('\n')
             append("service_last_frame_row_stride=").append(snapshot.lastFrameRowStride).append('\n')
             append("service_last_frame_pixel_stride=").append(snapshot.lastFramePixelStride).append('\n')
+            append("service_last_frame_luma_mean=").append(snapshot.lastFrameLumaMean).append('\n')
+            append("service_last_frame_luma_stddev=").append(snapshot.lastFrameLumaStdDev).append('\n')
             append("service_last_error=").append(lastError).append('\n')
         }
     }
