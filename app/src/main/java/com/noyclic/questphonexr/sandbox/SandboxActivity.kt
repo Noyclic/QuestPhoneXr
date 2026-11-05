@@ -184,7 +184,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     Long.MAX_VALUE
                 }
                 val handStaleTimeoutMs = sandboxHandFrameStaleTimeoutMs(measuredHandTrackingFps)
-                val hands = if (latestHands.hands.isNotEmpty() && handsAgeMs > handStaleTimeoutMs) {
+                val hands = if (latestHands.hands.isNotEmpty() &&
+                    isSandboxHandFrameStale(nowMs, receivedAtMs, handStaleTimeoutMs)
+                ) {
                     HandTrackingFrame(SystemClock.uptimeMillis(), emptyList()).also {
                         latestHandFrame = it
                         latestHandFrameReceivedAtMs = 0L
