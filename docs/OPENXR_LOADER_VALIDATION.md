@@ -23,11 +23,15 @@ The probe records these stages:
    requirements, and attempts `xrCreateSession` / `xrBeginSession`.
 7. It enumerates the swapchain formats advertised by that session, prefers
    `GL_RGBA8` when available, and otherwise uses the runtime's first advertised
-   format. It then creates a small GLES swapchain, enumerates its images,
-   attempts acquire/wait/release, and runs one `xrWaitFrame` / `xrBeginFrame` /
-   `xrEndFrame` cycle with zero composition layers. If the HMD system or
-   primary stereo view is unavailable, the GLES session stage is explicitly
-   skipped rather than issuing calls with an invalid system ID.
+   format. It then creates a small GLES swapchain, enumerates its images, and
+   attempts acquire/wait/release.
+8. It enumerates environment blend modes for primary stereo, prefers
+   `OPAQUE` when supported, and otherwise uses the first mode advertised by the
+   runtime before running one `xrWaitFrame` / `xrBeginFrame` / `xrEndFrame`
+   cycle with zero composition layers. If the HMD system or primary stereo
+   view is unavailable, the GLES session stage is explicitly skipped rather
+   than issuing calls with an invalid system ID. If no blend mode is reported,
+   the frame lifecycle is skipped instead of submitting an unsupported mode.
 8. It tears down the swapchain, session, EGL context and instance.
 
 The native loader is supplied by the Khronos
