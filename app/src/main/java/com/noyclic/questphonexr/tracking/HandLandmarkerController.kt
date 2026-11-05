@@ -65,6 +65,8 @@ class HandLandmarkerController(
     @Volatile private var lastFrameRotationDegrees = 0
     @Volatile private var lastFrameRowStride = 0
     @Volatile private var lastFramePixelStride = 0
+    @Volatile private var lastFrameLumaMean = 0f
+    @Volatile private var lastFrameLumaStdDev = 0f
 
     // Analyzer-thread confined. The processing gate permits only one frame to use these at once.
     private var sourceBitmap: Bitmap? = null
@@ -128,7 +130,9 @@ class HandLandmarkerController(
             lastFrameFormat = lastFrameFormat,
             lastFrameRotationDegrees = lastFrameRotationDegrees,
             lastFrameRowStride = lastFrameRowStride,
-            lastFramePixelStride = lastFramePixelStride
+            lastFramePixelStride = lastFramePixelStride,
+            lastFrameLumaMean = lastFrameLumaMean,
+            lastFrameLumaStdDev = lastFrameLumaStdDev
         )
     }
 
@@ -258,7 +262,41 @@ class HandLandmarkerController(
 
         val bitmap = checkNotNull(sourceBitmap)
         bitmap.copyPixelsFromBuffer(packed)
+        updateFrameSignalMetrics(bitmap)
         return bitmap
+    }
+
+
+    /**
+     * Samples a tiny fixed grid to distinguish a live camera image from a black/frozen feed.
+     * This is diagnostic-only and avoids allocating a second full-resolution image.
+     */
+    private fun updateFrameSignalMetrics(bitmap: Bitmap) {
+        val columns = 8
+        val rows = 6
+        var sum = 0.0
+        var sumSquares = 0.0
+        var samples = 0
+        for (row in 0 until rows) {
+            val y = ((row + 0.5f) * bitmap.height / rows).toInt()
+                .coerceIn(0, bitmap.height - 1)
+            for (column in 0 until columns) {
+                val x = ((column + 0.5f) * bitmap.width / columns).toInt()
+                    .coerceIn(0, bitmap.width - 1)
+                val pixel = bitmap.getPixel(x, y)
+                val red = (pixel shr 16) and 0xff
+                val green = (pixel shr 8) and 0xff
+                val blue = pixel and 0xff
+                val luma = (red + green + blue) / 3.0
+                sum += luma
+                sumSquares += luma * luma
+                samples += 1
+            }
+        }
+        val mean = sum / samples
+        val variance = (sumSquares / samples - mean * mean).coerceAtLeast(0.0)
+        lastFrameLumaMean = mean.toFloat()
+        lastFrameLumaStdDev = kotlin.math.sqrt(variance).toFloat()
     }
 
     /**
