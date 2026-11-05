@@ -1590,15 +1590,15 @@ bool refreshExternalControllerInputImpl(XrInstance_T* instance) {
         return false;
     }
 
+    // Serialize the complete provider read, not just the rate-limit timestamp.
+    // Otherwise concurrent OpenXR calls can publish out-of-order IPC snapshots.
+    std::unique_lock<std::mutex> inputPollLock(instance->externalInputMutex);
     const auto now = std::chrono::steady_clock::now();
-    {
-        std::lock_guard<std::mutex> lock(instance->externalInputMutex);
-        if (instance->lastExternalInputPoll.time_since_epoch().count() != 0 &&
-            now - instance->lastExternalInputPoll < std::chrono::milliseconds(8)) {
-            return true;
-        }
-        instance->lastExternalInputPoll = now;
+    if (instance->lastExternalInputPoll.time_since_epoch().count() != 0 &&
+        now - instance->lastExternalInputPoll < std::chrono::milliseconds(8)) {
+        return true;
     }
+    instance->lastExternalInputPoll = now;
 
     JNIEnv* env = nullptr;
     bool attachedHere = false;
@@ -1608,12 +1608,14 @@ bool refreshExternalControllerInputImpl(XrInstance_T* instance) {
         if (instance->applicationVm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
             endxrClearControllerInput();
             endxrClearHeadOrientation();
+            endxrClearHandPoses();
             return false;
         }
         attachedHere = true;
     } else if (envStatus != JNI_OK || env == nullptr) {
         endxrClearControllerInput();
         endxrClearHeadOrientation();
+        endxrClearHandPoses();
         return false;
     }
 
@@ -1775,17 +1777,20 @@ bool refreshExternalControllerInputImpl(XrInstance_T* instance) {
             env->ExceptionClear();
             endxrClearControllerInput();
             endxrClearHeadOrientation();
+            endxrClearHandPoses();
         }
         env->PopLocalFrame(nullptr);
     } else {
         if (env->ExceptionCheck()) env->ExceptionClear();
         endxrClearControllerInput();
         endxrClearHeadOrientation();
+        endxrClearHandPoses();
     }
 
     if (!success) {
         endxrClearControllerInput();
         endxrClearHeadOrientation();
+        endxrClearHandPoses();
     }
     if (attachedHere) instance->applicationVm->DetachCurrentThread();
     return success;
