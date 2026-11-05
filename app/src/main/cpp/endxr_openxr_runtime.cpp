@@ -1590,15 +1590,17 @@ bool refreshExternalControllerInputImpl(XrInstance_T* instance) {
         return false;
     }
 
+    // Only one thread may read/publish an IPC snapshot at a time. Do not block
+    // render threads behind a slow ContentProvider: they keep using the last sample.
+    std::unique_lock<std::mutex> inputPollLock(
+        instance->externalInputMutex, std::try_to_lock);
+    if (!inputPollLock.owns_lock()) return true;
     const auto now = std::chrono::steady_clock::now();
-    {
-        std::lock_guard<std::mutex> lock(instance->externalInputMutex);
-        if (instance->lastExternalInputPoll.time_since_epoch().count() != 0 &&
-            now - instance->lastExternalInputPoll < std::chrono::milliseconds(8)) {
-            return true;
-        }
-        instance->lastExternalInputPoll = now;
+    if (instance->lastExternalInputPoll.time_since_epoch().count() != 0 &&
+        now - instance->lastExternalInputPoll < std::chrono::milliseconds(8)) {
+        return true;
     }
+    instance->lastExternalInputPoll = now;
 
     JNIEnv* env = nullptr;
     bool attachedHere = false;
@@ -1608,12 +1610,14 @@ bool refreshExternalControllerInputImpl(XrInstance_T* instance) {
         if (instance->applicationVm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
             endxrClearControllerInput();
             endxrClearHeadOrientation();
+            endxrClearHandPoses();
             return false;
         }
         attachedHere = true;
     } else if (envStatus != JNI_OK || env == nullptr) {
         endxrClearControllerInput();
         endxrClearHeadOrientation();
+        endxrClearHandPoses();
         return false;
     }
 
@@ -1775,17 +1779,20 @@ bool refreshExternalControllerInputImpl(XrInstance_T* instance) {
             env->ExceptionClear();
             endxrClearControllerInput();
             endxrClearHeadOrientation();
+            endxrClearHandPoses();
         }
         env->PopLocalFrame(nullptr);
     } else {
         if (env->ExceptionCheck()) env->ExceptionClear();
         endxrClearControllerInput();
         endxrClearHeadOrientation();
+        endxrClearHandPoses();
     }
 
     if (!success) {
         endxrClearControllerInput();
         endxrClearHeadOrientation();
+        endxrClearHandPoses();
     }
     if (attachedHere) instance->applicationVm->DetachCurrentThread();
     return success;
