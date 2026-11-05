@@ -49,6 +49,7 @@ import com.noyclic.questphonexr.input.VirtualControllerState
 import com.noyclic.questphonexr.input.ControllerInputSource
 import com.noyclic.questphonexr.tracking.HandLandmarkerController
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
+import com.noyclic.questphonexr.tracking.HandTrackingMetricsSnapshot
 import com.noyclic.questphonexr.tracking.HandTrackingPreset
 import com.noyclic.questphonexr.tracking.HandTrackingPresetStore
 import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
@@ -75,6 +76,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private val virtualControllerMapper = VirtualControllerMapper()
     @Volatile private var controllerSnapshots: List<PhysicalControllerSnapshot> = emptyList()
     @Volatile private var latestHandFrame = HandTrackingFrame(0L, emptyList())
+    @Volatile private var latestHandFrameReceivedAtMs = 0L
+    @Volatile private var latestSandboxTrackingMetrics: HandTrackingMetricsSnapshot? = null
     @Volatile private var measuredHandTrackingFps = 0f
     @Volatile private var latestHandPipelineLatencyMs = 0L
     @Volatile private var latestPreprocessingLatencyMs = 0L
@@ -171,11 +174,20 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 lastFrameNanos = frameTimeNanos
                 val snapshot = controllerSnapshots
                 val latestHands = latestHandFrame
-                val handsAgeMs = SystemClock.uptimeMillis() - latestHands.timestampMs
+                // HandTrackingFrame.timestampMs is the camera submission timestamp returned by
+                // MediaPipe, not the time its asynchronous result reached this Activity.
+                // Comparing it with uptime can expire a valid result before Sandbox ever renders it.
+                val receivedAtMs = latestHandFrameReceivedAtMs
+                val handsAgeMs = if (receivedAtMs > 0L) {
+                    (nowMs - receivedAtMs).coerceAtLeast(0L)
+                } else {
+                    Long.MAX_VALUE
+                }
                 val handStaleTimeoutMs = sandboxHandFrameStaleTimeoutMs(measuredHandTrackingFps)
                 val hands = if (latestHands.hands.isNotEmpty() && handsAgeMs > handStaleTimeoutMs) {
                     HandTrackingFrame(SystemClock.uptimeMillis(), emptyList()).also {
                         latestHandFrame = it
+                        latestHandFrameReceivedAtMs = 0L
                         trackingSender?.publish(it)
                     }
                 } else {
@@ -387,6 +399,23 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 else latestHandFrame.handCount
             ).append('\n')
             append(EndXrHandTrackingService.diagnosticReport())
+            val sandboxMetrics = handTracker?.metricsSnapshot() ?: latestSandboxTrackingMetrics
+            append("sandbox_camera_frames_received=").append(sandboxMetrics?.receivedFrames ?: -1L).append('\n')
+            append("sandbox_mediapipe_frames_submitted=").append(sandboxMetrics?.submittedFrames ?: -1L).append('\n')
+            append("sandbox_mediapipe_results_completed=").append(sandboxMetrics?.completedFrames ?: -1L).append('\n')
+            append("sandbox_mediapipe_frames_dropped_busy=").append(sandboxMetrics?.droppedBusyFrames ?: -1L).append('\n')
+            append("sandbox_mediapipe_frames_dropped_interval=").append(sandboxMetrics?.droppedIntervalFrames ?: -1L).append('\n')
+            append("sandbox_camera_frame_size=").append(sandboxMetrics?.lastFrameWidthPx ?: 0)
+                .append('x').append(sandboxMetrics?.lastFrameHeightPx ?: 0).append('\n')
+            append("sandbox_camera_frame_rotation=").append(sandboxMetrics?.lastFrameRotationDegrees ?: 0).append('\n')
+            append("sandbox_camera_luma_mean=").append(sandboxMetrics?.lastFrameLumaMean ?: 0f).append('\n')
+            append("sandbox_camera_luma_stddev=").append(sandboxMetrics?.lastFrameLumaStdDev ?: 0f).append('\n')
+            append("sandbox_last_preprocessing_ms=").append(sandboxMetrics?.lastPreprocessingMs ?: 0L).append('\n')
+            append("sandbox_last_frame_received_age_ms=").append(
+                if (latestHandFrameReceivedAtMs > 0L) {
+                    (SystemClock.uptimeMillis() - latestHandFrameReceivedAtMs).coerceAtLeast(0L)
+                } else -1L
+            ).append('\n')
             append("app_connected_gamepads=").append(controllerSnapshots.size).append('\n')
             append("app_endxr_core_status=").append(endXrRuntimeLabel).append('\n')
         }
@@ -895,7 +924,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     maxHands = handTrackingPreset.maxTrackedHands,
                     minimumInferenceIntervalMs = adaptivePerformanceState.minimumInferenceIntervalMs,
                     outputWidthPx = effectiveCameraWidthPx(),
-                    outputHeightPx = effectiveCameraHeightPx()
+                    outputHeightPx = effectiveCameraHeightPx(),
+                    onMetrics = { snapshot -> latestSandboxTrackingMetrics = snapshot }
                 )
                 handTracker = tracker
                 val analysis = ImageAnalysis.Builder()
@@ -1225,6 +1255,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         handTracker?.close()
         handTracker = null
         latestHandFrame = HandTrackingFrame(SystemClock.uptimeMillis(), emptyList())
+        latestHandFrameReceivedAtMs = 0L
+        latestSandboxTrackingMetrics = null
         latestPreprocessingLatencyMs = 0L
         latestHandPipelineLatencyMs = 0L
         measuredHandTrackingFps = 0f
@@ -1261,6 +1293,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             "—"
         }
         latestHandFrame = frame
+        // Use callback arrival time for freshness; frame.timestampMs is captured before
+        // asynchronous inference and can already be old when MediaPipe returns it.
+        latestHandFrameReceivedAtMs = SystemClock.uptimeMillis()
         trackingSender?.publish(frame)
     }
 
