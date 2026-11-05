@@ -87,6 +87,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     @Volatile private var mediaPipeInputSizeLabel = "—"
     private var previousHandFrameTimestampMs = 0L
     private var lastPublishedServiceFrameMs = 0L
+    private var lastExpiredServiceFrameMs = 0L
     private var handDiagnosticsRunning = false
     private val cameraExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
     private var cameraProvider: ProcessCameraProvider? = null
@@ -203,8 +204,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     HandTrackingFrame(nowMs, emptyList()).also { emptyFrame ->
                         if (serviceActive) {
                             // Send one empty frame when the last service result expires.
-                            if (latestHands.timestampMs != lastPublishedServiceFrameMs) {
-                                lastPublishedServiceFrameMs = latestHands.timestampMs
+                            if (latestHands.timestampMs != lastExpiredServiceFrameMs) {
+                                lastExpiredServiceFrameMs = latestHands.timestampMs
                                 trackingSender?.publish(emptyFrame)
                             }
                         } else {
@@ -218,6 +219,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     latestHands.timestampMs != lastPublishedServiceFrameMs
                 ) {
                     lastPublishedServiceFrameMs = latestHands.timestampMs
+                    lastExpiredServiceFrameMs = 0L
                     trackingSender?.publish(latestHands)
                 }
                 publishOpenXrInput(hands, snapshot)
