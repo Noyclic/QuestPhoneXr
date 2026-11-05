@@ -266,6 +266,18 @@ class AppNavigationSmokeTest {
         )
         saveScreenshot(context, device, "sandbox-diagnostics-button.png")
 
+        val externalProbeButton = By.text("Внешний OpenXR тест")
+        assertTrue(
+            "External OpenXR probe launcher is missing from Sandbox",
+            device.wait(Until.hasObject(externalProbeButton), 5_000)
+        )
+        device.findObject(externalProbeButton).click()
+        assertTrue(
+            "Missing external probe APK was not explained to the user",
+            device.wait(Until.hasObject(By.text("Внешний OpenXR тест не установлен")), 5_000)
+        )
+        device.findObject(By.text("Закрыть")).click()
+
         // Android 15 may suppress or expose toast overlays inconsistently to UiAutomator.
         // Verify the app's own post-setPrimaryClip log instead of reading another process's clipboard.
         device.executeShellCommand("logcat -c")
