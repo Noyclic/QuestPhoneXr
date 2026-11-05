@@ -79,6 +79,15 @@ const char* sessionStateName(XrSessionState state) {
     }
 }
 
+const char* environmentBlendModeName(XrEnvironmentBlendMode mode) {
+    switch (mode) {
+        case XR_ENVIRONMENT_BLEND_MODE_OPAQUE: return "OPAQUE";
+        case XR_ENVIRONMENT_BLEND_MODE_ADDITIVE: return "ADDITIVE";
+        case XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND: return "ALPHA_BLEND";
+        default: return "OTHER";
+    }
+}
+
 bool waitForSessionState(
     XrInstance instance,
     XrSession session,
@@ -650,38 +659,97 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                                       "(runtime returned no usable swapchain format)\n";
                         }
 
-                        externalFrameLifecycleAttempted = true;
-                        XrFrameWaitInfo frameWaitInfo{};
-                        frameWaitInfo.type = XR_TYPE_FRAME_WAIT_INFO;
-                        XrFrameState frameState{};
-                        frameState.type = XR_TYPE_FRAME_STATE;
-                        const XrResult waitFrameResult = xrWaitFrame(
-                            session, &frameWaitInfo, &frameState
+                        std::uint32_t blendModeCount = 0;
+                        const XrResult blendModeCountResult = xrEnumerateEnvironmentBlendModes(
+                            instance,
+                            systemId,
+                            XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+                            0,
+                            &blendModeCount,
+                            nullptr
                         );
-                        report << "external_xrWaitFrame="
-                               << resultText(waitFrameResult) << "\n";
-                        if (XR_SUCCEEDED(waitFrameResult)) {
-                            XrFrameBeginInfo frameBeginInfo{};
-                            frameBeginInfo.type = XR_TYPE_FRAME_BEGIN_INFO;
-                            const XrResult beginFrameResult = xrBeginFrame(
-                                session, &frameBeginInfo
+                        report << "external_xrEnumerateEnvironmentBlendModes(count)="
+                               << resultText(blendModeCountResult)
+                               << " count=" << blendModeCount << "\n";
+
+                        bool environmentBlendModeAvailable = false;
+                        XrEnvironmentBlendMode selectedEnvironmentBlendMode =
+                            XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+                        if (XR_SUCCEEDED(blendModeCountResult) && blendModeCount > 0) {
+                            std::vector<XrEnvironmentBlendMode> blendModes(blendModeCount);
+                            std::uint32_t returnedBlendModeCount = 0;
+                            const XrResult blendModeListResult = xrEnumerateEnvironmentBlendModes(
+                                instance,
+                                systemId,
+                                XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+                                static_cast<std::uint32_t>(blendModes.size()),
+                                &returnedBlendModeCount,
+                                blendModes.data()
                             );
-                            report << "external_xrBeginFrame="
-                                   << resultText(beginFrameResult) << "\n";
-                            if (XR_SUCCEEDED(beginFrameResult)) {
-                                XrFrameEndInfo frameEndInfo{};
-                                frameEndInfo.type = XR_TYPE_FRAME_END_INFO;
-                                frameEndInfo.displayTime = frameState.predictedDisplayTime;
-                                frameEndInfo.environmentBlendMode =
-                                    XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-                                frameEndInfo.layerCount = 0;
-                                frameEndInfo.layers = nullptr;
-                                const XrResult endFrameResult = xrEndFrame(
-                                    session, &frameEndInfo
+                            report << "external_xrEnumerateEnvironmentBlendModes(list)="
+                                   << resultText(blendModeListResult)
+                                   << " count=" << returnedBlendModeCount << "\n";
+                            if (XR_SUCCEEDED(blendModeListResult) && returnedBlendModeCount > 0) {
+                                if (returnedBlendModeCount < blendModes.size()) {
+                                    blendModes.resize(returnedBlendModeCount);
+                                }
+                                for (std::size_t index = 0; index < blendModes.size(); ++index) {
+                                    report << "external_environment_blend_mode_" << index
+                                           << "=" << environmentBlendModeName(blendModes[index])
+                                           << "\n";
+                                }
+                                const auto opaqueMode = std::find(
+                                    blendModes.begin(),
+                                    blendModes.end(),
+                                    XR_ENVIRONMENT_BLEND_MODE_OPAQUE
                                 );
-                                report << "external_xrEndFrame="
-                                       << resultText(endFrameResult) << "\n";
+                                selectedEnvironmentBlendMode = opaqueMode != blendModes.end()
+                                    ? *opaqueMode
+                                    : blendModes.front();
+                                environmentBlendModeAvailable = true;
+                                report << "external_environment_blend_mode_selected="
+                                       << environmentBlendModeName(selectedEnvironmentBlendMode)
+                                       << "\n";
                             }
+                        }
+
+                        if (environmentBlendModeAvailable) {
+                            externalFrameLifecycleAttempted = true;
+                            XrFrameWaitInfo frameWaitInfo{};
+                            frameWaitInfo.type = XR_TYPE_FRAME_WAIT_INFO;
+                            XrFrameState frameState{};
+                            frameState.type = XR_TYPE_FRAME_STATE;
+                            const XrResult waitFrameResult = xrWaitFrame(
+                                session, &frameWaitInfo, &frameState
+                            );
+                            report << "external_xrWaitFrame="
+                                   << resultText(waitFrameResult) << "\n";
+                            if (XR_SUCCEEDED(waitFrameResult)) {
+                                XrFrameBeginInfo frameBeginInfo{};
+                                frameBeginInfo.type = XR_TYPE_FRAME_BEGIN_INFO;
+                                const XrResult beginFrameResult = xrBeginFrame(
+                                    session, &frameBeginInfo
+                                );
+                                report << "external_xrBeginFrame="
+                                       << resultText(beginFrameResult) << "\n";
+                                if (XR_SUCCEEDED(beginFrameResult)) {
+                                    XrFrameEndInfo frameEndInfo{};
+                                    frameEndInfo.type = XR_TYPE_FRAME_END_INFO;
+                                    frameEndInfo.displayTime = frameState.predictedDisplayTime;
+                                    frameEndInfo.environmentBlendMode =
+                                        selectedEnvironmentBlendMode;
+                                    frameEndInfo.layerCount = 0;
+                                    frameEndInfo.layers = nullptr;
+                                    const XrResult endFrameResult = xrEndFrame(
+                                        session, &frameEndInfo
+                                    );
+                                    report << "external_xrEndFrame="
+                                           << resultText(endFrameResult) << "\n";
+                                }
+                            }
+                        } else {
+                            report << "external_frame_lifecycle=SKIPPED "
+                                      "(runtime returned no supported environment blend mode)\n";
                         }
                     }
                     }
