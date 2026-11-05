@@ -19,12 +19,18 @@ import com.noyclic.questphonexr.catalog.GameLibraryActivity
 import com.noyclic.questphonexr.diagnostics.CrashReportStore
 import com.noyclic.questphonexr.sandbox.SandboxActivity
 import com.noyclic.questphonexr.vr.PhoneVrPreviewActivity
+import com.noyclic.questphonexr.runtime.EndXrInputAccessManager
 
 /** The phone-first entry point: choose which QuestPhoneXR mode to open. */
 class ModeSelectionActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val appContext = applicationContext
+        Thread(
+            { runCatching { EndXrInputAccessManager(appContext).reconcileGrants() } },
+            "EndXR-input-grant-recovery"
+        ).start()
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         buildScreen()
         showPendingCrashReportIfNeeded()

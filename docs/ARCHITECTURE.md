@@ -30,7 +30,7 @@ The EndXR runtime can read a snapshot from the app's exported read-only ContentP
 
 This is an early cross-process bridge, not Android-wide input injection. Android does not allow this app to globally capture another foreground application's gamepad events through the ordinary activity input path. Haptic output is not implemented.
 
-The exported provider requires the signature permission `com.noyclic.questphonexr.permission.READ_INPUT_SNAPSHOT`. The separate diagnostic client is built with the main app in the same CI run and shares its signing certificate. Arbitrary third-party games are not authorized yet; they need a future user-controlled, package-scoped grant flow. See [IPC security](IPC_SECURITY.md).
+The exported provider retains the signature permission `com.noyclic.questphonexr.permission.READ_INPUT_SNAPSHOT` as its default access rule. QuestPhoneXR can explicitly grant read-only access to the exact `controller_state` URI for one selected installed app after user confirmation. The approval is bound to the package's signing-certificate fingerprint and can be revoked; this transport grant does not make a game compatible unless it implements the EndXR input contract. See [IPC security](IPC_SECURITY.md).
 
 ### EndXR native OpenXR runtime
 

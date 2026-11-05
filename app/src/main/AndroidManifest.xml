@@ -65,7 +65,9 @@
             android:authorities="com.noyclic.questphonexr.endxrinput"
             android:exported="true"
             android:readPermission="com.noyclic.questphonexr.permission.READ_INPUT_SNAPSHOT"
-            android:grantUriPermissions="false" />
+            android:grantUriPermissions="false">
+            <grant-uri-permission android:path="/controller_state" />
+        </provider>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

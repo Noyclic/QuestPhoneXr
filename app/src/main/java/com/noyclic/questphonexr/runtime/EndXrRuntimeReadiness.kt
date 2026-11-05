@@ -31,16 +31,19 @@ object EndXrRuntimeReadiness {
             "The Sandbox probe submits two eye views and verifies compositor output on its own EGL surface."),
         RuntimeCapability("head-orientation", "Head orientation",
             RuntimeCapabilityState.PARTIAL,
-            "The phone rotation-vector sensor publishes a normalized quaternion through the protected Android IPC provider. Only the same-signed companion probe can currently read it; arbitrary third-party games are not authorized. It is orientation-only, not positional 6DoF."),
+            "The phone rotation-vector sensor publishes a normalized quaternion through the protected Android IPC provider. QuestPhoneXR can grant one selected installed launcher app read access to the exact input URI; this is orientation-only, not positional 6DoF."),
         RuntimeCapability("position-tracking", "6DoF position tracking",
             RuntimeCapabilityState.NOT_IMPLEMENTED,
             "The current OpenXR system properties explicitly advertise positionTracking=false."),
         RuntimeCapability("openxr-actions", "OpenXR Action / Input API",
             RuntimeCapabilityState.PARTIAL,
-            "Action sets, action lifecycle, paths, binding suggestions, action spaces and xrSyncActions are implemented. Each sync captures one immutable left/right controller snapshot; Boolean/Float/Vector2 values and changedSinceLastSync are resolved from that snapshot. The protected read-only IPC provider currently authorizes only the same-signed companion probe, not arbitrary game APKs."),
+            "Action sets, action lifecycle, paths, binding suggestions, action spaces and xrSyncActions are implemented. Each sync captures one immutable left/right controller snapshot; Boolean/Float/Vector2 values and changedSinceLastSync are resolved from that snapshot. An unrelated game process needs an explicit package-scoped grant for the controller_state URI."),
         RuntimeCapability("controller-input", "Controller input and cross-process transport",
             RuntimeCapabilityState.PARTIAL,
-            "A user-started camera foreground service publishes MediaPipe pinch/grip and approximate left/right palm poses through the protected read-only IPC provider. The current signature permission allows the paired diagnostic client to read it, but blocks unrelated third-party game APKs until a per-package authorization flow is implemented. OpenXR POSE_INPUT / xrLocateSpace expose these estimates with POSITION_VALID and ORIENTATION_VALID but never TRACKED flags. Android gamepad key/motion events are not globally captured when another app owns focus; true controller tracking and haptic transport are unavailable."),
+            "A user-started camera foreground service publishes MediaPipe pinch/grip and approximate left/right palm poses through a protected read-only provider. QuestPhoneXR can grant the exact controller_state URI to one selected installed launcher app; approval is bound to that package's signing-certificate fingerprint and can be revoked. This does not inject Android gamepad events or prove continuous input in a real game. POSE_INPUT / xrLocateSpace expose estimates with POSITION_VALID and ORIENTATION_VALID but never TRACKED flags; true 6DoF controllers and haptics remain unavailable."),
+        RuntimeCapability("input-package-authorization", "Package-scoped input authorization",
+            RuntimeCapabilityState.PARTIAL,
+            "The UI lists installed third-party launcher apps and asks for confirmation before granting read-only access to only /controller_state. The stored approval is tied to the package signing-certificate fingerprint; the temporary URI grant is re-issued on the next QuestPhoneXR launch only while the same package and signer remain installed. The user can revoke access. The receiving game still needs to implement the EndXR input contract."),
         RuntimeCapability("openxr-hand-tracking", "OpenXR hand-tracking extension",
             RuntimeCapabilityState.NOT_IMPLEMENTED,
             "MediaPipe tracking is app-internal; XR_EXT_hand_tracking is not advertised by the runtime."),
@@ -51,11 +54,15 @@ object EndXrRuntimeReadiness {
 
     val librarySummary: String =
         "Внутри Sandbox проверены loader negotiation, Android/GLES session и stereo projection layer. " +
-            "OpenXR Actions API частично реализован; camera foreground service передаёт pinch/grip, приближённые palm grip poses и ориентацию головы через защищённый IPC. Сейчас снимки может читать только companion probe с той же подписью — сторонние игровые APK ещё не авторизованы. Пози ладони доступны через POSE_INPUT/xrLocateSpace без TRACKED-флагов; Android gamepad events, настоящее 6DoF и haptics пока отсутствуют. " +
-            "Также не хватает 6DoF position и XR hand tracking; выбор runtime через RuntimeBroker ещё не подтверждён на физическом телефоне."
+            "OpenXR Actions API частично реализован; camera foreground service передаёт pinch/grip, приближённые palm grip poses и ориентацию головы через защищённый IPC. " +
+            "Для отдельной игры можно вручную разрешить чтение только URI controller_state одному установленному приложению; разрешение привязано к подписи пакета и отзывается из QuestPhoneXR. " +
+            "Это не означает, что любая игра уже поддерживает контракт ввода. Пози ладони доступны через POSE_INPUT/xrLocateSpace без TRACKED-флагов; Android gamepad events, настоящее 6DoF и haptics пока отсутствуют. " +
+            "Выбор runtime через RuntimeBroker ещё не подтверждён на физическом телефоне."
 
     const val OPEN_XR_GAME_WARNING =
-        "Перед запуском внешней игры важно учитывать ограничения: camera foreground service передаёт MediaPipe pinch/grip, приближённую позу ладони и ориентацию головы через IPC, но доступ к этому IPC пока разрешён только companion probe с подписью приложения. Сторонние игровые APK пока не могут получить эти данные; сначала нужен пользовательский доступ для конкретного пакета. Это не настоящие tracked controller poses и не 6DoF; Android gamepad capture и haptics пока отсутствуют, поэтому полноценная игра ещё не подтверждена."
+        "Перед запуском внешней игры учитывай ограничения: camera foreground service передаёт MediaPipe pinch/grip, приближённую позу ладони и ориентацию головы через IPC. " +
+            "В QuestPhoneXR можно вручную выбрать одно установленное приложение и выдать ему read-only доступ только к URI controller_state; разрешение привязано к подписи пакета и может быть отозвано. " +
+            "Игра всё равно должна поддерживать этот IPC-контракт. Это не настоящие tracked controller poses и не 6DoF; Android gamepad capture и haptics пока отсутствуют, поэтому полноценная игра ещё не подтверждена."
 
     const val QUEST_GAME_WARNING =
         "Quest APK может зависеть от Meta/Oculus Runtime и системных сервисов гарнитуры. На обычном Android " +

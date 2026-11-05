@@ -34,7 +34,7 @@ The repository contains several working foundations:
 | Native EndXR OpenXR bootstrap | Implemented and covered by native tests |
 | OpenXR Actions and input API | Partial implementation |
 | Separate-process runtime discovery probe | Implemented and exercised in Android emulator CI |
-| Cross-process input snapshots | Implemented; real external-game input still needs device validation |
+| Cross-process input snapshots | Implemented; package-scoped read-only grants are available; real-game input still needs device validation |
 | Hand-pose estimates | Available as estimates, not tracked 6DoF controller poses |
 | Runtime selection through Android RuntimeBroker | Not yet verified on the target phone |
 | Third-party Quest game compatibility | Not yet demonstrated |

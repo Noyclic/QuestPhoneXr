@@ -33,6 +33,7 @@ import com.noyclic.questphonexr.performance.NativeVulkanProbe
 import com.noyclic.questphonexr.runtime.EndXrRuntimeReadiness
 import com.noyclic.questphonexr.runtime.AndroidRuntimeBrokerProbe
 import com.noyclic.questphonexr.runtime.RuntimeCapabilityState
+import com.noyclic.questphonexr.runtime.EndXrInputAccessManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -145,6 +146,9 @@ class GameLibraryActivity : ComponentActivity() {
         body.addView(button("Запустить внешний OpenXR тест").apply {
             setOnClickListener { launchExternalRuntimeProbe() }
         })
+        body.addView(button("Управление доступом к вводу").apply {
+            setOnClickListener { showInputAccessDialog() }
+        })
 
         val scroll = ScrollView(this).apply {
             addView(body)
@@ -175,6 +179,108 @@ class GameLibraryActivity : ComponentActivity() {
                 Toast.LENGTH_LONG
             ).show()
         }
+    }
+
+
+    private fun showInputAccessDialog() {
+        val manager = EndXrInputAccessManager(this)
+        val candidates = manager.installedLaunchableClients()
+        if (candidates.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("Доступ к вводу EndXR")
+                .setMessage(
+                    "Не найдено установленных пользовательских приложений с ярлыком запуска. " +
+                        "Сначала установи игру на телефон, затем открой это меню снова."
+                )
+                .setPositiveButton("Закрыть", null)
+                .show()
+            return
+        }
+
+        val labels = candidates.map { client ->
+            val state = if (manager.isAuthorized(client)) " · ДОСТУП РАЗРЕШЁН" else ""
+            client.label + " · " + client.packageName + state
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Доступ к вводу EndXR")
+            .setItems(labels.toTypedArray()) { _, index ->
+                val selected = candidates[index]
+                if (manager.isAuthorized(selected)) {
+                    confirmRevokeInputAccess(manager, selected)
+                } else {
+                    confirmGrantInputAccess(manager, selected)
+                }
+            }
+            .setPositiveButton("Готово", null)
+            .show()
+    }
+
+    private fun confirmGrantInputAccess(
+        manager: EndXrInputAccessManager,
+        client: com.noyclic.questphonexr.runtime.EndXrInputClient
+    ) {
+        val message = buildString {
+            append("Приложение: ").append(client.label).append('\n')
+            append("Пакет: ").append(client.packageName).append("\n\n")
+            append("Оно получит доступ только на чтение к одному адресу EndXR: ")
+            append("controller_state. В снимке находятся кнопки и оси контроллеров, ")
+            append("ориентация телефона и приблизительные позы ладоней.\n\n")
+            append("Доступ не открывает файлы, не разрешает запись и не внедряет нажатия ")
+            append("в Android. Игра должна сама поддерживать контракт ввода EndXR. ")
+            append("Разрешение привязано к подписи приложения и его можно отозвать здесь.")
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Разрешить ввод для этого приложения?")
+            .setMessage(message)
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Разрешить") { _, _ ->
+                runCatching { manager.authorize(client.packageName) }
+                    .onSuccess {
+                        Toast.makeText(
+                            this,
+                            "Доступ к вводу разрешён для " + client.label,
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    .onFailure { error ->
+                        Toast.makeText(
+                            this,
+                            "Не удалось выдать доступ: " + (error.message ?: "ошибка Android"),
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+            }
+            .show()
+    }
+
+    private fun confirmRevokeInputAccess(
+        manager: EndXrInputAccessManager,
+        client: com.noyclic.questphonexr.runtime.EndXrInputClient
+    ) {
+        AlertDialog.Builder(this)
+            .setTitle("Отозвать доступ?")
+            .setMessage(
+                client.label + " (" + client.packageName + ") больше не сможет читать снимок ввода EndXR."
+            )
+            .setNegativeButton("Оставить", null)
+            .setPositiveButton("Отозвать") { _, _ ->
+                runCatching { manager.revoke(client.packageName) }
+                    .onSuccess {
+                        Toast.makeText(
+                            this,
+                            "Доступ отозван для " + client.label,
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    .onFailure { error ->
+                        Toast.makeText(
+                            this,
+                            "Не удалось отозвать доступ: " + (error.message ?: "ошибка Android"),
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+            }
+            .show()
     }
 
     private fun openRuntimeBroker() {

@@ -109,6 +109,12 @@ class AppNavigationSmokeTest {
             "OpenXR Action / Input API capability did not become visible",
             device.wait(Until.hasObject(By.textContains("OpenXR Action / Input API")), 5_000)
         )
+        val inputAccessAction = UiScrollable(UiSelector().scrollable(true))
+            .scrollIntoView(UiSelector().text("Управление доступом к вводу"))
+        assertTrue(
+            "Package-scoped EndXR input authorization control is missing",
+            inputAccessAction
+        )
         saveScreenshot(context, device, "runtime-readiness.png")
         device.pressBack()
 
