@@ -1,6 +1,7 @@
 #include <jni.h>
 
 #include <algorithm>
+#include <array>
 
 #if defined(__ANDROID__)
 #include <EGL/egl.h>
@@ -137,6 +138,94 @@ void copyName(char* destination, std::size_t destinationSize, const char* source
     std::strncpy(destination, source, destinationSize - 1);
     destination[destinationSize - 1] = '\0';
 }
+
+#if defined(__ANDROID__)
+bool renderSideBySideTestPattern(GLuint texture, std::ostringstream& report) {
+    GLint previousFramebuffer = 0;
+    GLint previousScissorBox[4]{};
+    GLfloat previousClearColor[4]{};
+    GLboolean previousColorMask[4]{};
+    const GLboolean previousScissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousFramebuffer);
+    glGetIntegerv(GL_SCISSOR_BOX, previousScissorBox);
+    glGetFloatv(GL_COLOR_CLEAR_VALUE, previousClearColor);
+    glGetBooleanv(GL_COLOR_WRITEMASK, previousColorMask);
+
+    GLuint framebuffer = 0;
+    glGenFramebuffers(1, &framebuffer);
+    bool rendered = framebuffer != 0;
+    GLenum framebufferStatus = 0;
+    if (rendered) {
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+        glFramebufferTexture2D(
+            GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0
+        );
+        framebufferStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        rendered = framebufferStatus == GL_FRAMEBUFFER_COMPLETE;
+    }
+    report << "external_projection_test_fbo=0x"
+           << std::hex << framebufferStatus << std::dec
+           << " status=" << (rendered ? "COMPLETE" : "INCOMPLETE") << "\n";
+
+    if (rendered) {
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(0, 0, 64, 64);
+        glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glScissor(64, 0, 64, 64);
+        glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        const GLenum error = glGetError();
+        report << "external_projection_test_render_gl_error=0x"
+               << std::hex << error << std::dec << "\n";
+        rendered = error == GL_NO_ERROR;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
+    glScissor(
+        previousScissorBox[0], previousScissorBox[1],
+        previousScissorBox[2], previousScissorBox[3]
+    );
+    if (previousScissorEnabled == GL_TRUE) glEnable(GL_SCISSOR_TEST);
+    else glDisable(GL_SCISSOR_TEST);
+    glColorMask(
+        previousColorMask[0], previousColorMask[1],
+        previousColorMask[2], previousColorMask[3]
+    );
+    glClearColor(
+        previousClearColor[0], previousClearColor[1],
+        previousClearColor[2], previousClearColor[3]
+    );
+    if (framebuffer != 0) glDeleteFramebuffers(1, &framebuffer);
+    return rendered;
+}
+
+bool readBackSideBySidePattern(std::ostringstream& report) {
+    std::array<GLubyte, 4> left{};
+    std::array<GLubyte, 4> right{};
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glFinish();
+    glReadPixels(8, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, left.data());
+    glReadPixels(48, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, right.data());
+    const GLenum error = glGetError();
+    const bool leftRed = left[0] >= 200 && left[1] <= 55 && left[2] <= 55;
+    const bool rightBlue = right[2] >= 200 && right[0] <= 55 && right[1] <= 55;
+    report << "external_projection_left_pixel_rgba="
+           << static_cast<int>(left[0]) << ","
+           << static_cast<int>(left[1]) << ","
+           << static_cast<int>(left[2]) << ","
+           << static_cast<int>(left[3]) << "\n";
+    report << "external_projection_right_pixel_rgba="
+           << static_cast<int>(right[0]) << ","
+           << static_cast<int>(right[1]) << ","
+           << static_cast<int>(right[2]) << ","
+           << static_cast<int>(right[3]) << "\n";
+    report << "external_projection_readback_gl_error=0x"
+           << std::hex << error << std::dec << "\n";
+    return error == GL_NO_ERROR && leftRed && rightBlue;
+}
+#endif
 
 }  // namespace
 
@@ -502,6 +591,7 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
             XrSession session = XR_NULL_HANDLE;
             bool sessionRunning = false;
             XrSwapchain swapchain = XR_NULL_HANDLE;
+            std::vector<XrSwapchainImageOpenGLESKHR> swapchainImages;
             if (XR_SUCCEEDED(graphicsResult)) {
                 XrGraphicsBindingOpenGLESAndroidKHR graphicsBinding{};
                 graphicsBinding.type = XR_TYPE_GRAPHICS_BINDING_OPENGL_ES_ANDROID_KHR;
@@ -589,7 +679,8 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                             swapchainInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
                             swapchainInfo.format = selectedSwapchainFormat;
                             swapchainInfo.sampleCount = 1;
-                            swapchainInfo.width = 64;
+                            // One 128x64 image stores the two 64x64 eye regions side by side.
+                            swapchainInfo.width = 128;
                             swapchainInfo.height = 64;
                             swapchainInfo.faceCount = 1;
                             swapchainInfo.arraySize = 1;
@@ -601,63 +692,37 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                                    << resultText(swapchainResult) << "\n";
 
                             if (XR_SUCCEEDED(swapchainResult) && swapchain != XR_NULL_HANDLE) {
-                            std::uint32_t imageCount = 0;
-                            XrResult imageResult = xrEnumerateSwapchainImages(
-                                swapchain, 0, &imageCount, nullptr
-                            );
-                            std::vector<XrSwapchainImageOpenGLESKHR> images(imageCount);
-                            for (auto& image : images) {
-                                image.type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
-                                image.next = nullptr;
-                            }
-                            if (XR_SUCCEEDED(imageResult) && imageCount > 0) {
-                                imageResult = xrEnumerateSwapchainImages(
-                                    swapchain, imageCount, &imageCount,
-                                    reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data())
+                                std::uint32_t imageCount = 0;
+                                XrResult imageResult = xrEnumerateSwapchainImages(
+                                    swapchain, 0, &imageCount, nullptr
                                 );
-                            }
-                            report << "external_xrEnumerateSwapchainImages="
-                                   << resultText(imageResult)
-                                   << " count=" << imageCount << "\n";
-
-                            if (XR_SUCCEEDED(imageResult) && imageCount > 0) {
-                            std::uint32_t imageIndex = 0;
-                            XrSwapchainImageAcquireInfo acquireInfo{};
-                            acquireInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO;
-                            const XrResult acquireResult = xrAcquireSwapchainImage(
-                                swapchain, &acquireInfo, &imageIndex
-                            );
-                            report << "external_xrAcquireSwapchainImage="
-                                   << resultText(acquireResult)
-                                   << " index=" << imageIndex << "\n";
-                            if (XR_SUCCEEDED(acquireResult)) {
-                                XrSwapchainImageWaitInfo imageWaitInfo{};
-                                imageWaitInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
-                                imageWaitInfo.timeout = XR_INFINITE_DURATION;
-                                const XrResult waitImageResult = xrWaitSwapchainImage(
-                                    swapchain, &imageWaitInfo
-                                );
-                                report << "external_xrWaitSwapchainImage="
-                                       << resultText(waitImageResult) << "\n";
-                                if (XR_SUCCEEDED(waitImageResult)) {
-                                    XrSwapchainImageReleaseInfo releaseInfo{};
-                                    releaseInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
-                                    const XrResult releaseResult = xrReleaseSwapchainImage(
-                                        swapchain, &releaseInfo
-                                    );
-                                    report << "external_xrReleaseSwapchainImage="
-                                           << resultText(releaseResult) << "\n";
+                                std::vector<XrSwapchainImageOpenGLESKHR> images(imageCount);
+                                for (auto& image : images) {
+                                    image.type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+                                    image.next = nullptr;
                                 }
-                            }
+                                if (XR_SUCCEEDED(imageResult) && imageCount > 0) {
+                                    imageResult = xrEnumerateSwapchainImages(
+                                        swapchain,
+                                        imageCount,
+                                        &imageCount,
+                                        reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data())
+                                    );
+                                }
+                                report << "external_xrEnumerateSwapchainImages="
+                                       << resultText(imageResult)
+                                       << " count=" << imageCount << "\n";
+                                if (XR_SUCCEEDED(imageResult) && imageCount > 0) {
+                                    if (imageCount < images.size()) images.resize(imageCount);
+                                    swapchainImages = std::move(images);
+                                } else {
+                                    report << "external_projection_layer=SKIPPED "
+                                              "(swapchain images were unavailable)\n";
+                                }
                             } else {
-                                report << "external_xrAcquireSwapchainImage=SKIPPED "
-                                          "(swapchain images were not enumerated)\n";
+                                report << "external_xrCreateSwapchain=SKIPPED "
+                                          "(runtime returned no usable swapchain format)\n";
                             }
-                            }
-                        } else {
-                            report << "external_xrCreateSwapchain=SKIPPED "
-                                      "(runtime returned no usable swapchain format)\n";
-                        }
 
                         std::uint32_t blendModeCount = 0;
                         const XrResult blendModeCountResult = xrEnumerateEnvironmentBlendModes(
@@ -713,8 +778,22 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                             }
                         }
 
-                        if (environmentBlendModeAvailable) {
+                        if (environmentBlendModeAvailable &&
+                            swapchain != XR_NULL_HANDLE && !swapchainImages.empty()) {
                             externalFrameLifecycleAttempted = true;
+
+                            XrSpace localSpace = XR_NULL_HANDLE;
+                            XrReferenceSpaceCreateInfo spaceInfo{};
+                            spaceInfo.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
+                            spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+                            spaceInfo.poseInReferenceSpace.orientation = {0.0f, 0.0f, 0.0f, 1.0f};
+                            spaceInfo.poseInReferenceSpace.position = {0.0f, 0.0f, 0.0f};
+                            const XrResult spaceResult = xrCreateReferenceSpace(
+                                session, &spaceInfo, &localSpace
+                            );
+                            report << "external_xrCreateReferenceSpace(LOCAL)="
+                                   << resultText(spaceResult) << "\n";
+
                             XrFrameWaitInfo frameWaitInfo{};
                             frameWaitInfo.type = XR_TYPE_FRAME_WAIT_INFO;
                             XrFrameState frameState{};
@@ -723,7 +802,10 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                                 session, &frameWaitInfo, &frameState
                             );
                             report << "external_xrWaitFrame="
-                                   << resultText(waitFrameResult) << "\n";
+                                   << resultText(waitFrameResult)
+                                   << " should_render=" << (frameState.shouldRender == XR_TRUE ? "YES" : "NO")
+                                   << "\n";
+
                             if (XR_SUCCEEDED(waitFrameResult)) {
                                 XrFrameBeginInfo frameBeginInfo{};
                                 frameBeginInfo.type = XR_TYPE_FRAME_BEGIN_INFO;
@@ -732,24 +814,177 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                                 );
                                 report << "external_xrBeginFrame="
                                        << resultText(beginFrameResult) << "\n";
+
                                 if (XR_SUCCEEDED(beginFrameResult)) {
-                                    XrFrameEndInfo frameEndInfo{};
-                                    frameEndInfo.type = XR_TYPE_FRAME_END_INFO;
-                                    frameEndInfo.displayTime = frameState.predictedDisplayTime;
-                                    frameEndInfo.environmentBlendMode =
-                                        selectedEnvironmentBlendMode;
-                                    frameEndInfo.layerCount = 0;
-                                    frameEndInfo.layers = nullptr;
-                                    const XrResult endFrameResult = xrEndFrame(
-                                        session, &frameEndInfo
-                                    );
-                                    report << "external_xrEndFrame="
-                                           << resultText(endFrameResult) << "\n";
+                                    bool projectionReady = false;
+                                    bool frameEndCalled = false;
+                                    bool imageReleased = false;
+                                    std::uint32_t imageIndex = 0;
+
+                                    if (XR_SUCCEEDED(spaceResult) &&
+                                        frameState.shouldRender == XR_TRUE) {
+                                        XrSwapchainImageAcquireInfo acquireInfo{};
+                                        acquireInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO;
+                                        const XrResult acquireResult = xrAcquireSwapchainImage(
+                                            swapchain, &acquireInfo, &imageIndex
+                                        );
+                                        report << "external_xrAcquireSwapchainImage="
+                                               << resultText(acquireResult)
+                                               << " index=" << imageIndex << "\n";
+
+                                        if (XR_SUCCEEDED(acquireResult)) {
+                                            XrSwapchainImageWaitInfo imageWaitInfo{};
+                                            imageWaitInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
+                                            imageWaitInfo.timeout = XR_INFINITE_DURATION;
+                                            const XrResult waitImageResult = xrWaitSwapchainImage(
+                                                swapchain, &imageWaitInfo
+                                            );
+                                            report << "external_xrWaitSwapchainImage="
+                                                   << resultText(waitImageResult) << "\n";
+
+                                            bool patternRendered = false;
+                                            if (XR_SUCCEEDED(waitImageResult) &&
+                                                imageIndex < swapchainImages.size()) {
+                                                patternRendered = renderSideBySideTestPattern(
+                                                    swapchainImages[imageIndex].image, report
+                                                );
+                                                report << "external_projection_test_pattern="
+                                                       << (patternRendered ? "RENDERED" : "FAILED")
+                                                       << "\n";
+                                            }
+
+                                            if (XR_SUCCEEDED(waitImageResult)) {
+                                                XrSwapchainImageReleaseInfo releaseInfo{};
+                                                releaseInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
+                                                const XrResult releaseResult = xrReleaseSwapchainImage(
+                                                    swapchain, &releaseInfo
+                                                );
+                                                imageReleased = XR_SUCCEEDED(releaseResult);
+                                                report << "external_xrReleaseSwapchainImage="
+                                                       << resultText(releaseResult) << "\n";
+                                            }
+
+                                            if (patternRendered && imageReleased) {
+                                                XrViewLocateInfo locateInfo{};
+                                                locateInfo.type = XR_TYPE_VIEW_LOCATE_INFO;
+                                                locateInfo.viewConfigurationType =
+                                                    XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+                                                locateInfo.displayTime = frameState.predictedDisplayTime;
+                                                locateInfo.space = localSpace;
+
+                                                XrViewState viewState{};
+                                                viewState.type = XR_TYPE_VIEW_STATE;
+                                                std::array<XrView, 2> locatedViews{};
+                                                for (auto& view : locatedViews) {
+                                                    view.type = XR_TYPE_VIEW;
+                                                    view.next = nullptr;
+                                                }
+                                                std::uint32_t locatedViewCount = 0;
+                                                const XrResult locateViewsResult = xrLocateViews(
+                                                    session,
+                                                    &locateInfo,
+                                                    &viewState,
+                                                    static_cast<std::uint32_t>(locatedViews.size()),
+                                                    &locatedViewCount,
+                                                    locatedViews.data()
+                                                );
+                                                report << "external_xrLocateViews="
+                                                       << resultText(locateViewsResult)
+                                                       << " count=" << locatedViewCount << "\n";
+
+                                                if (XR_SUCCEEDED(locateViewsResult) &&
+                                                    locatedViewCount == 2) {
+                                                    std::array<XrCompositionLayerProjectionView, 2>
+                                                        projectionViews{};
+                                                    for (auto& view : projectionViews) {
+                                                        view.type =
+                                                            XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+                                                        view.next = nullptr;
+                                                        view.subImage.swapchain = swapchain;
+                                                        view.subImage.imageArrayIndex = 0;
+                                                        view.subImage.imageRect.offset = {0, 0};
+                                                        view.subImage.imageRect.extent = {64, 64};
+                                                    }
+                                                    projectionViews[0].pose = locatedViews[0].pose;
+                                                    projectionViews[0].fov = locatedViews[0].fov;
+                                                    projectionViews[1].pose = locatedViews[1].pose;
+                                                    projectionViews[1].fov = locatedViews[1].fov;
+                                                    projectionViews[1].subImage.imageRect.offset = {64, 0};
+
+                                                    XrCompositionLayerProjection projectionLayer{};
+                                                    projectionLayer.type =
+                                                        XR_TYPE_COMPOSITION_LAYER_PROJECTION;
+                                                    projectionLayer.next = nullptr;
+                                                    projectionLayer.layerFlags = 0;
+                                                    projectionLayer.space = localSpace;
+                                                    projectionLayer.viewCount = 2;
+                                                    projectionLayer.views = projectionViews.data();
+
+                                                    const XrCompositionLayerBaseHeader* layers[] = {
+                                                        reinterpret_cast<const XrCompositionLayerBaseHeader*>(
+                                                            &projectionLayer
+                                                        )
+                                                    };
+                                                    XrFrameEndInfo frameEndInfo{};
+                                                    frameEndInfo.type = XR_TYPE_FRAME_END_INFO;
+                                                    frameEndInfo.displayTime =
+                                                        frameState.predictedDisplayTime;
+                                                    frameEndInfo.environmentBlendMode =
+                                                        selectedEnvironmentBlendMode;
+                                                    frameEndInfo.layerCount = 1;
+                                                    frameEndInfo.layers = layers;
+                                                    frameEndCalled = true;
+                                                    const XrResult endFrameResult = xrEndFrame(
+                                                        session, &frameEndInfo
+                                                    );
+                                                    report << "external_xrEndFrame(projection)="
+                                                           << resultText(endFrameResult) << "\n";
+                                                    projectionReady = XR_SUCCEEDED(endFrameResult);
+                                                    if (projectionReady) {
+                                                        const bool readbackPassed =
+                                                            readBackSideBySidePattern(report);
+                                                        report << "external_projection_layer_readback="
+                                                               << (readbackPassed ? "PASS" : "FAIL")
+                                                               << "\n";
+                                                        report << "external_projection_layer_submission="
+                                                               << (readbackPassed ? "PASS" : "SUBMITTED_BUT_READBACK_FAILED")
+                                                               << "\n";
+                                                    }
+                                                } else {
+                                                    report << "external_projection_layer=SKIPPED "
+                                                              "(xrLocateViews did not return two stereo views)\n";
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if (!frameEndCalled) {
+                                        XrFrameEndInfo frameEndInfo{};
+                                        frameEndInfo.type = XR_TYPE_FRAME_END_INFO;
+                                        frameEndInfo.displayTime = frameState.predictedDisplayTime;
+                                        frameEndInfo.environmentBlendMode =
+                                            selectedEnvironmentBlendMode;
+                                        frameEndInfo.layerCount = 0;
+                                        frameEndInfo.layers = nullptr;
+                                        const XrResult endFrameResult = xrEndFrame(
+                                            session, &frameEndInfo
+                                        );
+                                        report << "external_xrEndFrame(empty_fallback)="
+                                               << resultText(endFrameResult) << "\n";
+                                        report << "external_projection_layer_submission=NOT_SUBMITTED\n";
+                                    }
                                 }
                             }
-                        } else {
+                            if (localSpace != XR_NULL_HANDLE) {
+                                report << "external_xrDestroyReferenceSpace="
+                                       << resultText(xrDestroySpace(localSpace)) << "\n";
+                            }
+                        } else if (!environmentBlendModeAvailable) {
                             report << "external_frame_lifecycle=SKIPPED "
                                       "(runtime returned no supported environment blend mode)\n";
+                        } else {
+                            report << "external_frame_lifecycle=SKIPPED "
+                                      "(no initialized GLES swapchain images)\n";
                         }
                     }
                     }
@@ -806,8 +1041,8 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
            << (externalGlesSessionAttempted ? "YES" : "NO") << "\n";
     report << "external_frame_lifecycle_attempted="
            << (externalFrameLifecycleAttempted ? "YES" : "NO") << "\n";
-    report << "probe_result=external lifecycle attempts completed; inspect each stage above; "
-              "no projection layer was submitted\n";
+    report << "probe_result=inspect external instance, session, swapchain and projection-layer stages above; "
+              "projection submission is reported independently\n";
 
     const std::string value = report.str();
     return environment->NewStringUTF(value.c_str());
