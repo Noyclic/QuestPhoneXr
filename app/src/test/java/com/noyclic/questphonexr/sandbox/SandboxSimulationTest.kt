@@ -13,6 +13,16 @@ import org.junit.Test
 
 class SandboxSimulationTest {
     @Test
+    fun handResultFreshnessUsesCallbackArrivalTimeRatherThanCaptureTimestamp() {
+        // A camera frame can be captured long before MediaPipe finishes inference.
+        // Once its callback arrives, freshness starts at callback delivery.
+        assertFalse(isSandboxHandFrameStale(10_100L, 10_000L, 500L))
+        assertTrue(isSandboxHandFrameStale(10_501L, 10_000L, 500L))
+        assertTrue(isSandboxHandFrameStale(10_100L, 0L, 500L))
+        assertTrue(isSandboxHandFrameStale(10_100L, 10_000L, -1L))
+    }
+
+    @Test
     fun handPoseTimeoutAllowsSlowPhoneInferenceToPublishBetweenResults() {
         assertEquals(1_865L, sandboxHandFrameStaleTimeoutMs(1.34f))
         assertEquals(900L, sandboxHandFrameStaleTimeoutMs(30f))
