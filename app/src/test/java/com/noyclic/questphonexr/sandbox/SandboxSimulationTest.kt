@@ -13,6 +13,15 @@ import org.junit.Test
 
 class SandboxSimulationTest {
     @Test
+    fun handPoseTimeoutAllowsSlowPhoneInferenceToPublishBetweenResults() {
+        assertEquals(1_865L, sandboxHandFrameStaleTimeoutMs(1.34f))
+        assertEquals(900L, sandboxHandFrameStaleTimeoutMs(30f))
+        assertEquals(1_200L, sandboxHandFrameStaleTimeoutMs(0f))
+        assertEquals(1_200L, sandboxHandFrameStaleTimeoutMs(Float.NaN))
+        assertEquals(2_200L, sandboxHandFrameStaleTimeoutMs(0.5f))
+    }
+
+    @Test
     fun resetCreatesAStarterSetOfGrabbableObjects() {
         val simulation = SandboxSimulation()
 
