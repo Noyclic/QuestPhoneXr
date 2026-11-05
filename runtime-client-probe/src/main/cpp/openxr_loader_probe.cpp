@@ -723,6 +723,7 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                                 report << "external_xrCreateSwapchain=SKIPPED "
                                           "(runtime returned no usable swapchain format)\n";
                             }
+                        }
 
                         std::uint32_t blendModeCount = 0;
                         const XrResult blendModeCountResult = xrEnumerateEnvironmentBlendModes(
