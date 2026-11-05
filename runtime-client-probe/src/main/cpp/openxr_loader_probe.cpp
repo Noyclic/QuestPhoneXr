@@ -1,5 +1,7 @@
 #include <jni.h>
 
+#include <algorithm>
+
 #if defined(__ANDROID__)
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -74,6 +76,15 @@ const char* sessionStateName(XrSessionState state) {
         case XR_SESSION_STATE_LOSS_PENDING: return "LOSS_PENDING";
         case XR_SESSION_STATE_EXITING: return "EXITING";
         default: return "SESSION_STATE_OTHER";
+    }
+}
+
+const char* environmentBlendModeName(XrEnvironmentBlendMode mode) {
+    switch (mode) {
+        case XR_ENVIRONMENT_BLEND_MODE_OPAQUE: return "OPAQUE";
+        case XR_ENVIRONMENT_BLEND_MODE_ADDITIVE: return "ADDITIVE";
+        case XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND: return "ALPHA_BLEND";
+        default: return "OTHER";
     }
 }
 
@@ -308,8 +319,11 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
         instance, &systemInfo, &systemId
     );
     report << "xrGetSystem(HMD)=" << resultText(getSystemResult) << "\n";
+    const bool hmdSystemAvailable =
+        XR_SUCCEEDED(getSystemResult) && systemId != XR_NULL_SYSTEM_ID;
+    bool primaryStereoSupported = false;
 
-    if (XR_SUCCEEDED(getSystemResult)) {
+    if (hmdSystemAvailable) {
         XrSystemProperties systemProperties{};
         systemProperties.type = XR_TYPE_SYSTEM_PROPERTIES;
         systemProperties.next = nullptr;
@@ -359,6 +373,7 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                     }
                 }
             }
+            primaryStereoSupported = stereoFound;
             report << "primary_stereo_supported="
                    << (stereoFound ? "YES" : "NO") << "\n";
 
@@ -415,6 +430,10 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
 #if defined(__ANDROID__)
     if (!openGlesExtensionFound) {
         report << "external_gles_session=SKIPPED (runtime did not advertise XR_KHR_opengl_es_enable)\n";
+    } else if (!hmdSystemAvailable) {
+        report << "external_gles_session=SKIPPED (xrGetSystem(HMD) did not return a valid system)\n";
+    } else if (!primaryStereoSupported) {
+        report << "external_gles_session=SKIPPED (runtime did not confirm PRIMARY_STEREO)\n";
     } else {
         externalGlesSessionAttempted = true;
         EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -520,24 +539,68 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                     report << "external_xrBeginSession=" << resultText(beginResult) << "\n";
 
                     if (sessionRunning) {
-                        XrSwapchainCreateInfo swapchainInfo{};
-                        swapchainInfo.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
-                        swapchainInfo.next = nullptr;
-                        swapchainInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
-                        swapchainInfo.format = static_cast<std::int64_t>(GL_RGBA8);
-                        swapchainInfo.sampleCount = 1;
-                        swapchainInfo.width = 64;
-                        swapchainInfo.height = 64;
-                        swapchainInfo.faceCount = 1;
-                        swapchainInfo.arraySize = 1;
-                        swapchainInfo.mipCount = 1;
-                        const XrResult swapchainResult = xrCreateSwapchain(
-                            session, &swapchainInfo, &swapchain
+                        std::uint32_t swapchainFormatCount = 0;
+                        const XrResult formatCountResult = xrEnumerateSwapchainFormats(
+                            session, 0, &swapchainFormatCount, nullptr
                         );
-                        report << "external_xrCreateSwapchain="
-                               << resultText(swapchainResult) << "\n";
+                        report << "external_xrEnumerateSwapchainFormats(count)="
+                               << resultText(formatCountResult)
+                               << " count=" << swapchainFormatCount << "\n";
 
-                        if (XR_SUCCEEDED(swapchainResult) && swapchain != XR_NULL_HANDLE) {
+                        std::int64_t selectedSwapchainFormat = 0;
+                        if (XR_SUCCEEDED(formatCountResult) && swapchainFormatCount > 0) {
+                            std::vector<std::int64_t> formats(swapchainFormatCount);
+                            std::uint32_t returnedFormatCount = 0;
+                            const XrResult formatListResult = xrEnumerateSwapchainFormats(
+                                session,
+                                static_cast<std::uint32_t>(formats.size()),
+                                &returnedFormatCount,
+                                formats.data()
+                            );
+                            report << "external_xrEnumerateSwapchainFormats(list)="
+                                   << resultText(formatListResult)
+                                   << " count=" << returnedFormatCount << "\n";
+                            if (XR_SUCCEEDED(formatListResult) && returnedFormatCount > 0) {
+                                if (returnedFormatCount < formats.size()) {
+                                    formats.resize(returnedFormatCount);
+                                }
+                                for (std::size_t index = 0; index < formats.size(); ++index) {
+                                    report << "external_swapchain_format_" << index
+                                           << "=0x" << std::hex << formats[index]
+                                           << std::dec << "\n";
+                                }
+                                const auto preferredFormat = std::find(
+                                    formats.begin(),
+                                    formats.end(),
+                                    static_cast<std::int64_t>(GL_RGBA8)
+                                );
+                                selectedSwapchainFormat = preferredFormat != formats.end()
+                                    ? *preferredFormat
+                                    : formats.front();
+                            }
+                        }
+
+                        if (selectedSwapchainFormat != 0) {
+                            report << "external_swapchain_format_selected=0x"
+                                   << std::hex << selectedSwapchainFormat << std::dec << "\n";
+                            XrSwapchainCreateInfo swapchainInfo{};
+                            swapchainInfo.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
+                            swapchainInfo.next = nullptr;
+                            swapchainInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+                            swapchainInfo.format = selectedSwapchainFormat;
+                            swapchainInfo.sampleCount = 1;
+                            swapchainInfo.width = 64;
+                            swapchainInfo.height = 64;
+                            swapchainInfo.faceCount = 1;
+                            swapchainInfo.arraySize = 1;
+                            swapchainInfo.mipCount = 1;
+                            const XrResult swapchainResult = xrCreateSwapchain(
+                                session, &swapchainInfo, &swapchain
+                            );
+                            report << "external_xrCreateSwapchain="
+                                   << resultText(swapchainResult) << "\n";
+
+                            if (XR_SUCCEEDED(swapchainResult) && swapchain != XR_NULL_HANDLE) {
                             std::uint32_t imageCount = 0;
                             XrResult imageResult = xrEnumerateSwapchainImages(
                                 swapchain, 0, &imageCount, nullptr
@@ -557,6 +620,7 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                                    << resultText(imageResult)
                                    << " count=" << imageCount << "\n";
 
+                            if (XR_SUCCEEDED(imageResult) && imageCount > 0) {
                             std::uint32_t imageIndex = 0;
                             XrSwapchainImageAcquireInfo acquireInfo{};
                             acquireInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO;
@@ -585,40 +649,107 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                                            << resultText(releaseResult) << "\n";
                                 }
                             }
+                            } else {
+                                report << "external_xrAcquireSwapchainImage=SKIPPED "
+                                          "(swapchain images were not enumerated)\n";
+                            }
+                            }
+                        } else {
+                            report << "external_xrCreateSwapchain=SKIPPED "
+                                      "(runtime returned no usable swapchain format)\n";
                         }
 
-                        externalFrameLifecycleAttempted = true;
-                        XrFrameWaitInfo frameWaitInfo{};
-                        frameWaitInfo.type = XR_TYPE_FRAME_WAIT_INFO;
-                        XrFrameState frameState{};
-                        frameState.type = XR_TYPE_FRAME_STATE;
-                        const XrResult waitFrameResult = xrWaitFrame(
-                            session, &frameWaitInfo, &frameState
+                        std::uint32_t blendModeCount = 0;
+                        const XrResult blendModeCountResult = xrEnumerateEnvironmentBlendModes(
+                            instance,
+                            systemId,
+                            XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+                            0,
+                            &blendModeCount,
+                            nullptr
                         );
-                        report << "external_xrWaitFrame="
-                               << resultText(waitFrameResult) << "\n";
-                        if (XR_SUCCEEDED(waitFrameResult)) {
-                            XrFrameBeginInfo frameBeginInfo{};
-                            frameBeginInfo.type = XR_TYPE_FRAME_BEGIN_INFO;
-                            const XrResult beginFrameResult = xrBeginFrame(
-                                session, &frameBeginInfo
+                        report << "external_xrEnumerateEnvironmentBlendModes(count)="
+                               << resultText(blendModeCountResult)
+                               << " count=" << blendModeCount << "\n";
+
+                        bool environmentBlendModeAvailable = false;
+                        XrEnvironmentBlendMode selectedEnvironmentBlendMode =
+                            XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+                        if (XR_SUCCEEDED(blendModeCountResult) && blendModeCount > 0) {
+                            std::vector<XrEnvironmentBlendMode> blendModes(blendModeCount);
+                            std::uint32_t returnedBlendModeCount = 0;
+                            const XrResult blendModeListResult = xrEnumerateEnvironmentBlendModes(
+                                instance,
+                                systemId,
+                                XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+                                static_cast<std::uint32_t>(blendModes.size()),
+                                &returnedBlendModeCount,
+                                blendModes.data()
                             );
-                            report << "external_xrBeginFrame="
-                                   << resultText(beginFrameResult) << "\n";
-                            if (XR_SUCCEEDED(beginFrameResult)) {
-                                XrFrameEndInfo frameEndInfo{};
-                                frameEndInfo.type = XR_TYPE_FRAME_END_INFO;
-                                frameEndInfo.displayTime = frameState.predictedDisplayTime;
-                                frameEndInfo.environmentBlendMode =
-                                    XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-                                frameEndInfo.layerCount = 0;
-                                frameEndInfo.layers = nullptr;
-                                const XrResult endFrameResult = xrEndFrame(
-                                    session, &frameEndInfo
+                            report << "external_xrEnumerateEnvironmentBlendModes(list)="
+                                   << resultText(blendModeListResult)
+                                   << " count=" << returnedBlendModeCount << "\n";
+                            if (XR_SUCCEEDED(blendModeListResult) && returnedBlendModeCount > 0) {
+                                if (returnedBlendModeCount < blendModes.size()) {
+                                    blendModes.resize(returnedBlendModeCount);
+                                }
+                                for (std::size_t index = 0; index < blendModes.size(); ++index) {
+                                    report << "external_environment_blend_mode_" << index
+                                           << "=" << environmentBlendModeName(blendModes[index])
+                                           << "\n";
+                                }
+                                const auto opaqueMode = std::find(
+                                    blendModes.begin(),
+                                    blendModes.end(),
+                                    XR_ENVIRONMENT_BLEND_MODE_OPAQUE
                                 );
-                                report << "external_xrEndFrame="
-                                       << resultText(endFrameResult) << "\n";
+                                selectedEnvironmentBlendMode = opaqueMode != blendModes.end()
+                                    ? *opaqueMode
+                                    : blendModes.front();
+                                environmentBlendModeAvailable = true;
+                                report << "external_environment_blend_mode_selected="
+                                       << environmentBlendModeName(selectedEnvironmentBlendMode)
+                                       << "\n";
                             }
+                        }
+
+                        if (environmentBlendModeAvailable) {
+                            externalFrameLifecycleAttempted = true;
+                            XrFrameWaitInfo frameWaitInfo{};
+                            frameWaitInfo.type = XR_TYPE_FRAME_WAIT_INFO;
+                            XrFrameState frameState{};
+                            frameState.type = XR_TYPE_FRAME_STATE;
+                            const XrResult waitFrameResult = xrWaitFrame(
+                                session, &frameWaitInfo, &frameState
+                            );
+                            report << "external_xrWaitFrame="
+                                   << resultText(waitFrameResult) << "\n";
+                            if (XR_SUCCEEDED(waitFrameResult)) {
+                                XrFrameBeginInfo frameBeginInfo{};
+                                frameBeginInfo.type = XR_TYPE_FRAME_BEGIN_INFO;
+                                const XrResult beginFrameResult = xrBeginFrame(
+                                    session, &frameBeginInfo
+                                );
+                                report << "external_xrBeginFrame="
+                                       << resultText(beginFrameResult) << "\n";
+                                if (XR_SUCCEEDED(beginFrameResult)) {
+                                    XrFrameEndInfo frameEndInfo{};
+                                    frameEndInfo.type = XR_TYPE_FRAME_END_INFO;
+                                    frameEndInfo.displayTime = frameState.predictedDisplayTime;
+                                    frameEndInfo.environmentBlendMode =
+                                        selectedEnvironmentBlendMode;
+                                    frameEndInfo.layerCount = 0;
+                                    frameEndInfo.layers = nullptr;
+                                    const XrResult endFrameResult = xrEndFrame(
+                                        session, &frameEndInfo
+                                    );
+                                    report << "external_xrEndFrame="
+                                           << resultText(endFrameResult) << "\n";
+                                }
+                            }
+                        } else {
+                            report << "external_frame_lifecycle=SKIPPED "
+                                      "(runtime returned no supported environment blend mode)\n";
                         }
                     }
                     }
