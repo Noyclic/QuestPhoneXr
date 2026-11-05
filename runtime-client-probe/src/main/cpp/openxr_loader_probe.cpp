@@ -817,6 +817,7 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
 
                                 if (XR_SUCCEEDED(beginFrameResult)) {
                                     bool projectionReady = false;
+                                    bool frameEndCalled = false;
                                     bool imageReleased = false;
                                     std::uint32_t imageIndex = 0;
 
@@ -932,6 +933,7 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                                                         selectedEnvironmentBlendMode;
                                                     frameEndInfo.layerCount = 1;
                                                     frameEndInfo.layers = layers;
+                                                    frameEndCalled = true;
                                                     const XrResult endFrameResult = xrEndFrame(
                                                         session, &frameEndInfo
                                                     );
@@ -956,7 +958,7 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                                         }
                                     }
 
-                                    if (!projectionReady) {
+                                    if (!frameEndCalled) {
                                         XrFrameEndInfo frameEndInfo{};
                                         frameEndInfo.type = XR_TYPE_FRAME_END_INFO;
                                         frameEndInfo.displayTime = frameState.predictedDisplayTime;
