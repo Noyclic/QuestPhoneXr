@@ -25,6 +25,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import com.noyclic.questphonexr.tracking.HandLandmarkerController
+import com.noyclic.questphonexr.tracking.HandCameraPreference
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.HandTrackingMetricsSnapshot
 import java.util.concurrent.Executors
@@ -283,19 +284,12 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
             var newTracker: HandLandmarkerController? = null
             try {
                 val provider = providerFuture.get()
-                // Hand tracking is a user-facing interaction: prefer the front camera.
-                // The previous back-camera-first choice made users present their hands
-                // away from the lens while looking at the phone display.
-                val useFrontCamera = provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)
-                val selector = if (useFrontCamera) {
-                    CameraSelector.DEFAULT_FRONT_CAMERA
-                } else {
-                    CameraSelector.DEFAULT_BACK_CAMERA
-                }
+                // Persistent tracking follows the same explicit opt-in policy as Sandbox.
+                // A null START_STICKY restart reads the saved preference; it never defaults to selfie.
+                val cameraSelection = HandCameraPreference.resolve(this@EndXrHandTrackingService, provider)
+                val useFrontCamera = cameraSelection.isFrontCamera
+                val selector = cameraSelection.selector
                 EndXrHandTrackingDiagnostics.cameraSelected(useFrontCamera)
-                check(provider.hasCamera(selector)) {
-                    "Android did not expose a usable front or back camera to the foreground service."
-                }
 
                 analysisUseCase?.clearAnalyzer()
                 analysisUseCase?.let { oldUseCase ->
@@ -350,7 +344,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                     TAG,
                     "Persistent hand tracking active: " + cameraWidthPx + "x" +
                         cameraHeightPx + ", hands=" + maxHands +
-                        ", lens=" + (if (useFrontCamera) "front" else "back") +
+                        ", lens=" + (if (useFrontCamera) "front (user enabled)" else "back") +
                         ", interval=" + minimumInferenceIntervalMs + "ms"
                 )
                 updateNotification("MediaPipe работает · руки передаются в EndXR")

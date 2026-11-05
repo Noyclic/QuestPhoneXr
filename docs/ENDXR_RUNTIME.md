@@ -78,3 +78,8 @@ The initial target is 20–30 FPS on the Redmi Note 13 4G. This is a goal, not a
 - Keep the working Sandbox and MediaPipe paths intact.
 - Report service discovery, RuntimeBroker selection, instance creation, session creation, swapchain operations and frame rendering as separate checkpoints.
 - Prefer measurable milestones: native tests, APK build, emulator smoke test, then a clearly identified physical-device test.
+
+
+## Camera lens privacy default
+
+All QuestPhoneXR hand-tracking entry points share `HandCameraPreference`. The rear camera is the default, including Sandbox, diagnostics and the persistent EndXR foreground service. The front camera is selected only after the user enables **Разрешить фронтальную камеру** in Sandbox settings. The choice is stored in app preferences and reused by service restarts; it is never inferred from camera availability. If the requested front lens is unavailable, the app stays on the rear lens. If the rear lens is unavailable, camera startup fails rather than silently enabling the front camera.

@@ -35,6 +35,7 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.SeekBar
+import android.widget.Switch
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -48,6 +49,7 @@ import com.noyclic.questphonexr.input.VirtualControllerMapper
 import com.noyclic.questphonexr.input.VirtualControllerState
 import com.noyclic.questphonexr.input.ControllerInputSource
 import com.noyclic.questphonexr.tracking.HandLandmarkerController
+import com.noyclic.questphonexr.tracking.HandCameraPreference
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.HandTrackingMetricsSnapshot
 import com.noyclic.questphonexr.tracking.HandTrackingPreset
@@ -709,6 +711,33 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 )
             )
+            val frontCameraSwitch = Switch(this@SandboxActivity).apply {
+                text = "Разрешить фронтальную камеру"
+                isChecked = HandCameraPreference.isFrontCameraEnabled(this@SandboxActivity)
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                setOnCheckedChangeListener { _, enabled ->
+                    val wasTracking = handTracker != null ||
+                        handTrackingStartPending || EndXrHandTrackingService.isRunning()
+                    HandCameraPreference.setFrontCameraEnabled(this@SandboxActivity, enabled)
+                    cameraStatusMessage = if (enabled) {
+                        "Фронтальная камера разрешена вручную · перезапускаем отслеживание"
+                    } else {
+                        "Фронтальная камера запрещена · используется только задняя"
+                    }
+                    if (wasTracking) {
+                        restartHandTracking()
+                    } else {
+                        updateStatus()
+                    }
+                }
+            }
+            addView(
+                frontCameraSwitch,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
             addView(
                 controlButton("Профиль MediaPipe") { showHandTrackingPresetDialog() },
                 LinearLayout.LayoutParams(
@@ -898,21 +927,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             try {
                 val provider = providerFuture.get()
                 cameraProvider = provider
-                // Prefer the selfie camera so the user can see the screen and
-                // present both hands naturally in front of it. Fall back to rear camera
-                // only on devices without a front-facing camera.
-                val useFrontCamera = provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)
-                val selector = if (useFrontCamera) {
-                    CameraSelector.DEFAULT_FRONT_CAMERA
-                } else {
-                    CameraSelector.DEFAULT_BACK_CAMERA
-                }
-                if (!provider.hasCamera(selector)) {
-                    handTrackingStartPending = false
-                    cameraStatusMessage = "Камера рук: камера не найдена"
-                    updateStatus()
-                    return@addListener
-                }
+                // Rear camera is the default. Selfie camera is opt-in through the settings switch.
+                val cameraSelection = HandCameraPreference.resolve(this@SandboxActivity, provider)
+                val useFrontCamera = cameraSelection.isFrontCamera
+                val selector = cameraSelection.selector
 
                 val tracker = HandLandmarkerController(
                     context = applicationContext,
@@ -954,9 +972,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 provider.bindToLifecycle(this, selector, analysis)
                 handTrackingStartPending = false
                 cameraStatusMessage = if (useFrontCamera) {
-                    "MediaPipe: фронтальная камера · жест pinch включён"
+                    "MediaPipe: фронтальная камера включена вручную · жест pinch включён"
                 } else {
-                    "MediaPipe: задняя камера · фронтальная отсутствует · жест pinch включён"
+                    "MediaPipe: задняя камера · фронтальная выключена · жест pinch включён"
                 }
                 updateStatus()
             } catch (error: Exception) {
