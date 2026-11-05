@@ -11,7 +11,8 @@ data class HandFrameTransform(
     val targetWidthPx: Int,
     val targetHeightPx: Int,
     val rotatedWidthPx: Int,
-    val rotatedHeightPx: Int
+    val rotatedHeightPx: Int,
+    val mirroredHorizontally: Boolean = false
 ) {
     init {
         require(scale > 0f)
@@ -24,8 +25,9 @@ data class HandFrameTransform(
             .coerceIn(0f, rotatedWidthPx.toFloat())
         val rotatedY = ((y * targetHeightPx - topPx) / scale)
             .coerceIn(0f, rotatedHeightPx.toFloat())
-        return (rotatedX / rotatedWidthPx).coerceIn(0f, 1f) to
-            (rotatedY / rotatedHeightPx).coerceIn(0f, 1f)
+        val sourceX = (rotatedX / rotatedWidthPx).coerceIn(0f, 1f)
+        val unmirroredX = if (mirroredHorizontally) 1f - sourceX else sourceX
+        return unmirroredX to (rotatedY / rotatedHeightPx).coerceIn(0f, 1f)
     }
 }
 
