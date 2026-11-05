@@ -18,8 +18,8 @@ class HandTrackingPresetTest {
     fun economyPresetKeepsTwoHandsAtLowWorkload() {
         val preset = HandTrackingPreset.POWER_SAVER
         assertEquals(2, preset.maxTrackedHands)
-        assertEquals(320, preset.cameraWidthPx)
-        assertEquals(240, preset.cameraHeightPx)
+        assertEquals(640, preset.cameraWidthPx)
+        assertEquals(480, preset.cameraHeightPx)
         assertEquals(100L, preset.minimumInferenceIntervalMs)
     }
 
