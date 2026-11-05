@@ -65,6 +65,7 @@ import com.noyclic.questphonexr.performance.DevicePerformancePolicy
 import com.noyclic.questphonexr.performance.DevicePerformancePreset
 import com.noyclic.questphonexr.runtime.EndXrGlSurfaceLifecycle
 import com.noyclic.questphonexr.runtime.AndroidRuntimeBrokerContract
+import com.noyclic.questphonexr.runtime.AndroidRuntimeBrokerProbe
 import com.noyclic.questphonexr.runtime.EndXrRuntimeBridge
 import com.noyclic.questphonexr.runtime.EndXrInputSnapshotStore
 import com.noyclic.questphonexr.runtime.EndXrHandInputEncoder
@@ -515,6 +516,28 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         EndXrInputSnapshotStore.publishHandPoses(cameraInput.leftPose, cameraInput.rightPose)
     }
 
+    private fun showRuntimeBrokerDiagnostic() {
+        Toast.makeText(this, "Проверяем OpenXR RuntimeBroker…", Toast.LENGTH_SHORT).show()
+        Thread({
+            val report = AndroidRuntimeBrokerProbe.inspect(this).toDisplayText()
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                AlertDialog.Builder(this)
+                    .setTitle("Диагностика OpenXR RuntimeBroker")
+                    .setMessage(report)
+                    .setPositiveButton("Копировать отчёт") { _, _ ->
+                        clipboard.setPrimaryClip(
+                            ClipData.newPlainText("EndXR RuntimeBroker diagnostics", report)
+                        )
+                        Toast.makeText(this, "Отчёт скопирован", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("Закрыть", null)
+                    .show()
+            }
+        }, "EndXR-Broker-Diagnostics").start()
+    }
+
     private fun openOpenXrRuntimeBroker() {
         val brokerPackage = AndroidRuntimeBrokerContract.INSTALLABLE_BROKER_PACKAGE
         val storeUrl = AndroidRuntimeBrokerContract.INSTALLABLE_BROKER_PLAY_STORE_URL
@@ -893,6 +916,27 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             ).apply {
                 bottomMargin = dp(62)
                 marginStart = dp(12)
+            }
+        )
+
+        val brokerDiagnosticsButton = controlButton("Диагностика Broker") {
+            showRuntimeBrokerDiagnostic()
+        }.apply {
+            textSize = 13f
+            contentDescription = "Проверить наличие RuntimeBroker и выбранный OpenXR runtime"
+            setPadding(dp(12), dp(5), dp(12), dp(5))
+            minHeight = dp(40)
+            elevation = dp(6).toFloat()
+        }
+        root.addView(
+            brokerDiagnosticsButton,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.END
+            ).apply {
+                bottomMargin = dp(110)
+                marginEnd = dp(12)
             }
         )
 
