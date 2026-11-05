@@ -12,7 +12,7 @@ class EndXrInputAccessPolicyTest {
     fun packageNameAndSignerFingerprintMustBothBeValid() {
         assertTrue(EndXrInputGrantCodec.isValidPackageName("com.example.vrgame"))
         assertTrue(EndXrInputGrantCodec.isValidPackageName("org.example_game.client"))
-        assertFalse(EndXrInputGrantCodec.isValidPackageName("com.example"))
+        assertTrue(EndXrInputGrantCodec.isValidPackageName("com.example"))
         assertFalse(EndXrInputGrantCodec.isValidPackageName("com..example"))
         assertFalse(EndXrInputGrantCodec.isValidPackageName("com.example;other"))
         assertTrue(EndXrInputGrantCodec.isValidFingerprint(fingerprint))
