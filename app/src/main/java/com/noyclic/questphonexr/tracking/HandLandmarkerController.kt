@@ -448,7 +448,7 @@ class HandLandmarkerController(
             Log.e(TAG, "Could not convert MediaPipe landmarks", error)
             onError(error.message ?: "Could not read hand landmarks.")
         } finally {
-            input.close()
+            runCatching { input.close() }
             inFlightImage.compareAndSet(input, null)
             inFlightTransform.set(null)
             processing.set(false)
