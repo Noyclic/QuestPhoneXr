@@ -17,6 +17,15 @@ internal fun sandboxHandFrameStaleTimeoutMs(measuredFps: Float): Long {
     return (2_500f / measuredFps).toLong().coerceIn(900L, 2_200L)
 }
 
+internal fun isSandboxHandFrameStale(
+    nowUptimeMs: Long,
+    receivedAtUptimeMs: Long,
+    timeoutMs: Long
+): Boolean {
+    if (receivedAtUptimeMs <= 0L || timeoutMs < 0L) return true
+    return (nowUptimeMs - receivedAtUptimeMs).coerceAtLeast(0L) > timeoutMs
+}
+
 enum class SandboxObjectType { CUBE, BALL, TARGET }
 
 data class SandboxVector3(
