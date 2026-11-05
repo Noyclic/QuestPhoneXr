@@ -50,9 +50,10 @@ class EndXrInputAccessManager(context: Context) {
             }
             .distinctBy { it.packageName }
             .sortedWith(
-                compareBy<EndXrInputClient>(String.CASE_INSENSITIVE_ORDER) { it.label }
+                compareBy<EndXrInputClient, String>(String.CASE_INSENSITIVE_ORDER) { it.label }
                     .thenBy { it.packageName }
             )
+            .toList()
 
     fun isAuthorized(client: EndXrInputClient): Boolean =
         readRecords().any {
