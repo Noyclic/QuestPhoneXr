@@ -66,7 +66,15 @@ internal object EndXrHandTrackingDiagnostics {
             droppedBusyFrames = 0L,
             droppedIntervalFrames = 0L,
             lastPreprocessingMs = 0L,
-            averagePreprocessingMs = 0f
+            averagePreprocessingMs = 0f,
+            lastFrameWidthPx = 0,
+            lastFrameHeightPx = 0,
+            lastFrameFormat = 0,
+            lastFrameRotationDegrees = 0,
+            lastFrameRowStride = 0,
+            lastFramePixelStride = 0,
+            lastFrameLumaMean = 0f,
+            lastFrameLumaStdDev = 0f
         )
         resultCount = 0L
         lastResultTimestampMs = 0L
