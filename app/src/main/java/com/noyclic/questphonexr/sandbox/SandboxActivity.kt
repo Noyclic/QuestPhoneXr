@@ -920,8 +920,11 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     },
                     maxHands = handTrackingPreset.maxTrackedHands,
                     minimumInferenceIntervalMs = adaptivePerformanceState.minimumInferenceIntervalMs,
-                    outputWidthPx = effectiveCameraWidthPx(),
-                    outputHeightPx = effectiveCameraHeightPx(),
+                    // Keep the camera source at 640×480, but feed a bounded 480×360
+                    // bitmap to the CPU model. This avoids paying full camera-resolution
+                    // inference cost while retaining enough detail for hand landmarks.
+                    outputWidthPx = minOf(effectiveCameraWidthPx(), MODEL_INPUT_WIDTH_PX),
+                    outputHeightPx = minOf(effectiveCameraHeightPx(), MODEL_INPUT_HEIGHT_PX),
                     onMetrics = { snapshot -> latestSandboxTrackingMetrics = snapshot }
                 )
                 handTracker = tracker
@@ -929,6 +932,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     .setTargetResolution(
                         android.util.Size(effectiveCameraWidthPx(), effectiveCameraHeightPx())
                     )
+                    // CameraX must know the display orientation; otherwise rotationDegrees
+                    // can stay at zero while the physical phone is turned.
+                    .setTargetRotation(glView.display?.rotation ?: Surface.ROTATION_0)
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                     .build()
@@ -1707,6 +1713,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         const val EXTRA_OPEN_PC_BRIDGE = "com.noyclic.questphonexr.OPEN_PC_BRIDGE"
         private const val NANOS_PER_SECOND = 1_000_000_000L
         private const val MAX_PHYSICS_STEP_SECONDS = 0.05f
+        private const val MODEL_INPUT_WIDTH_PX = 480
+        private const val MODEL_INPUT_HEIGHT_PX = 360
         private const val STATUS_REFRESH_INTERVAL_MS = 250L
         private const val HAND_FRAME_STALE_MS = 500L
         private const val ENDXR_RECOVERY_DELAY_MS = 1_500L

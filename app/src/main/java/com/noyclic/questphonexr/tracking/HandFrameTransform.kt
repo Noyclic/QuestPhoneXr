@@ -1,8 +1,11 @@
 package com.noyclic.questphonexr.tracking
 
 /**
- * Maps normalized model coordinates back to the normalized, rotated camera frame.
- * The camera image is letterboxed into the model input; black-bar coordinates are clamped.
+ * Maps normalized model coordinates back to the original CameraX image.
+ *
+ * The model image is letterboxed, rotated and optionally mirrored. Undo those
+ * operations in reverse order so downstream tracking always receives coordinates
+ * in the same source-image coordinate system, regardless of device orientation.
  */
 data class HandFrameTransform(
     val leftPx: Float,
@@ -12,7 +15,8 @@ data class HandFrameTransform(
     val targetHeightPx: Int,
     val rotatedWidthPx: Int,
     val rotatedHeightPx: Int,
-    val mirroredHorizontally: Boolean = false
+    val mirroredHorizontally: Boolean = false,
+    val rotationDegrees: Int = 0
 ) {
     init {
         require(scale > 0f)
@@ -22,20 +26,24 @@ data class HandFrameTransform(
 
     fun toSourceNormalized(x: Float, y: Float): Pair<Float, Float> {
         val rotatedX = ((x * targetWidthPx - leftPx) / scale)
-            .coerceIn(0f, rotatedWidthPx.toFloat())
+            .coerceIn(0f, rotatedWidthPx.toFloat()) / rotatedWidthPx
         val rotatedY = ((y * targetHeightPx - topPx) / scale)
-            .coerceIn(0f, rotatedHeightPx.toFloat())
-        val sourceX = (rotatedX / rotatedWidthPx).coerceIn(0f, 1f)
-        val unmirroredX = if (mirroredHorizontally) 1f - sourceX else sourceX
-        return unmirroredX to (rotatedY / rotatedHeightPx).coerceIn(0f, 1f)
+            .coerceIn(0f, rotatedHeightPx.toFloat()) / rotatedHeightPx
+
+        // Mirroring is applied after rotation when drawing the model bitmap.
+        val unmirroredX = if (mirroredHorizontally) 1f - rotatedX else rotatedX
+        return when (normalizeCameraRotationDegrees(rotationDegrees)) {
+            90 -> rotatedY to (1f - unmirroredX)
+            180 -> (1f - unmirroredX) to (1f - rotatedY)
+            270 -> (1f - rotatedY) to unmirroredX
+            else -> unmirroredX to rotatedY
+        }.let { (sourceX, sourceY) ->
+            sourceX.coerceIn(0f, 1f) to sourceY.coerceIn(0f, 1f)
+        }
     }
 }
 
-
-/**
- * Normalizes CameraX's clockwise rotation to the four right-angle transforms supported
- * by the bitmap canvas pipeline. Unexpected values safely fall back to no rotation.
- */
+/** Normalize CameraX rotation to the right-angle transforms supported by the bitmap pipeline. */
 internal fun normalizeCameraRotationDegrees(rotationDegrees: Int): Int {
     val normalized = ((rotationDegrees % 360) + 360) % 360
     return if (normalized % 90 == 0) normalized else 0

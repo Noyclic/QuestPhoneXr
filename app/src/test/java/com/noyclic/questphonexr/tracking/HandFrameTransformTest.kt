@@ -4,6 +4,41 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class HandFrameTransformTest {
+
+    @Test
+    fun inverseRotationRestoresSourceCoordinatesForAllCameraOrientations() {
+        val cases = listOf(
+            Triple(0, 0.2f to 0.3f, 0.2f to 0.3f),
+            Triple(90, 0.7f to 0.2f, 0.2f to 0.3f),
+            Triple(180, 0.8f to 0.7f, 0.2f to 0.3f),
+            Triple(270, 0.3f to 0.8f, 0.2f to 0.3f)
+        )
+        cases.forEach { (rotation, rotated, expected) ->
+            val transform = HandFrameTransform(
+                leftPx = 0f, topPx = 0f, scale = 1f,
+                targetWidthPx = 100, targetHeightPx = 100,
+                rotatedWidthPx = 100, rotatedHeightPx = 100,
+                rotationDegrees = rotation
+            )
+            val actual = transform.toSourceNormalized(rotated.first, rotated.second)
+            assertEquals(expected.first, actual.first, 0.001f)
+            assertEquals(expected.second, actual.second, 0.001f)
+        }
+    }
+
+    @Test
+    fun unmirroringHappensBeforeInverseCameraRotation() {
+        val transform = HandFrameTransform(
+            leftPx = 0f, topPx = 0f, scale = 1f,
+            targetWidthPx = 100, targetHeightPx = 100,
+            rotatedWidthPx = 100, rotatedHeightPx = 100,
+            mirroredHorizontally = true,
+            rotationDegrees = 90
+        )
+        val actual = transform.toSourceNormalized(0.8f, 0.2f)
+        assertEquals(0.2f, actual.first, 0.001f)
+        assertEquals(0.2f, actual.second, 0.001f)
+    }
     @Test
     fun normalizesCameraRotationAndHandlesNegativeValues() {
         assertEquals(0, normalizeCameraRotationDegrees(0))

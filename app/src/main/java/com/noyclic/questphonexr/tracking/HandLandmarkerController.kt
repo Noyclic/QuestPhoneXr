@@ -95,9 +95,9 @@ class HandLandmarkerController(
             .setBaseOptions(baseOptions)
             .setRunningMode(RunningMode.LIVE_STREAM)
             .setNumHands(maxHands)
-            .setMinHandDetectionConfidence(CONFIDENCE)
-            .setMinHandPresenceConfidence(CONFIDENCE)
-            .setMinTrackingConfidence(CONFIDENCE)
+            .setMinHandDetectionConfidence(DETECTION_CONFIDENCE)
+            .setMinHandPresenceConfidence(PRESENCE_CONFIDENCE)
+            .setMinTrackingConfidence(TRACKING_CONFIDENCE)
             .setResultListener(::onResult)
             .setErrorListener(::onTaskError)
             .build()
@@ -365,7 +365,8 @@ class HandLandmarkerController(
             targetHeightPx = outputHeightPx,
             rotatedWidthPx = rotatedWidth,
             rotatedHeightPx = rotatedHeight,
-            mirroredHorizontally = mirror
+            mirroredHorizontally = mirror,
+            rotationDegrees = rotation
         )
     }
 
@@ -499,7 +500,11 @@ class HandLandmarkerController(
         const val MAX_OUTPUT_HEIGHT_PX = 1440
         const val MODEL_ASSET = "hand_landmarker.task"
         const val MAX_HANDS = 2
-        const val CONFIDENCE = 0.5f
+        // Slightly more permissive than the demo defaults: mobile front cameras,
+        // partial hand rotation and lower light otherwise cause avoidable dropouts.
+        const val DETECTION_CONFIDENCE = 0.40f
+        const val PRESENCE_CONFIDENCE = 0.40f
+        const val TRACKING_CONFIDENCE = 0.45f
         const val BYTES_PER_PIXEL = 4
         const val NANOS_PER_MILLISECOND = 1_000_000L
     }
