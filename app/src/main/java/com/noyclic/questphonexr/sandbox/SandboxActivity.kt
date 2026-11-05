@@ -1007,15 +1007,24 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         updateStatus()
     }
 
+    // Keep enough source detail for reliable palm/landmark detection. The phone
+    // diagnostics path that successfully detects hands uses 640x480; the old 320x240
+    // Sandbox stream frequently missed frontal and partially rotated hands.
     private fun effectiveCameraWidthPx(): Int =
-        if (viewerProfile.cameraWidthPx == ViewerProfile.AUTO_CAMERA_SIZE) {
-            handTrackingPreset.cameraWidthPx
-        } else viewerProfile.cameraWidthPx
+        maxOf(
+            MIN_HAND_TRACKING_CAMERA_WIDTH_PX,
+            if (viewerProfile.cameraWidthPx == ViewerProfile.AUTO_CAMERA_SIZE) {
+                handTrackingPreset.cameraWidthPx
+            } else viewerProfile.cameraWidthPx
+        )
 
     private fun effectiveCameraHeightPx(): Int =
-        if (viewerProfile.cameraHeightPx == ViewerProfile.AUTO_CAMERA_SIZE) {
-            handTrackingPreset.cameraHeightPx
-        } else viewerProfile.cameraHeightPx
+        maxOf(
+            MIN_HAND_TRACKING_CAMERA_HEIGHT_PX,
+            if (viewerProfile.cameraHeightPx == ViewerProfile.AUTO_CAMERA_SIZE) {
+                handTrackingPreset.cameraHeightPx
+            } else viewerProfile.cameraHeightPx
+        )
 
     private fun showHandTrackingPresetDialog() {
         val presets = HandTrackingPreset.entries.toTypedArray()
@@ -1693,6 +1702,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     }
 
     companion object {
+        private const val MIN_HAND_TRACKING_CAMERA_WIDTH_PX = 640
+        private const val MIN_HAND_TRACKING_CAMERA_HEIGHT_PX = 480
         const val EXTRA_OPEN_PC_BRIDGE = "com.noyclic.questphonexr.OPEN_PC_BRIDGE"
         private const val NANOS_PER_SECOND = 1_000_000_000L
         private const val MAX_PHYSICS_STEP_SECONDS = 0.05f
