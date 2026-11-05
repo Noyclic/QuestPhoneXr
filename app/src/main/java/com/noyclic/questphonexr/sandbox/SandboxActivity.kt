@@ -172,7 +172,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 val snapshot = controllerSnapshots
                 val latestHands = latestHandFrame
                 val handsAgeMs = SystemClock.uptimeMillis() - latestHands.timestampMs
-                val hands = if (latestHands.hands.isNotEmpty() && handsAgeMs > HAND_FRAME_STALE_MS) {
+                val handStaleTimeoutMs = sandboxHandFrameStaleTimeoutMs(measuredHandTrackingFps)
+                val hands = if (latestHands.hands.isNotEmpty() && handsAgeMs > handStaleTimeoutMs) {
                     HandTrackingFrame(SystemClock.uptimeMillis(), emptyList()).also {
                         latestHandFrame = it
                         trackingSender?.publish(it)
