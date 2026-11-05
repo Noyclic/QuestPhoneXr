@@ -1127,9 +1127,11 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         val permissionGranted = ContextCompat.checkSelfPermission(
             this, Manifest.permission.CAMERA
         ) == PackageManager.PERMISSION_GRANTED
-        val startedHere = permissionGranted &&
+        if (permissionGranted &&
             handTrackingOwner() == HandTrackingOwner.NONE && !handTrackingStartPending
-        if (startedHere) startHandTracking()
+        ) {
+            startHandTracking()
+        }
 
         Toast.makeText(
             this, "Проверка рук: покажи ладони камере",
@@ -1137,31 +1139,52 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         ).show()
 
         val handler = Handler(Looper.getMainLooper())
-        val warmupMs = if (startedHere) 1_500L else 0L
-        handler.postDelayed({
-            if (isFinishing || isDestroyed) {
-                handDiagnosticsRunning = false
-                return@postDelayed
-            }
-            val before = currentHandMetrics()
-            val baselineAtMs = SystemClock.uptimeMillis()
-            var maxHands = currentDiagnosticHandFrame().handCount
-            val sampler = object : Runnable {
-                override fun run() {
-                    if (isFinishing || isDestroyed) {
-                        handDiagnosticsRunning = false
-                        return
-                    }
-                    maxHands = maxOf(maxHands, currentDiagnosticHandFrame().handCount)
-                    if (SystemClock.uptimeMillis() - baselineAtMs < 4_000L) {
-                        handler.postDelayed(this, 200L)
-                    } else {
-                        finishHandDiagnostics(permissionGranted, before, maxHands, baselineAtMs)
+        // CameraX startup is asynchronous. Wait for the first frame from the current
+        // owner before taking the baseline, otherwise an early tap can compare null
+        // metrics with a live tracker and report a false "tracker not running" error.
+        val cameraReadyDeadlineMs = SystemClock.uptimeMillis() + 8_000L
+        val awaitCameraReady = object : Runnable {
+            override fun run() {
+                if (isFinishing || isDestroyed) {
+                    handDiagnosticsRunning = false
+                    return
+                }
+
+                val owner = handTrackingOwner()
+                val metrics = currentHandMetrics()
+                val hasCurrentCameraFrames = owner != HandTrackingOwner.NONE &&
+                    (metrics?.receivedFrames ?: 0L) > 0L
+                val status = cameraStatusMessage
+                val startupFailed = status.startsWith("Не удалось") ||
+                    (status.startsWith("MediaPipe: ") && !status.contains("pinch включён"))
+                if (permissionGranted && !hasCurrentCameraFrames && !startupFailed &&
+                    SystemClock.uptimeMillis() < cameraReadyDeadlineMs
+                ) {
+                    handler.postDelayed(this, 150L)
+                    return
+                }
+
+                val before = metrics
+                val baselineAtMs = SystemClock.uptimeMillis()
+                var maxHands = currentDiagnosticHandFrame().handCount
+                val sampler = object : Runnable {
+                    override fun run() {
+                        if (isFinishing || isDestroyed) {
+                            handDiagnosticsRunning = false
+                            return
+                        }
+                        maxHands = maxOf(maxHands, currentDiagnosticHandFrame().handCount)
+                        if (SystemClock.uptimeMillis() - baselineAtMs < 4_000L) {
+                            handler.postDelayed(this, 200L)
+                        } else {
+                            finishHandDiagnostics(permissionGranted, before, maxHands, baselineAtMs)
+                        }
                     }
                 }
+                handler.post(sampler)
             }
-            handler.post(sampler)
-        }, warmupMs)
+        }
+        handler.post(awaitCameraReady)
     }
 
     private fun finishHandDiagnostics(
