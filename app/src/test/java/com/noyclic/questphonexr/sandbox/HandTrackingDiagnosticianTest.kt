@@ -32,7 +32,8 @@ class HandTrackingDiagnosticianTest {
         before: HandTrackingMetricsSnapshot? = metrics(0, 0, 0),
         after: HandTrackingMetricsSnapshot? = metrics(120, 40, 40),
         hands: Int = 1,
-        interval: Long = 0L
+        interval: Long = 0L,
+        frontEnabled: Boolean = false
     ) = HandDiagnosisInput(
         cameraPermissionGranted = permission,
         modelAssetBytes = model,
@@ -44,7 +45,8 @@ class HandTrackingDiagnosticianTest {
         after = after,
         maxHandsSeen = hands,
         lastPipelineLatencyMs = 40L,
-        inferenceIntervalMs = interval
+        inferenceIntervalMs = interval,
+        frontCameraEnabled = frontEnabled
     )
 
     @Test fun healthyPipelineReportsAllGood() {
@@ -90,6 +92,14 @@ class HandTrackingDiagnosticianTest {
     @Test fun workingModelWithoutHandsWarns() {
         val result = HandTrackingDiagnostician.diagnose(input(hands = 0))
         assertEquals("MediaPipe работает, но руки не найдены", result.verdict)
+    }
+
+
+    @Test fun frontCameraIsReportedOnlyAsManuallyEnabled() {
+        val report = HandTrackingDiagnostician.diagnose(input(frontEnabled = true))
+        assertTrue(report.findings.any {
+            it.title.contains("включена вручную через тумблер")
+        })
     }
 
     @Test fun economyIntervalWarns() {

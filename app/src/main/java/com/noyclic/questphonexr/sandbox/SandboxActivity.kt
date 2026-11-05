@@ -1193,7 +1193,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 maxHandsSeen = maxHands,
                 lastPipelineLatencyMs = currentDiagnosticHandFrame().pipelineLatencyMs,
                 inferenceIntervalMs = adaptivePerformanceState.minimumInferenceIntervalMs,
-                lastError = lastError
+                lastError = lastError,
+                frontCameraEnabled = HandCameraPreference.isFrontCameraEnabled(this)
             )
         )
         val reportText = report.render() + "\n— Статус камеры: " + status +

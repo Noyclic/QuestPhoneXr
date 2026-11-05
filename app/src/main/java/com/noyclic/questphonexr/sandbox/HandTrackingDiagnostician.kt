@@ -29,7 +29,8 @@ internal data class HandDiagnosisInput(
     val maxHandsSeen: Int,
     val lastPipelineLatencyMs: Long,
     val inferenceIntervalMs: Long,
-    val lastError: String = ""
+    val lastError: String = "",
+    val frontCameraEnabled: Boolean = false
 )
 
 internal data class HandDiagnosisReport(
@@ -89,9 +90,17 @@ internal object HandTrackingDiagnostician {
                 DiagnosisLevel.FAIL,
                 "Android не сообщает о наличии камеры"
             )
+            input.frontCameraEnabled && input.hasFrontCamera -> DiagnosisFinding(
+                DiagnosisLevel.INFO,
+                "Фронтальная камера включена вручную через тумблер"
+            )
+            input.frontCameraEnabled && !input.hasFrontCamera -> DiagnosisFinding(
+                DiagnosisLevel.WARN,
+                "Фронталка разрешена в настройке, но не обнаружена; задняя камера не заменяется автоматически"
+            )
             input.hasFrontCamera -> DiagnosisFinding(
                 DiagnosisLevel.INFO,
-                "Фронтальная камера физически есть, но по умолчанию выключена; задняя остаётся основной"
+                "Фронтальная камера найдена, но выключена; по умолчанию используется задняя"
             )
             else -> DiagnosisFinding(
                 DiagnosisLevel.INFO,
