@@ -1590,9 +1590,11 @@ bool refreshExternalControllerInputImpl(XrInstance_T* instance) {
         return false;
     }
 
-    // Serialize the complete provider read, not just the rate-limit timestamp.
-    // Otherwise concurrent OpenXR calls can publish out-of-order IPC snapshots.
-    std::unique_lock<std::mutex> inputPollLock(instance->externalInputMutex);
+    // Only one thread may read/publish an IPC snapshot at a time. Do not block
+    // render threads behind a slow ContentProvider: they keep using the last sample.
+    std::unique_lock<std::mutex> inputPollLock(
+        instance->externalInputMutex, std::try_to_lock);
+    if (!inputPollLock.owns_lock()) return true;
     const auto now = std::chrono::steady_clock::now();
     if (instance->lastExternalInputPoll.time_since_epoch().count() != 0 &&
         now - instance->lastExternalInputPoll < std::chrono::milliseconds(8)) {
