@@ -143,6 +143,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         else {
             cameraStatusMessage = "Камера рук: разрешение не выдано · можно управлять Joy-Con"
             updateStatus()
+            showCameraPermissionSettingsDialog()
         }
         openPcBridgeDialogIfRequested()
     }
@@ -1217,6 +1218,28 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("Hand tracking diagnosis", reportText))
                 Toast.makeText(this, "Отчёт скопирован", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+
+    private fun showCameraPermissionSettingsDialog() {
+        if (isFinishing || isDestroyed) return
+        AlertDialog.Builder(this)
+            .setTitle("Нужен доступ к камере")
+            .setMessage(
+                "Без камеры отслеживание рук не работает. Открой настройки приложения → " +
+                    "Разрешения → Камера → Разрешить, затем вернись сюда."
+            )
+            .setNegativeButton("Позже", null)
+            .setPositiveButton("Открыть настройки") { _, _ ->
+                runCatching {
+                    startActivity(
+                        Intent(
+                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.fromParts("package", packageName, null)
+                        )
+                    )
+                }
             }
             .show()
     }
