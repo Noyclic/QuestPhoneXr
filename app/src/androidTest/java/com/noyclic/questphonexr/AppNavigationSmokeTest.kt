@@ -41,6 +41,11 @@ class AppNavigationSmokeTest {
         val context = instrumentation.targetContext
         val device = UiDevice.getInstance(instrumentation)
 
+        // Google APIs emulators can leave a system ANR sheet from the launcher
+        // over the app task. Clear it before launching the application under test.
+        device.pressHome()
+        dismissSystemNotRespondingDialog(device)
+
         val launchIntent = context.packageManager
             .getLaunchIntentForPackage(context.packageName)
         assertTrue("Launcher intent must be present", launchIntent != null)
@@ -57,7 +62,7 @@ class AppNavigationSmokeTest {
 
         assertTrue(
             "Mode selection Activity did not render its title",
-            device.wait(Until.hasObject(By.text("Выбери режим")), 20_000)
+            device.wait(Until.hasObject(By.textContains("Выбери режим")), 20_000)
         )
         saveScreenshot(context, device, "mode-selection-initial.png")
         assertTrue(
@@ -201,8 +206,10 @@ class AppNavigationSmokeTest {
         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         context.startActivity(sandboxIntent)
 
+        // The status label includes a human-readable summary after the PASS prefix.
+        // Match the prefix rather than requiring the whole TextView to equal it.
         val probePassed = device.wait(
-            Until.hasObject(By.text("OpenXR probe: PASS")),
+            Until.hasObject(By.textContains("OpenXR probe: PASS")),
             45_000
         )
         val diagnosticFile = File(
@@ -272,6 +279,19 @@ class AppNavigationSmokeTest {
             "EndXR diagnostics action did not complete setPrimaryClip. Log:\n" + copyLog,
             copyLog.contains("Clipboard setPrimaryClip completed")
         )
+    }
+
+    private fun dismissSystemNotRespondingDialog(device: UiDevice) {
+        val anrTitle = By.textContains("isn't responding")
+        if (!device.wait(Until.hasObject(anrTitle), 1_000)) return
+
+        // Closing the unresponsive system launcher is safer than waiting on an
+        // overlay that can steal accessibility focus from the app under test.
+        val closeApp = By.text("Close app")
+        if (device.wait(Until.hasObject(closeApp), 2_000)) {
+            device.findObject(closeApp)?.click()
+            device.waitForIdle()
+        }
     }
 
     private fun saveScreenshot(context: Context, device: UiDevice, fileName: String) {
