@@ -28,3 +28,13 @@ data class HandFrameTransform(
             (rotatedY / rotatedHeightPx).coerceIn(0f, 1f)
     }
 }
+
+
+/**
+ * Normalizes CameraX's clockwise rotation to the four right-angle transforms supported
+ * by the bitmap canvas pipeline. Unexpected values safely fall back to no rotation.
+ */
+internal fun normalizeCameraRotationDegrees(rotationDegrees: Int): Int {
+    val normalized = ((rotationDegrees % 360) + 360) % 360
+    return if (normalized % 90 == 0) normalized else 0
+}
