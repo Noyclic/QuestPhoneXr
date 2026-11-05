@@ -26,6 +26,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Package source snapshot
+        run: |
+          set -euo pipefail
+          mkdir -p source-archive
+          git archive --format=zip --prefix=QuestPhoneXR/ --output=source-archive/QuestPhoneXR-source.zip HEAD
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -152,5 +158,14 @@ jobs:
         with:
           name: QuestPhoneXR-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload source archive
+        if: always() && !cancelled() && hashFiles('source-archive/QuestPhoneXR-source.zip') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuestPhoneXR-source-archive
+          path: source-archive/QuestPhoneXR-source.zip
           if-no-files-found: error
           retention-days: 14
