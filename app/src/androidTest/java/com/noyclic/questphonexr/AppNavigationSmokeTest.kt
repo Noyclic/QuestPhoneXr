@@ -272,11 +272,45 @@ class AppNavigationSmokeTest {
             device.wait(Until.hasObject(externalProbeButton), 5_000)
         )
         device.findObject(externalProbeButton).click()
+
+        // The probe may already be installed on a developer/emulator image. In that
+        // case the correct behavior is to open its separate APK, not show the
+        // missing-APK dialog. Accept and verify either valid branch.
+        val missingProbeDialog = By.textContains("Внешний OpenXR тест не установлен")
+        val externalProbeReport = By.textContains("Khronos OpenXR Android Loader probe")
+        val launchDeadline = android.os.SystemClock.uptimeMillis() + 8_000
+        var missingProbeShown = false
+        var externalProbeOpened = false
+        while (
+            android.os.SystemClock.uptimeMillis() < launchDeadline &&
+            !missingProbeShown &&
+            !externalProbeOpened
+        ) {
+            missingProbeShown = device.wait(Until.hasObject(missingProbeDialog), 250)
+            externalProbeOpened = device.currentPackageName == "com.noyclic.xrclientprobe" ||
+                device.wait(Until.hasObject(externalProbeReport), 250)
+            if (!missingProbeShown && !externalProbeOpened) {
+                android.os.SystemClock.sleep(100)
+            }
+        }
         assertTrue(
-            "Missing external probe APK was not explained to the user",
-            device.wait(Until.hasObject(By.text("Внешний OpenXR тест не установлен")), 5_000)
+            "External probe tap produced neither the missing-APK explanation nor the separate probe UI. " +
+                "Current package: ${device.currentPackageName}",
+            missingProbeShown || externalProbeOpened
         )
-        device.findObject(By.text("Закрыть")).click()
+        if (missingProbeShown) {
+            assertTrue(
+                "Missing external probe dialog has no close action",
+                device.wait(Until.hasObject(By.text("Закрыть")), 2_000)
+            )
+            device.findObject(By.text("Закрыть")).click()
+        } else {
+            device.pressBack()
+            assertTrue(
+                "Returning from the external probe did not restore Sandbox",
+                device.wait(Until.hasObject(By.text("Показать настройки")), 5_000)
+            )
+        }
 
         // Android 15 may suppress or expose toast overlays inconsistently to UiAutomator.
         // Verify the app's own post-setPrimaryClip log instead of reading another process's clipboard.
