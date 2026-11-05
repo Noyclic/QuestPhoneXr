@@ -49,6 +49,26 @@ class HandFrameTransformTest {
     }
 
     @Test
+    fun unmirrorsFrontCameraLandmarksBackIntoOriginalCameraCoordinates() {
+        val transform = HandFrameTransform(
+            leftPx = 0f,
+            topPx = 0f,
+            scale = 1f,
+            targetWidthPx = 640,
+            targetHeightPx = 480,
+            rotatedWidthPx = 640,
+            rotatedHeightPx = 480,
+            mirroredHorizontally = true
+        )
+        val mappedLeft = transform.toSourceNormalized(0.2f, 0.4f)
+        val mappedRight = transform.toSourceNormalized(0.8f, 0.4f)
+
+        assertEquals(0.8f, mappedLeft.first, 0.0001f)
+        assertEquals(0.2f, mappedRight.first, 0.0001f)
+        assertEquals(0.4f, mappedLeft.second, 0.0001f)
+    }
+
+    @Test
     fun mapsUnletterboxedCoordinatesWithoutChangingThem() {
         val transform = HandFrameTransform(
             leftPx = 0f,
