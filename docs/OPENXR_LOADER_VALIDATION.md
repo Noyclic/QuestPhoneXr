@@ -17,12 +17,17 @@ The probe records these stages:
    `XR_KHR_android_create_instance`.
 5. If an instance is created, the probe requests an HMD system, reads system
    properties, and checks for `XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO`.
-6. If the runtime advertises `XR_KHR_opengl_es_enable`, the probe creates an
-   independent EGL ES 3 pbuffer context, queries graphics requirements, and
-   attempts `xrCreateSession` / `xrBeginSession`.
-7. It creates a small GLES swapchain, enumerates its images, attempts
-   acquire/wait/release, then runs one `xrWaitFrame` / `xrBeginFrame` /
-   `xrEndFrame` cycle with zero composition layers.
+6. If the runtime advertises `XR_KHR_opengl_es_enable`, returns a valid
+   HMD system, and confirms `XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO`,
+   the probe creates an independent EGL ES 3 pbuffer context, queries graphics
+   requirements, and attempts `xrCreateSession` / `xrBeginSession`.
+7. It enumerates the swapchain formats advertised by that session, prefers
+   `GL_RGBA8` when available, and otherwise uses the runtime's first advertised
+   format. It then creates a small GLES swapchain, enumerates its images,
+   attempts acquire/wait/release, and runs one `xrWaitFrame` / `xrBeginFrame` /
+   `xrEndFrame` cycle with zero composition layers. If the HMD system or
+   primary stereo view is unavailable, the GLES session stage is explicitly
+   skipped rather than issuing calls with an invalid system ID.
 8. It tears down the swapchain, session, EGL context and instance.
 
 The native loader is supplied by the Khronos
