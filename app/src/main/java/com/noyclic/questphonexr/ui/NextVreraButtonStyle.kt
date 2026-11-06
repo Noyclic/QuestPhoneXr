@@ -25,10 +25,10 @@ fun nextVreraToneFor(label: CharSequence?): NextVreraButtonTone {
         listOf("сброс", "выйти", "отозвать", "удалить", "остановить", "отключить", "reset", "delete", "stop").any { token -> value.contains(token) } ->
             NextVreraButtonTone.DANGER
 
-        listOf("подключ", "запустить", "добавить", "применить", "сохранить", "разрешить", "включить", "назначить", "импорт", "калибров", "open", "launch", "connect", "apply", "save").any(value::contains) ->
+        listOf("подключ", "запустить", "добавить", "применить", "сохранить", "разрешить", "включить", "назначить", "импорт", "калибров", "open", "launch", "connect", "apply", "save").any { token -> value.contains(token) } ->
             NextVreraButtonTone.PRIMARY
 
-        listOf("диагност", "проверить", "копировать", "показать", "выбор", "профиль", "разрешение", "контроллер", "broker", "report", "copy", "check").any(value::contains) ->
+        listOf("диагност", "проверить", "копировать", "показать", "выбор", "профиль", "разрешение", "контроллер", "broker", "report", "copy", "check").any { token -> value.contains(token) } ->
             NextVreraButtonTone.BLUE
 
         else -> NextVreraButtonTone.SECONDARY
