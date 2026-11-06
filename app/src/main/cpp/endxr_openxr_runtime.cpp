@@ -1510,8 +1510,6 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrStructureTypeToString(
 }
 
 
-namespace {
-
 bool readFixedName(const char* value, std::size_t capacity, std::string* output) {
     if (value == nullptr || output == nullptr || capacity == 0) return false;
     const auto* terminator = static_cast<const char*>(std::memchr(value, '\0', capacity));
@@ -2170,8 +2168,6 @@ XrResult validateActionForSession(
     if (actionOutput != nullptr) *actionOutput = action;
     return XR_SUCCESS;
 }
-
-} // namespace
 
 #if defined(__ANDROID__)
 constexpr auto kExternalInputPollInterval = std::chrono::milliseconds(20);
