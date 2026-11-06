@@ -64,7 +64,7 @@ class ApkImportActivity : ComponentActivity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(14), dp(18), dp(12))
-            setBackgroundColor(Color.rgb(14, 17, 23))
+            setBackgroundResource(com.noyclic.questphonexr.R.drawable.bg_nextvrera_atmosphere)
         }
         root.addView(button("← Библиотека").apply { setOnClickListener { finish() } },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
