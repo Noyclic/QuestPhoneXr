@@ -1,10 +1,10 @@
-# EndVR Android Client — EV-0 phone preview
+# GVXRS Link Android Client — EV-0 phone preview
 
-This is a separate Android app for validating the first PC-to-phone video path. It does not depend on EndXR or Android RuntimeBroker.
+This is a separate Android app for validating the first PC-to-phone video path. It does not depend on GVXRS Mobile or Android RuntimeBroker.
 
 ## What it does
 
-- Connects to the EndVR PC host over a trusted local Wi-Fi network.
+- Connects to the GVXRS Link PC host over a trusted local Wi-Fi network.
 - Receives the current synthetic MJPEG test pattern over HTTP.
 - Decodes JPEG frames on Android and presents the left and right halves side-by-side for a phone VR viewer.
 - Shows displayed FPS and the latest JPEG decode duration.
@@ -42,7 +42,7 @@ APK: `endvr-client/build/outputs/apk/debug/endvr-client-debug.apk`.
    ```
 
 3. Find the PC's local IPv4 address (for example, `192.168.1.20`). Allow inbound TCP port 8765 in the private-network firewall if prompted.
-4. Install and open EndVR Client. Enter `http://192.168.1.20:8765/stream.mjpg`, replacing the example address with the PC's actual LAN IP, then press Connect.
+4. Install and open GVXRS Link Client. Enter `http://192.168.1.20:8765/stream.mjpg`, replacing the example address with the PC's actual LAN IP, then press Connect.
 5. The left half should show the blue eye panel and the right half the red eye panel, with a moving yellow marker. Tap the preview to hide/show diagnostics; press Stop or Android Back to disconnect.
 
 The prototype uses unencrypted HTTP and has no pairing/authentication. Keep it on a trusted private LAN, do not port-forward the port, and stop the host after testing.
