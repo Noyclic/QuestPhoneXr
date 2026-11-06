@@ -12,7 +12,16 @@ The Android OpenXR runtime is branded **GVXRS Mobile**. **GVXRS Link** is the PC
 
 > **Current stage:** an early, actively developed prototype. The native runtime, Sandbox, input bridge and Android test pipeline are in place, but real third-party game compatibility has not yet been demonstrated on a physical phone.
 
-## GVXRS runtime family\n\n- **GVXRS Mobile** — Android OpenXR runtime.\n- **GVXRS Legacy** — Gear VR compatibility research; not yet a working legacy runtime.\n- **GVXRS Link** — PC-to-phone VR streaming and host integration.\n- **GVXRS Core** — shared tracking contracts, diagnostics and common platform services.\n\nNextVRera is the main application. The Android package ID and Kotlin package remain `com.noyclic.questphonexr` for now so the branding change does not break app identity, IPC permissions or runtime discovery. Historical native identifiers such as `libendxr_openxr.so` also remain unchanged in this pass.\n\n## What NextVRera is working towards
+## GVXRS runtime family
+
+- **GVXRS Mobile** — Android OpenXR runtime.
+- **GVXRS Legacy** — Gear VR compatibility research; not yet a working legacy runtime.
+- **GVXRS Link** — PC-to-phone VR streaming and host integration.
+- **GVXRS Core** — shared tracking contracts, diagnostics and common platform services.
+
+NextVRera is the main application. The Android package ID and Kotlin package remain `com.noyclic.questphonexr` for now so the branding change does not break app identity, IPC permissions or runtime discovery. Historical native identifiers such as `libendxr_openxr.so` also remain unchanged in this pass.
+
+## What NextVRera is working towards
 
 - **Phone-based VR:** use a smartphone viewer such as VR Shinecon to view a stereoscopic scene.
 - **Hand tracking:** use the phone camera and MediaPipe to detect hands and gestures.
