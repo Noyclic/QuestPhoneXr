@@ -103,13 +103,13 @@ A SteamVR driver is a later milestone, not a prerequisite for validating video t
 
 ## Incremental implementation plan
 
-### EV-0 — protocol and test harness
-- Freeze a versioned session/control schema and coordinate conventions.
-- Build a host-side loopback sender that emits generated frames and test tracking samples.
-- Build an Android receiver/decoder test screen.
-- Add deterministic tests for malformed packets, stale samples, sequence rollback and session changes.
+### EV-0 — generated-frame phone preview (first slice implemented)
+- The PC host emits a moving, stereo-labelled JPEG test pattern over MJPEG/HTTP.
+- A standalone Android EndVR Client receives multipart frames, enforces frame-size/header limits, decodes JPEGs and displays the left/right halves side-by-side.
+- The phone preview reports displayed FPS and the most recent JPEG decode duration, retries a lost connection and can explicitly stop the stream.
+- Parser tests cover multiple parts, malformed/missing lengths, oversized frames and boundary handling.
 
-Exit criteria: Android displays generated host frames and diagnostics show frame age, decode time and dropped frames. No SteamVR dependency.
+The current EV-0 slice validates the PC-to-phone byte path and basic stereo display without SteamVR or EndXR RuntimeBroker. It is deliberately a development-only, unencrypted trusted-LAN preview. It does not yet freeze the production session/control schema, send tracking samples, report true capture-to-display frame age, or implement WebRTC/H.264. Those remain open before EV-1.
 
 ### EV-1 — LAN video proof
 - Pair phone and host on the same Wi-Fi network.
