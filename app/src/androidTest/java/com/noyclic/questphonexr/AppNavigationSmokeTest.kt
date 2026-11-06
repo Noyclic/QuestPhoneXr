@@ -212,6 +212,18 @@ class AppNavigationSmokeTest {
         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         context.startActivity(sandboxIntent)
 
+        // Android 15 shows a one-time immersive-mode education overlay the first
+        // time this fullscreen Activity is opened. It sits above the app and steals
+        // taps even though UiAutomator can still see the underlying Sandbox views.
+        val immersiveModePrompt = By.text("Got it")
+        if (device.wait(Until.hasObject(immersiveModePrompt), 5_000)) {
+            device.findObject(immersiveModePrompt).click()
+            assertTrue(
+                "Android immersive-mode education overlay did not dismiss",
+                device.wait(Until.gone(immersiveModePrompt), 2_000)
+            )
+        }
+
         // The status label includes a human-readable summary after the PASS prefix.
         // Match the prefix rather than requiring the whole TextView to equal it.
         val probePassed = device.wait(
