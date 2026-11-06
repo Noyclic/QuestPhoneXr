@@ -141,33 +141,40 @@ void copyName(char* destination, std::size_t destinationSize, const char* source
 
 #if defined(__ANDROID__)
 bool renderSideBySideTestPattern(GLuint texture, std::ostringstream& report) {
-    GLint previousFramebuffer = 0;
+    GLint previousDrawFramebuffer = 0;
+    GLint previousReadFramebuffer = 0;
+    GLint previousPixelPackBuffer = 0;
     GLint previousScissorBox[4]{};
     GLfloat previousClearColor[4]{};
     GLboolean previousColorMask[4]{};
     const GLboolean previousScissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
-    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousFramebuffer);
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previousDrawFramebuffer);
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousReadFramebuffer);
+    glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &previousPixelPackBuffer);
     glGetIntegerv(GL_SCISSOR_BOX, previousScissorBox);
     glGetFloatv(GL_COLOR_CLEAR_VALUE, previousClearColor);
     glGetBooleanv(GL_COLOR_WRITEMASK, previousColorMask);
 
     GLuint framebuffer = 0;
     glGenFramebuffers(1, &framebuffer);
-    bool rendered = framebuffer != 0;
+    bool verified = framebuffer != 0;
     GLenum framebufferStatus = 0;
-    if (rendered) {
+    if (verified) {
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
         glFramebufferTexture2D(
             GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0
         );
         framebufferStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-        rendered = framebufferStatus == GL_FRAMEBUFFER_COMPLETE;
+        verified = framebufferStatus == GL_FRAMEBUFFER_COMPLETE;
     }
     report << "external_projection_test_fbo=0x"
            << std::hex << framebufferStatus << std::dec
-           << " status=" << (rendered ? "COMPLETE" : "INCOMPLETE") << "\n";
+           << " status=" << (verified ? "COMPLETE" : "INCOMPLETE") << "\n";
 
-    if (rendered) {
+    if (verified) {
+        // Verify the actual swapchain image; the runtime compositor does not have to
+        // render into the application's EGL pbuffer/default framebuffer.
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glEnable(GL_SCISSOR_TEST);
         glScissor(0, 0, 64, 64);
@@ -176,13 +183,35 @@ bool renderSideBySideTestPattern(GLuint texture, std::ostringstream& report) {
         glScissor(64, 0, 64, 64);
         glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
+        glFinish();
+
+        std::array<GLubyte, 4> left{};
+        std::array<GLubyte, 4> right{};
+        glReadPixels(8, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, left.data());
+        glReadPixels(96, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, right.data());
         const GLenum error = glGetError();
-        report << "external_projection_test_render_gl_error=0x"
+        const bool leftRed = left[0] >= 200 && left[1] <= 55 && left[2] <= 55;
+        const bool rightBlue = right[2] >= 200 && right[0] <= 55 && right[1] <= 55;
+        report << "external_projection_swapchain_left_pixel_rgba="
+               << static_cast<int>(left[0]) << ","
+               << static_cast<int>(left[1]) << ","
+               << static_cast<int>(left[2]) << ","
+               << static_cast<int>(left[3]) << "\n";
+        report << "external_projection_swapchain_right_pixel_rgba="
+               << static_cast<int>(right[0]) << ","
+               << static_cast<int>(right[1]) << ","
+               << static_cast<int>(right[2]) << ","
+               << static_cast<int>(right[3]) << "\n";
+        report << "external_projection_swapchain_readback_gl_error=0x"
                << std::hex << error << std::dec << "\n";
-        rendered = error == GL_NO_ERROR;
+        verified = error == GL_NO_ERROR && leftRed && rightBlue;
+        report << "external_projection_swapchain_image_verification="
+               << (verified ? "PASS" : "FAIL") << "\n";
     }
 
-    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(previousDrawFramebuffer));
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousReadFramebuffer));
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, static_cast<GLuint>(previousPixelPackBuffer));
     glScissor(
         previousScissorBox[0], previousScissorBox[1],
         previousScissorBox[2], previousScissorBox[3]
@@ -198,32 +227,7 @@ bool renderSideBySideTestPattern(GLuint texture, std::ostringstream& report) {
         previousClearColor[2], previousClearColor[3]
     );
     if (framebuffer != 0) glDeleteFramebuffers(1, &framebuffer);
-    return rendered;
-}
-
-bool readBackSideBySidePattern(std::ostringstream& report) {
-    std::array<GLubyte, 4> left{};
-    std::array<GLubyte, 4> right{};
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glFinish();
-    glReadPixels(8, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, left.data());
-    glReadPixels(48, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, right.data());
-    const GLenum error = glGetError();
-    const bool leftRed = left[0] >= 200 && left[1] <= 55 && left[2] <= 55;
-    const bool rightBlue = right[2] >= 200 && right[0] <= 55 && right[1] <= 55;
-    report << "external_projection_left_pixel_rgba="
-           << static_cast<int>(left[0]) << ","
-           << static_cast<int>(left[1]) << ","
-           << static_cast<int>(left[2]) << ","
-           << static_cast<int>(left[3]) << "\n";
-    report << "external_projection_right_pixel_rgba="
-           << static_cast<int>(right[0]) << ","
-           << static_cast<int>(right[1]) << ","
-           << static_cast<int>(right[2]) << ","
-           << static_cast<int>(right[3]) << "\n";
-    report << "external_projection_readback_gl_error=0x"
-           << std::hex << error << std::dec << "\n";
-    return error == GL_NO_ERROR && leftRed && rightBlue;
+    return verified;
 }
 #endif
 
@@ -942,14 +946,7 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                                                            << resultText(endFrameResult) << "\n";
                                                     projectionReady = XR_SUCCEEDED(endFrameResult);
                                                     if (projectionReady) {
-                                                        const bool readbackPassed =
-                                                            readBackSideBySidePattern(report);
-                                                        report << "external_projection_layer_readback="
-                                                               << (readbackPassed ? "PASS" : "FAIL")
-                                                               << "\n";
-                                                        report << "external_projection_layer_submission="
-                                                               << (readbackPassed ? "PASS" : "SUBMITTED_BUT_READBACK_FAILED")
-                                                               << "\n";
+                                                        report << "external_projection_layer_submission=PASS\n";
                                                     } else {
                                                         report << "external_projection_layer_submission="
                                                                   "REJECTED_BY_RUNTIME\n";
@@ -1034,6 +1031,7 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
             if (surface != EGL_NO_SURFACE) eglDestroySurface(display, surface);
             if (initialized == EGL_TRUE) eglTerminate(display);
         }
+    }
     }
 #else
     report << "external_gles_session=SKIPPED (not an Android build)\n";
