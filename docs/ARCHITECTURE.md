@@ -6,7 +6,11 @@ NextVRera explores phone-based XR on Android. The phone provides the display, se
 
 The Android OpenXR runtime is branded **GVXRS Mobile**; PC-to-phone streaming is **GVXRS Link**; and Gear VR compatibility research is **GVXRS Legacy**. GVXRS Core groups shared tracking contracts and diagnostics. These are independent runtime tracks inside one product family; their lifecycle boundaries remain separate.
 
-## Naming and compatibility\n\nNextVRera is the user-facing Android application. GVXRS means **Global Virtual XR Series**. The Android package ID, Kotlin package, native library filename and historical EndXR service/source identifiers remain unchanged for now to preserve app identity, permissions, IPC and OpenXR loader integration.\n\n## Main components
+## Naming and compatibility
+
+NextVRera is the user-facing Android application. GVXRS means **Global Virtual XR Series**. The Android package ID, Kotlin package, native library filename and historical EndXR service/source identifiers remain unchanged for now to preserve app identity, permissions, IPC and OpenXR loader integration.
+
+## Main components
 
 ### Android application
 
