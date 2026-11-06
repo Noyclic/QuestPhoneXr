@@ -17,9 +17,9 @@ class MjpegPartReaderTest {
         }
         val reader = MjpegPartReader(ByteArrayInputStream(body.toByteArray()), "endvrframe")
 
-        assertArrayEquals(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 1, 0xD9.toByte()), reader.readFrame())
-        assertArrayEquals(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 2, 0xD9.toByte()), reader.readFrame())
-        assertNull(reader.readFrame())
+        assertArrayEquals(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 1, 0xD9.toByte()), reader.readFrame()!!)
+        assertArrayEquals(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 2, 0xD9.toByte()), reader.readFrame()!!)
+        assertNull(reader.readFrame()!!)
     }
 
     @Test
