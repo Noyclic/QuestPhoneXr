@@ -4,7 +4,7 @@
 
 QuestPhoneXR explores phone-based XR on Android. The phone provides the display, sensors, camera, input and application runtime; a smartphone viewer such as VR Shinecon can be used for stereoscopic viewing.
 
-The Android runtime work is named **EndXR**. PC-to-phone VR streaming is a separate planned direction named **EndVR**. The two projects may share a tracking protocol, but they have different responsibilities and should not be coupled into one runtime.
+The Android runtime work is named **EndXR**. PC-to-phone VR streaming is a separate track named **EndVR**, now at an early generated-frame preview stage. The two projects may share a tracking protocol, but they have different responsibilities and should not be coupled into one runtime.
 
 ## Main components
 
