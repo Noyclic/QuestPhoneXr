@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "endvr-host"
+version = "0.1.0"
+description = "EndVR PC host EV-0 synthetic preview"
+requires-python = ">=3.10"
+dependencies = ["aiohttp>=3.9,<4", "Pillow>=10,<13"]
+
+[project.scripts]
+endvr-host = "endvr_host.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
