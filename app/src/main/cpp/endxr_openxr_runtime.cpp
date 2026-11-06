@@ -197,11 +197,12 @@ struct XrAction_T {
     std::unordered_set<XrSpace> spaces;
 };
 
-namespace {
 #if defined(__ANDROID__)
 bool startExternalControllerInputPolling(XrInstance_T* instance);
 void stopExternalControllerInputPolling(XrInstance_T* instance);
 #endif
+
+namespace {
 bool locateEstimatedHandPose(XrSpace_T* object, XrSpace_T* base, XrPosef* pose);
 constexpr XrSystemId kEndXrSystemId = 1;
 constexpr std::uint32_t kRecommendedEyeWidth = 960;
@@ -2176,6 +2177,7 @@ XrResult validateActionForSession(
 #if defined(__ANDROID__)
 namespace {
 constexpr auto kExternalInputPollInterval = std::chrono::milliseconds(20);
+}
 
 bool startExternalControllerInputPolling(XrInstance_T* instance) {
     if (instance == nullptr || !instance->androidExtensionEnabled ||
@@ -2223,7 +2225,6 @@ void stopExternalControllerInputPolling(XrInstance_T* instance) {
         instance->externalInputPollThread.join();
     }
 }
-} // namespace
 #endif
 bool locateEstimatedHandPose(XrSpace_T* object, XrSpace_T* base, XrPosef* pose) {
     return locateEstimatedHandPoseImpl(object, base, pose);
