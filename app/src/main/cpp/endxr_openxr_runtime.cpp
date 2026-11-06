@@ -252,6 +252,23 @@ std::unordered_map<XrAction, XrAction_T*> g_actions;
 std::mutex g_headPoseMutex;
 XrQuaternionf g_headOrientation{0.0f, 0.0f, 0.0f, 1.0f};
 bool g_hasHeadOrientation = false;
+std::chrono::steady_clock::time_point g_headOrientationUpdatedAt{};
+constexpr auto kHeadOrientationStaleTimeout = std::chrono::milliseconds(500);
+
+bool readFreshHeadOrientation(XrQuaternionf* orientation) {
+    if (orientation == nullptr) return false;
+    std::lock_guard<std::mutex> lock(g_headPoseMutex);
+    if (!g_hasHeadOrientation ||
+        g_headOrientationUpdatedAt.time_since_epoch().count() == 0 ||
+        std::chrono::steady_clock::now() - g_headOrientationUpdatedAt >
+            kHeadOrientationStaleTimeout) {
+        *orientation = {0.0f, 0.0f, 0.0f, 1.0f};
+        return false;
+    }
+    *orientation = g_headOrientation;
+    return true;
+}
+
 struct EndXrControllerInput {
     bool active = false;
     float trigger = 0.0f, grip = 0.0f, stickX = 0.0f, stickY = 0.0f;
@@ -737,10 +754,31 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrCreateInstance(
         g_instances.emplace(createdHandle, created);
     }
 #if defined(__ANDROID__)
-    if (created->androidExtensionEnabled) {
-        // Start the Binder/ContentProvider polling worker before returning the
-        // instance. OpenXR frame and pose calls only consume cached native state.
-        startExternalControllerInputPolling(created);
+    if (created->androidExtensionEnabled &&
+        !startExternalControllerInputPolling(created)) {
+        {
+            std::lock_guard<std::mutex> lock(g_instanceMutex);
+            g_instances.erase(createdHandle);
+        }
+        // The Android extension was explicitly requested. Do not report a
+        // usable instance when its required input worker could not be created.
+        JNIEnv* env = nullptr;
+        bool attachedHere = false;
+        const jint envStatus = created->applicationVm->GetEnv(
+            reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+        if (envStatus == JNI_EDETACHED) {
+            if (created->applicationVm->AttachCurrentThread(&env, nullptr) == JNI_OK) {
+                attachedHere = true;
+            }
+        } else if (envStatus != JNI_OK) {
+            env = nullptr;
+        }
+        if (env != nullptr && created->applicationActivity != nullptr) {
+            env->DeleteGlobalRef(created->applicationActivity);
+        }
+        if (attachedHere) created->applicationVm->DetachCurrentThread();
+        delete created;
+        return XR_ERROR_RUNTIME_FAILURE;
     }
 #endif
     *instance = createdHandle;
@@ -1248,12 +1286,7 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrLocateSpace(
         return XR_SUCCESS;
     }
     XrQuaternionf orientation{};
-    bool hasOrientation = false;
-    {
-        std::lock_guard<std::mutex> lock(g_headPoseMutex);
-        orientation = g_headOrientation;
-        hasOrientation = g_hasHeadOrientation;
-    }
+    const bool hasOrientation = readFreshHeadOrientation(&orientation);
     location->pose.orientation = orientation;
     location->pose.position = {0.0f, 0.0f, 0.0f};
     location->locationFlags = hasOrientation
@@ -1288,12 +1321,7 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrLocateViews(
     // Head orientation is updated independently by the runtime's input
     // worker, so locating views never blocks on Android Binder IPC.
     XrQuaternionf orientation{};
-    bool tracked = false;
-    {
-        std::lock_guard<std::mutex> lock(g_headPoseMutex);
-        orientation = g_headOrientation;
-        tracked = g_hasHeadOrientation;
-    }
+    const bool tracked = readFreshHeadOrientation(&orientation);
     viewState->viewStateFlags = tracked
         ? XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_ORIENTATION_TRACKED_BIT
         : 0;
@@ -1793,6 +1821,16 @@ bool refreshExternalControllerInputImpl(XrInstance_T* instance) {
 }
 #endif
 
+int interactionProfilePriority(const std::string& profile) {
+    // EndXR emulates Quest Touch-style controls. Prefer that explicit binding
+    // set over generic/simple profiles when an app suggests several options.
+    if (profile == "/interaction_profiles/oculus/touch_controller") return 0;
+    if (profile == "/interaction_profiles/meta/touch_controller_plus") return 1;
+    if (profile == "/interaction_profiles/htc/vive_controller") return 2;
+    if (profile == "/interaction_profiles/khr/simple_controller") return 3;
+    return 10;
+}
+
 XrPath currentProfileForHand(XrSession_T* session, int hand) {
     if (session == nullptr || hand < 0 || hand > 1 ||
         !session->synchronizedControllerInputs[static_cast<std::size_t>(hand)].active) {
@@ -1814,7 +1852,12 @@ XrPath currentProfileForHand(XrSession_T* session, int hand) {
         }
     }
     std::sort(profiles.begin(), profiles.end(),
-        [](const auto& a, const auto& b) { return a.first < b.first; });
+        [](const auto& a, const auto& b) {
+            const int aPriority = interactionProfilePriority(a.first);
+            const int bPriority = interactionProfilePriority(b.first);
+            if (aPriority != bPriority) return aPriority < bPriority;
+            return a.first < b.first;
+        });
     return profiles.empty() ? XR_NULL_PATH : profiles.front().second;
 }
 struct ResolvedActionInput {
@@ -2044,13 +2087,7 @@ bool locateEstimatedHandPoseImpl(
     XrPosef pose = composePose(resolved.pose, object->poseInReferenceSpace);
     if (base->type == XR_REFERENCE_SPACE_TYPE_LOCAL) {
         XrQuaternionf headOrientation{};
-        bool headOrientationActive = false;
-        {
-            std::lock_guard<std::mutex> lock(g_headPoseMutex);
-            headOrientation = g_headOrientation;
-            headOrientationActive = g_hasHeadOrientation;
-        }
-        if (!headOrientationActive) return false;
+        if (!readFreshHeadOrientation(&headOrientation)) return false;
         XrPosef headPose{};
         headPose.orientation = headOrientation;
         headPose.position = {0.0f, 0.0f, 0.0f};
@@ -2977,12 +3014,14 @@ extern "C" __attribute__((visibility("default"))) void endxrSetHeadOrientation(
         static_cast<float>(z / magnitude),
         static_cast<float>(w / magnitude)
     };
+    g_headOrientationUpdatedAt = std::chrono::steady_clock::now();
     g_hasHeadOrientation = true;
 }
 
 extern "C" __attribute__((visibility("default"))) void endxrClearHeadOrientation() {
     std::lock_guard<std::mutex> lock(g_headPoseMutex);
     g_headOrientation = {0.0f, 0.0f, 0.0f, 1.0f};
+    g_headOrientationUpdatedAt = {};
     g_hasHeadOrientation = false;
 }
 
