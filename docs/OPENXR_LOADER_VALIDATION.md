@@ -7,6 +7,13 @@
 It first checks Android service discovery and then calls the official Khronos
 Android OpenXR Loader from that independent process.
 
+The runtime currently negotiates OpenXR **1.0.0**. The diagnostic APK is built
+with Khronos loader/header **1.1.65**, but it deliberately requests
+`XR_MAKE_VERSION(1, 0, 0)` from the runtime. Do not replace this with
+`XR_CURRENT_API_VERSION`: that macro follows the header version (1.1.65 here),
+which EndXR correctly rejects with
+`XR_ERROR_API_VERSION_UNSUPPORTED (-4)` until OpenXR 1.1 is implemented.
+
 The probe records these stages:
 
 1. `xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR", ...)`
@@ -44,8 +51,14 @@ a local imitation of the loader or RuntimeBroker.
 
 - `xrInitializeLoaderKHR call=XR_SUCCESS` means the official Android loader
   initialized in the separate client package.
+- `loader_header_api_version=1.1.65` records the Khronos header revision used
+  to build the probe; `application_requested_api_version=1.0.0` records the
+  version intentionally requested from EndXR.
 - `xrCreateInstance=XR_SUCCESS` means the loader found and loaded an active
-  runtime and successfully negotiated an OpenXR instance.
+  runtime and successfully negotiated an OpenXR 1.0 instance.
+- `XR_ERROR_API_VERSION_UNSUPPORTED` is an API-version mismatch, not proof that
+  RuntimeBroker is missing. `XR_ERROR_RUNTIME_UNAVAILABLE` specifically points
+  to the absence of an active runtime from RuntimeBroker.
 - `xrGetSystem(HMD)=XR_SUCCESS` means that runtime exposed an HMD system to
   this client process.
 - `primary_stereo_supported=YES` means the runtime advertised the primary
@@ -82,7 +95,7 @@ The runtime service has its own explicit Android display label and icon, separat
 
 If the Broker is already installed, the Sandbox button explicitly opens the Khronos-owned `org.khronos.openxr.runtime_broker.MainActivity` settings screen (the Broker is not assumed to expose a launcher intent). If it is missing, the button opens the official Play Store listing and can copy the listing URL. A device without Google Play may require the official Khronos-signed APK from a supported market/source; do not use random repackaged Broker APKs.
 
-The Android 15 CI emulator used by this repository does not include an installable or system RuntimeBroker. Its expected `XR_ERROR_RUNTIME_UNAVAILABLE` is therefore a broker-selection limitation, not proof that the EndXR library failed to load. Physical-device selection and independent client loading remain separate acceptance checks.
+The Android 15 CI emulator used by this repository does not include an installable or system RuntimeBroker. Its expected `XR_ERROR_RUNTIME_UNAVAILABLE` is therefore a broker-selection limitation, not proof that the EndXR library failed to load. Physical-device selection and independent client loading remain separate acceptance checks. The CI probe requests OpenXR 1.0.0 explicitly, so it no longer produces a false API-version failure solely because the bundled Khronos headers are newer than the runtime's supported API line.
 
 A successful `xrCreateInstance` is a major interoperability checkpoint, but
 it is not proof of game compatibility. The separate client now attempts a
