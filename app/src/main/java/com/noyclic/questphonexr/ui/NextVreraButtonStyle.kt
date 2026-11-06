@@ -4,7 +4,6 @@ import android.content.res.ColorStateList
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.widget.Button
-import com.noyclic.questphonexr.R
 
 /**
  * Shared, high-contrast button language for the NextVRera / GVXRS Android UI.
@@ -26,7 +25,7 @@ fun nextVreraToneFor(label: CharSequence?): NextVreraButtonTone {
         listOf("сброс", "выйти", "отозвать", "удалить", "остановить", "отключить", "reset", "delete", "stop").any(value::contains) ->
             NextVreraButtonTone.DANGER
 
-        listOf("подключ", "запустить", "добавить", "применить", "сохранить", "разрешить", "включить", "назначить", "калибров", "open", "launch", "connect", "apply", "save").any(value::contains) ->
+        listOf("подключ", "запустить", "добавить", "применить", "сохранить", "разрешить", "включить", "назначить", "импорт", "калибров", "open", "launch", "connect", "apply", "save").any(value::contains) ->
             NextVreraButtonTone.PRIMARY
 
         listOf("диагност", "проверить", "копировать", "показать", "выбор", "профиль", "разрешение", "контроллер", "broker", "report", "copy", "check").any(value::contains) ->
