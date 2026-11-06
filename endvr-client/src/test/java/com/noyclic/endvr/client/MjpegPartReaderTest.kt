@@ -19,7 +19,7 @@ class MjpegPartReaderTest {
 
         assertArrayEquals(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 1, 0xD9.toByte()), reader.readFrame()!!)
         assertArrayEquals(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 2, 0xD9.toByte()), reader.readFrame()!!)
-        assertNull(reader.readFrame()!!)
+        assertNull(reader.readFrame())
     }
 
     @Test
