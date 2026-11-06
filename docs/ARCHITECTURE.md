@@ -56,7 +56,7 @@ The probe records runtime service discovery, loader initialization, active-runti
 
 Android RuntimeBroker selection is a separate step. Seeing the EndXR service does not mean Android has selected it as the active runtime. The emulator currently has no RuntimeBroker provider, so `XR_ERROR_RUNTIME_UNAVAILABLE` can be the expected result there.
 
-### PC tracking bridge and future EndVR
+### PC tracking bridge and EndVR preview
 
 The experimental PC bridge sends head-orientation and MediaPipe hand telemetry over UDP. The current tracking packet is a latest-state snapshot, not a reliable video transport.
 
@@ -66,7 +66,7 @@ It is not:
 - a calibrated room-space tracking system;
 - proof that the PC can use the phone as a complete VR headset.
 
-EndVR is planned as a separate system with a PC host, Android client, video encoding/decoding, tracking transport and SteamVR integration. Linux is a first-class target; Windows support is also planned. None of those streaming components should be described as complete until implemented and tested. The proposed module boundaries, transport choices and staged implementation criteria are documented in [EndVR streaming design](ENDVR_STREAMING_DESIGN.md).
+EndVR is a separate PC-to-phone system. Its first EV-0 slice has a synthetic MJPEG PC host and a standalone Android client that displays the generated left/right-eye test pattern. It does not yet capture desktop/SteamVR frames, use WebRTC/H.264, send phone tracking back to the PC or provide a usable live SteamVR headset path. The module boundaries and remaining milestones are documented in [EndVR streaming design](ENDVR_STREAMING_DESIGN.md).
 
 ### EndGVR — separate legacy Gear VR track
 
@@ -83,8 +83,7 @@ classic APK has been inspected and its required service/API calls are known.
 
 ### EndVR — separate PC streaming track
 
-EndVR is the planned PC streaming system described above. It is not the Gear
-VR compatibility layer.
+EndVR is the separate PC streaming system described above. Its generated-frame phone preview is an early test path, not a finished headset. It is not the Gear VR compatibility layer.
 
 ## Runtime boundaries and compatibility
 
