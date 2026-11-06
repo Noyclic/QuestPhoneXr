@@ -111,6 +111,14 @@ class ExternalRuntimeClientDiscoveryTest {
                 loaderReport.contains("xrInitializeLoaderKHR call=XR_SUCCESS")
             )
             assertTrue(
+                "The external probe must report the Khronos header API version:\n$loaderReport",
+                loaderReport.contains("loader_header_api_version=1.1.65")
+            )
+            assertTrue(
+                "The external probe must request EndXR's supported OpenXR 1.0.0 API:\n$loaderReport",
+                loaderReport.contains("application_requested_api_version=1.0.0")
+            )
+            assertTrue(
                 "The official loader did not attempt xrCreateInstance:\n$loaderReport",
                 loaderReport.contains("xrCreateInstance=")
             )

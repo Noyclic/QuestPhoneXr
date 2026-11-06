@@ -74,6 +74,49 @@ void testNegotiation() {
     expect(xrNegotiateLoaderRuntimeInterface(&loader, &request) ==
                XR_ERROR_API_VERSION_UNSUPPORTED, "reject unsupported API version");
 }
+void testInstanceApiVersionCompatibility() {
+    XrNegotiateLoaderInfo loader{};
+    XrNegotiateRuntimeRequest request{};
+    setup(loader, request);
+    expect(xrNegotiateLoaderRuntimeInterface(&loader, &request) == XR_SUCCESS,
+           "negotiate before API version compatibility checks");
+
+    PFN_xrVoidFunction raw = resolve(request.getInstanceProcAddr, XR_NULL_HANDLE,
+                                     "xrCreateInstance");
+    auto create = reinterpret_cast<PFN_xrCreateInstance>(raw);
+    raw = resolve(request.getInstanceProcAddr, XR_NULL_HANDLE, "xrDestroyInstance");
+    auto destroy = reinterpret_cast<PFN_xrDestroyInstance>(raw);
+
+    XrInstanceCreateInfo info{};
+    info.type = XR_TYPE_INSTANCE_CREATE_INFO;
+    info.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 65);
+    XrInstance instance = XR_NULL_HANDLE;
+    expect(create(&info, &instance) == XR_SUCCESS && instance != XR_NULL_HANDLE,
+           "accept a patch-level revision within the supported OpenXR 1.0 API line");
+    expect(destroy(instance) == XR_SUCCESS,
+           "destroy instance created with a compatible OpenXR 1.0 patch version");
+
+    info.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 1, 65);
+    instance = reinterpret_cast<XrInstance>(static_cast<std::uintptr_t>(1));
+    expect(create(&info, &instance) == XR_ERROR_API_VERSION_UNSUPPORTED,
+           "reject OpenXR 1.1 when only the 1.0 core API is implemented");
+    expect(instance == XR_NULL_HANDLE,
+           "clear the output handle when an unsupported API version is rejected");
+
+    info.applicationInfo.apiVersion = XR_MAKE_VERSION(2, 0, 0);
+    instance = reinterpret_cast<XrInstance>(static_cast<std::uintptr_t>(1));
+    expect(create(&info, &instance) == XR_ERROR_API_VERSION_UNSUPPORTED,
+           "reject a different OpenXR major API version");
+    expect(instance == XR_NULL_HANDLE,
+           "leave no instance handle after major-version rejection");
+
+    instance = reinterpret_cast<XrInstance>(static_cast<std::uintptr_t>(1));
+    expect(create(nullptr, &instance) == XR_ERROR_VALIDATION_FAILURE,
+           "reject a null instance create-info structure");
+    expect(instance == XR_NULL_HANDLE,
+           "clear the output handle when create-info validation fails");
+}
+
 void testExtensionEnumerationAndInstance() {
     XrNegotiateLoaderInfo loader{};
     XrNegotiateRuntimeRequest request{};
@@ -972,6 +1015,7 @@ void testActionEntryPointsAreAdvertised() {
 }
 int main() {
     testNegotiation();
+    testInstanceApiVersionCompatibility();
     testExtensionEnumerationAndInstance();
     testSystemDiscoveryAndGraphicsRequirements();
     testGlesSessionSwapchainAndFrameLifecycle();
