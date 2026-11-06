@@ -1,19 +1,21 @@
-name: EndVR PC Host
+name: EndVR PC Host and SteamVR Driver
 
 on:
   push:
     branches: [main]
     paths:
       - "pc/endvr-host/**"
+      - "pc/steamvr-driver/**"
       - ".github/workflows/endvr-pc-host.yml"
   pull_request:
     paths:
       - "pc/endvr-host/**"
+      - "pc/steamvr-driver/**"
       - ".github/workflows/endvr-pc-host.yml"
   workflow_dispatch:
 
 jobs:
-  test:
+  host-tests:
     name: Python host tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -34,3 +36,17 @@ jobs:
       - name: Run unit tests
         working-directory: pc/endvr-host
         run: python -m unittest discover -s tests -v
+
+  steamvr-driver-build:
+    name: SteamVR driver compile (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure CMake
+        run: cmake -S pc/steamvr-driver -B build/endvr-driver -DCMAKE_BUILD_TYPE=Release
+      - name: Build driver
+        run: cmake --build build/endvr-driver --config Release --parallel
