@@ -1,6 +1,6 @@
-# EndVR PC Host — EV-0
+# GVXRS Link PC Host — EV-0
 
-This is the PC-host side of the EndVR EV-0 preview. The receiver is a separate Android app in `endvr-client`; neither component depends on the EndXR runtime, IPC, camera or MediaPipe code.
+This is the PC-host side of the GVXRS Link EV-0 preview. The receiver is a separate Android app in `endvr-client`; neither component depends on the GVXRS Mobile runtime, IPC, camera or MediaPipe code.
 
 ## Implemented
 - Python 3.10+ host for Linux and Windows.
@@ -32,7 +32,7 @@ Optional low-load mode: `endvr-host --bind 0.0.0.0 --width 640 --height 360 --fp
 
 ## Preview on the Android phone
 
-Build/install the separate [EndVR Android Client](../../endvr-client/README.md). Keep the phone and PC on the same trusted Wi-Fi, run the host with `--bind 0.0.0.0`, find the PC's LAN IPv4 address, and connect the app to `http://PC-LAN-IP:8765/stream.mjpg`. The app should show the blue left-eye half and red right-eye half with a moving marker. This is only the generated test pattern; it does not display a SteamVR game. The stream is unencrypted and has no pairing/authentication, so do not use a public/guest network or port-forward it.
+Build/install the separate [GVXRS Link Android Client](../../endvr-client/README.md). Keep the phone and PC on the same trusted Wi-Fi, run the host with `--bind 0.0.0.0`, find the PC's LAN IPv4 address, and connect the app to `http://PC-LAN-IP:8765/stream.mjpg`. The app should show the blue left-eye half and red right-eye half with a moving marker. This is only the generated test pattern; it does not display a SteamVR game. The stream is unencrypted and has no pairing/authentication, so do not use a public/guest network or port-forward it.
 
 ## Next PC milestones
 1. Define a capture-source interface and timestamped frames.
