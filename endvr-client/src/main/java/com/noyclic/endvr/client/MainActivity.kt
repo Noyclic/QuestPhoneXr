@@ -49,7 +49,7 @@ class MainActivity : Activity() {
         root = FrameLayout(this).apply { setBackgroundColor(0xFF080B10.toInt()) }
         preview = StereoPreviewView(this).apply {
             visibility = View.GONE
-            setOnClickListener { overlay.visibility = if (overlay.visibility == View.VISIBLE) View.GONE else View.VISIBLE }
+            setOnClickListener { this@MainActivity.overlay.visibility = if (this@MainActivity.overlay.visibility == View.VISIBLE) View.GONE else View.VISIBLE }
         }
         root.addView(preview, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -153,7 +153,7 @@ class MainActivity : Activity() {
         statusLabel.text = "Connecting to " + parsed.host + "…"
         fpsWindowStartMs = 0L
         framesInWindow = 0
-        setImmersive(true)
+        applyImmersiveMode(true)
 
         streamClient = MjpegStreamClient(parsed, object : MjpegStreamClient.Listener {
             override fun onState(message: String) {
@@ -221,11 +221,11 @@ class MainActivity : Activity() {
         overlay.visibility = View.GONE
         if (showPanel) {
             connectionPanel.visibility = View.VISIBLE
-            setImmersive(false)
+            applyImmersiveMode(false)
         }
     }
 
-    private fun setImmersive(enabled: Boolean) {
+    private fun applyImmersiveMode(enabled: Boolean) {
         @Suppress("DEPRECATION")
         window.decorView.systemUiVisibility = if (enabled) {
             (View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
