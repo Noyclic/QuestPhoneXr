@@ -1,9 +1,44 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="420" viewBox="0 0 960 420" fill="none">
-<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#111B36"/><stop offset="1" stop-color="#263D63"/></linearGradient><linearGradient id="floor" x2="1" y2="1"><stop stop-color="#263B5D"/><stop offset="1" stop-color="#172641"/></linearGradient></defs>
-<rect width="960" height="420" rx="24" fill="url(#bg)"/><circle cx="780" cy="70" r="120" fill="#5369A8" opacity=".12"/>
-<text x="52" y="62" fill="#A8B9E8" font-family="Arial,sans-serif" font-size="16" letter-spacing="3">ENDXR • INTERACTIVE TEST SPACE</text><text x="52" y="105" fill="#F5F7FF" font-family="Arial,sans-serif" font-size="34" font-weight="700">Sandbox</text><text x="52" y="137" fill="#B9C7E4" font-family="Arial,sans-serif" font-size="17">A lightweight scene for testing input and stereo rendering</text>
-<path d="M105 315 480 185 855 315 480 400Z" fill="url(#floor)" stroke="#607BA9" stroke-width="2"/><g stroke="#47658E" opacity=".8"><path d="m180 340 375-130M280 365l375-130M380 390l375-130M300 248l375 130M400 213l375 130M500 178l355 123"/></g>
-<g><path d="m370 251 62-23 60 23-62 25-60-25Z" fill="#6D8CFF"/><path d="m370 251 60 25v69l-60-27v-67Z" fill="#405BC4"/><path d="m430 276 62-25v67l-62 27v-69Z" fill="#91A6FF"/><path d="m590 290 42-16 41 16-42 17-41-17Z" fill="#41C7B1"/><path d="m590 290 41 17v46l-41-18v-45Z" fill="#248E87"/><path d="m631 307 42-17v45l-42 18v-46Z" fill="#73E0CB"/></g>
-<g fill="#FFCA75" stroke="#FFE4B2" stroke-width="3"><circle cx="245" cy="240" r="18"/><circle cx="245" cy="240" r="7" fill="#273957"/><circle cx="750" cy="245" r="18"/><circle cx="750" cy="245" r="7" fill="#273957"/></g>
-<g stroke="#B8C7FF" stroke-width="5" stroke-linecap="round"><path d="M470 175v-27m0 0-17-17m17 17 18-19"/><path d="M525 170v-30m0 0-16-16m16 16 17-18"/></g>
-<rect x="52" y="350" width="210" height="38" rx="19" fill="#314A75"/><circle cx="73" cy="369" r="5" fill="#55D7C1"/><text x="89" y="375" fill="#EAF0FF" font-family="Arial,sans-serif" font-size="14">TEST SCENE CONCEPT</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="460" viewBox="0 0 1000 460" fill="none" role="img" aria-labelledby="title desc">
+<title id="title">NextVRera Sandbox</title><desc id="desc">A three-dimensional virtual test space with grid floor, floating objects, hand landmarks and diagnostic panels.</desc>
+<defs>
+ <linearGradient id="bg" x1="0" y1="0" x2="1000" y2="460" gradientUnits="userSpaceOnUse"><stop stop-color="#081522"/><stop offset=".55" stop-color="#11243B"/><stop offset="1" stop-color="#1B2140"/></linearGradient>
+ <linearGradient id="floor" x1="125" y1="275" x2="890" y2="450" gradientUnits="userSpaceOnUse"><stop stop-color="#1B3854"/><stop offset="1" stop-color="#101A30"/></linearGradient>
+ <linearGradient id="cubeA" x1="350" y1="170" x2="470" y2="300" gradientUnits="userSpaceOnUse"><stop stop-color="#8D9FFF"/><stop offset="1" stop-color="#4C63D8"/></linearGradient>
+ <linearGradient id="cubeB" x1="600" y1="225" x2="695" y2="320" gradientUnits="userSpaceOnUse"><stop stop-color="#6DE9D4"/><stop offset="1" stop-color="#269E9A"/></linearGradient>
+ <radialGradient id="aura" cx="0" cy="0" r="1" gradientTransform="matrix(0 205 -250 0 760 190)" gradientUnits="userSpaceOnUse"><stop stop-color="#5A7DFF" stop-opacity=".2"/><stop offset="1" stop-color="#5A7DFF" stop-opacity="0"/></radialGradient>
+ <pattern id="stars" width="72" height="66" patternUnits="userSpaceOnUse"><circle cx="12" cy="12" r="1" fill="#B9D5FA" fill-opacity=".3"/><circle cx="51" cy="43" r=".8" fill="#B9D5FA" fill-opacity=".22"/></pattern>
+ <filter id="shadow" x="250" y="90" width="550" height="340" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="20"/></filter>
+</defs>
+<rect width="1000" height="460" rx="26" fill="url(#bg)"/><rect width="1000" height="460" rx="26" fill="url(#aura)"/><rect width="1000" height="460" rx="26" fill="url(#stars)"/>
+<text x="54" y="56" fill="#70E8D4" font-family="Inter,Arial,sans-serif" font-size="12" font-weight="700" letter-spacing="3">GVXRS MOBILE  /  INTERACTIVE TEST SPACE</text>
+<text x="54" y="101" fill="#F1F6FF" font-family="Inter,Arial,sans-serif" font-size="34" font-weight="750">Sandbox</text>
+<text x="54" y="130" fill="#8FA4C2" font-family="Inter,Arial,sans-serif" font-size="14">A lightweight space to validate stereo rendering, input and interaction.</text>
+<path d="M115 335 502 188 893 335 502 438Z" fill="url(#floor)" stroke="#4E769B" stroke-opacity=".75" stroke-width="1.5"/>
+<g stroke="#43688B" stroke-opacity=".62" stroke-width="1">
+ <path d="m160 352 342-129 349 129M221 371l281-106 287 106M291 397l211-80 216 80M378 420l124-47 129 47"/>
+ <path d="m240 288 262 150M325 256l177 182M410 224l92 214M594 222 502 438M681 254 502 438M768 288 502 438"/>
+</g>
+<ellipse cx="510" cy="337" rx="250" ry="34" fill="#040B16" opacity=".65" filter="url(#shadow)"/>
+<g>
+ <path d="m358 216 73-31 77 31-76 34-74-34Z" fill="#B8C4FF"/><path d="m358 216 74 34v86l-74-37v-83Z" fill="#536AD6"/><path d="m432 250 76-34v83l-76 37v-86Z" fill="url(#cubeA)" stroke="#BCC9FF" stroke-opacity=".5"/>
+ <path d="m602 261 54-23 56 23-55 25-55-25Z" fill="#A1F9E8"/><path d="m602 261 55 25v63l-55-27v-61Z" fill="#258F8E"/><path d="m657 286 55-25v61l-55 27v-63Z" fill="url(#cubeB)"/>
+ <path d="m522 188 35-15 36 15-36 16-35-16Z" fill="#FFD999"/><path d="m522 188 35 16v41l-35-17v-40Z" fill="#B97745"/><path d="m557 204 36-16v40l-36 17v-41Z" fill="#F0B76E"/>
+</g>
+<g fill="#A6D9FF" fill-opacity=".12" stroke="#8DCBFF" stroke-opacity=".7"><circle cx="262" cy="232" r="29"/><circle cx="762" cy="234" r="37"/></g>
+<g fill="#DDF8FF" stroke="#6ECDE4" stroke-width="2"><circle cx="262" cy="232" r="5"/><circle cx="762" cy="234" r="5"/></g>
+<g stroke="#66E8D2" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity=".92">
+ <path d="M818 328 805 288 798 247 793 215 791 188M805 288 778 262 760 235 748 214M805 288 813 247 817 212 816 187M805 288 840 263 860 237 872 217"/>
+</g>
+<g fill="#E4FFF9" stroke="#44C9B7" stroke-width="2"><circle cx="818" cy="328" r="5"/><circle cx="805" cy="288" r="5"/><circle cx="798" cy="247" r="5"/><circle cx="793" cy="215" r="5"/><circle cx="791" cy="188" r="5"/><circle cx="778" cy="262" r="5"/><circle cx="760" cy="235" r="5"/><circle cx="748" cy="214" r="5"/><circle cx="813" cy="247" r="5"/><circle cx="817" cy="212" r="5"/><circle cx="816" cy="187" r="5"/><circle cx="840" cy="263" r="5"/><circle cx="860" cy="237" r="5"/><circle cx="872" cy="217" r="5"/></g>
+<g font-family="Inter,Arial,sans-serif">
+ <rect x="54" y="176" width="208" height="95" rx="14" fill="#0B1A2A" fill-opacity=".92" stroke="#3C607E"/>
+ <text x="73" y="202" fill="#8CA8C8" font-size="10" font-weight="700" letter-spacing="1.7">SESSION TELEMETRY</text>
+ <circle cx="75" cy="226" r="4" fill="#66E7D0"/><text x="89" y="230" fill="#E4F5FF" font-size="13">Stereo renderer</text><text x="235" y="230" text-anchor="end" fill="#69E6D1" font-size="12">READY</text>
+ <circle cx="75" cy="250" r="4" fill="#A89BFF"/><text x="89" y="254" fill="#E4F5FF" font-size="13">Input bridge</text><text x="235" y="254" text-anchor="end" fill="#B1A6FF" font-size="12">TEST</text>
+ <rect x="739" y="76" width="206" height="82" rx="14" fill="#111D34" stroke="#5469A7" stroke-opacity=".7"/>
+ <text x="759" y="101" fill="#9DB4D9" font-size="10" font-weight="700" letter-spacing="1.5">INTERACTION</text>
+ <text x="759" y="128" fill="#F3F6FF" font-size="15" font-weight="700">Grab · Move · Release</text>
+ <text x="759" y="145" fill="#839CC0" font-size="11">Illustrative test controls</text>
+</g>
+<rect x="54" y="389" width="228" height="34" rx="17" fill="#14383E" stroke="#3F9E94" stroke-opacity=".6"/><circle cx="72" cy="406" r="4" fill="#67E7D2"/><text x="86" y="410" fill="#D9FFF7" font-family="Inter,Arial,sans-serif" font-size="11" font-weight="700" letter-spacing=".7">CONCEPT SCENE  /  NOT A SCREENSHOT</text>
+</svg>
