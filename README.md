@@ -8,7 +8,7 @@
 
 The long-term idea is simple: use an Android phone as the XR device, run lightweight VR experiences directly on it, and build an OpenXR runtime that can gradually support more demanding applications.
 
-The project is called **EndXR** on the Android runtime side. A separate PC streaming component, planned as **EndVR**, is a future direction—not a feature that is already available.
+The Android runtime is **EndXR**. **EndVR** is a separate PC-to-phone streaming track. Its first EV-0 slice can send a generated stereo test pattern from the PC host to a standalone Android preview client; real game capture, low-latency codec transport and live tracking are not implemented yet.
 
 > **Current stage:** an early, actively developed prototype. The native runtime, Sandbox, input bridge and Android test pipeline are in place, but real third-party game compatibility has not yet been demonstrated on a physical phone.
 
@@ -18,7 +18,7 @@ The project is called **EndXR** on the Android runtime side. A separate PC strea
 - **Hand tracking:** use the phone camera and MediaPipe to detect hands and gestures.
 - **OpenXR:** provide an Android runtime foundation through the native EndXR implementation.
 - **Game experiments:** investigate which Android and Quest-oriented applications can be adapted, and which require deeper changes.
-- **PC streaming (future):** explore a separate EndVR system for streaming PC VR to the phone, with Linux as a first-class platform.
+- **EndVR:** an early PC host, SteamVR virtual-HMD compile prototype and separate Android generated-frame preview client. Actual game capture and wireless PCVR are still future milestones.
 
 A Meta Quest headset is not required for the phone-based development path.
 
@@ -134,7 +134,7 @@ To download a build, open [GitHub Actions](https://github.com/Noyclic/QuestPhone
 - [Project architecture](docs/ARCHITECTURE.md)
 - [External OpenXR loader test guide](docs/OPENXR_LOADER_VALIDATION.md)
 - [EndXR cross-process input IPC security](docs/IPC_SECURITY.md)
-- [Device compatibility diagnostics](docs/DEVICE_COMPATIBILITY.md)
+- [Device compatibility diagnostics](docs/DEVICE_COMPATIBILITY.md)\n- [EndVR Android client setup](endvr-client/README.md)\n- [EndVR streaming design and milestones](docs/ENDVR_STREAMING_DESIGN.md)
 
 ## Licensing
 
