@@ -10,7 +10,7 @@ EndXR is an early, minimal runtime implementation. It is not yet a conformant, g
 
 - Native C++ runtime and frame-lifecycle code.
 - A loader-facing native library, `libendxr_openxr.so`, built separately from the app JNI library.
-- OpenXR loader negotiation through `xrNegotiateLoaderRuntimeInterface`.
+- OpenXR loader negotiation through `xrNegotiateLoaderRuntimeInterface`. EndXR currently advertises the OpenXR 1.0 API line (`runtimeApiVersion=1.0.0`); applications requesting 1.1 are deliberately rejected until that core API surface is implemented. The external diagnostic client is compiled with Khronos 1.1.65 headers but requests 1.0.0 explicitly.
 - Android runtime service metadata for `org.khronos.openxr.OpenXRRuntimeService`, including the library filename and OpenXR major version.
 - An OpenXR entry-point table covering loader bootstrap, instance, system, GLES session, stereo views, swapchain, frame lifecycle, spaces, projection-layer composition and the core Action / Input API command family.
 - Action-set/action creation and destruction, per-instance path interning, suggested interaction-profile bindings, session attachment, `xrSyncActions`, boolean/float/vector/pose state queries, action spaces and localized source-name queries. These APIs are covered by native host tests.
