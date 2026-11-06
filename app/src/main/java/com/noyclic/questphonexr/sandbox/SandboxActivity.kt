@@ -1848,7 +1848,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             else -> "Включить фоновую камеру рук для Quest-игр"
         }
         persistentHandTrackingButton?.let { button ->
-            if (button.text.toString() != label) button.text = label
+            if (button.text.toString() != label) {
+                button.text = label
+                button.applyNextVreraStyle(nextVreraToneFor(label))
+            }
             button.contentDescription = label
         }
     }
