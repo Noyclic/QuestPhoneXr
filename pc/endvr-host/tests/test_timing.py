@@ -6,6 +6,9 @@ class FrameDeadlineTests(unittest.TestCase):
     def test_keeps_the_next_slot_when_frame_finishes_on_time(self):
         self.assertAlmostEqual(advance_frame_deadline(10.0, 0.02, 10.015), 10.02)
 
+    def test_does_not_skip_a_slot_at_the_exact_deadline(self):
+        self.assertAlmostEqual(advance_frame_deadline(10.0, 0.02, 10.02), 10.02)
+
     def test_skips_missed_slots_after_an_overrun(self):
         next_deadline = advance_frame_deadline(10.0, 0.02, 10.025)
         self.assertAlmostEqual(next_deadline, 10.04)
