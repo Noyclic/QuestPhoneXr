@@ -1032,7 +1032,6 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
             if (initialized == EGL_TRUE) eglTerminate(display);
         }
     }
-    }
 #else
     report << "external_gles_session=SKIPPED (not an Android build)\n";
 #endif
