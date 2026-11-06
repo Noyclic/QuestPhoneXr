@@ -20,6 +20,9 @@ import com.noyclic.questphonexr.diagnostics.CrashReportStore
 import com.noyclic.questphonexr.sandbox.SandboxActivity
 import com.noyclic.questphonexr.vr.PhoneVrPreviewActivity
 import com.noyclic.questphonexr.runtime.EndXrInputAccessManager
+import com.noyclic.questphonexr.ui.NextVreraButtonTone
+import com.noyclic.questphonexr.ui.applyNextVreraStyle
+import com.noyclic.questphonexr.ui.nextVreraToneFor
 
 /** The phone-first entry point for NextVRera and the GVXRS platform. */
 class ModeSelectionActivity : ComponentActivity() {
@@ -101,6 +104,7 @@ class ModeSelectionActivity : ComponentActivity() {
                 title = "Sandbox",
                 description = "3D-сцена, захват предметов руками, MediaPipe, Joy-Con и калибровка.",
                 accent = 0xFF8FD3B5.toInt(),
+                buttonTone = NextVreraButtonTone.PRIMARY,
                 buttonLabel = "Открыть песочницу"
             ) {
                 startActivity(Intent(this@ModeSelectionActivity, SandboxActivity::class.java))
@@ -114,6 +118,7 @@ class ModeSelectionActivity : ComponentActivity() {
                 title = "APK / Quest",
                 description = "Каталог VR-игр, импорт APK, анализ Android API и локальные результаты тестов.",
                 accent = 0xFF9BC7F5.toInt(),
+                buttonTone = NextVreraButtonTone.BLUE,
                 buttonLabel = "Открыть библиотеку"
             ) {
                 startActivity(Intent(this@ModeSelectionActivity, GameLibraryActivity::class.java))
@@ -128,6 +133,7 @@ class ModeSelectionActivity : ComponentActivity() {
                 title = "GVXRS Link · PCVR",
                 description = "Экспериментальная связь с ПК и передача телеметрии головы и рук. Полный видеостриминг и интеграция SteamVR ещё разрабатываются.",
                 accent = 0xFFFFD28A.toInt(),
+                buttonTone = NextVreraButtonTone.VIOLET,
                 buttonLabel = "Настроить связь с ПК"
             ) {
                 startActivity(
@@ -152,7 +158,7 @@ class ModeSelectionActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
         }
         tools.addView(
-            actionButton("VR Shinecon · стерео-тест") {
+            actionButton("VR Shinecon · стерео-тест", NextVreraButtonTone.SECONDARY) {
                 startActivity(Intent(this@ModeSelectionActivity, PhoneVrPreviewActivity::class.java))
             },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -160,7 +166,7 @@ class ModeSelectionActivity : ComponentActivity() {
             }
         )
         tools.addView(
-            actionButton("Диагностика рук и контроллеров") {
+            actionButton("Диагностика рук и контроллеров", NextVreraButtonTone.BLUE) {
                 startActivity(Intent(this@ModeSelectionActivity, MainActivity::class.java))
             },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -188,6 +194,7 @@ class ModeSelectionActivity : ComponentActivity() {
         description: String,
         accent: Int,
         buttonLabel: String,
+        buttonTone: NextVreraButtonTone,
         onClick: () -> Unit
     ): View {
         val card = LinearLayout(this).apply {
@@ -205,19 +212,19 @@ class ModeSelectionActivity : ComponentActivity() {
             setPadding(0, dp(8), 0, dp(14))
             minHeight = dp(84)
         })
-        card.addView(actionButton(buttonLabel, onClick))
+        card.addView(actionButton(buttonLabel, buttonTone, onClick))
         return card
     }
 
-    private fun actionButton(label: String, onClick: () -> Unit): Button =
-        Button(this).apply {
-            text = label
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            textSize = 12f
-            background = rounded(0xFF303B4B.toInt(), dp(9).toFloat())
-            setOnClickListener { onClick() }
-        }
+    private fun actionButton(
+        label: String,
+        tone: NextVreraButtonTone = nextVreraToneFor(label),
+        onClick: () -> Unit
+    ): Button = Button(this).apply {
+        text = label
+        applyNextVreraStyle(tone)
+        setOnClickListener { onClick() }
+    }
 
     private fun text(
         value: String,
