@@ -1,8 +1,8 @@
-# EndVR — PC-to-phone streaming architecture
+# GVXRS Link — PC-to-phone streaming architecture
 
 ## Status and scope
 
-EndVR is the planned PC-to-Android VR streaming system in QuestPhoneXR. It is separate from EndXR, which is the Android OpenXR runtime. EndVR must not depend on EndXR being selected as the phone's active OpenXR runtime: the phone client must be able to receive and display a stream independently.
+GVXRS Link is the planned PC-to-Android VR streaming system in NextVRera. It is separate from GVXRS Mobile, which is the Android OpenXR runtime. GVXRS Link must not depend on GVXRS Mobile being selected as the phone's active OpenXR runtime: the phone client must be able to receive and display a stream independently.
 
 This document defines an incremental architecture, not a claim that streaming, a SteamVR driver, or a compositor already exists.
 
@@ -13,7 +13,7 @@ This document defines an incremental architecture, not a claim that streaming, a
 - Android target is the Redmi Note 13 4G class device. Keep decode, tracking and display work bounded; thermal stability matters more than peak benchmark numbers.
 - The phone camera is optional. Head orientation should work from phone sensors without enabling a camera. Hand tracking is an optional separate input source and starts only after an explicit user action.
 - The system must expose honest capability states: unsupported encoder, unavailable capture backend, stale tracking, decoder overload and network congestion must be visible instead of silently pretending the headset is working.
-- EndXR and EndVR share data models where useful, but their lifecycle and responsibilities remain independent.
+- GVXRS Mobile and GVXRS Link share data models where useful, but their lifecycle and responsibilities remain independent.
 
 ## Process and module boundaries
 
@@ -177,4 +177,4 @@ The first diagnostic overlay should show: connection state, negotiated codec/res
 
 ## Relationship to existing code
 
-The existing `XrTrackingUdpSender` and Unity `QuestPhoneXRTrackingReceiver` are useful tracking-protocol experiments. They do not implement video transport, host capture, a decoder, pairing, encryption or a SteamVR driver. Preserve them as a diagnostic integration while designing the versioned production protocol separately.
+The existing `XrTrackingUdpSender` and Unity `NextVReraTrackingReceiver` are useful tracking-protocol experiments. They do not implement video transport, host capture, a decoder, pairing, encryption or a SteamVR driver. Preserve them as a diagnostic integration while designing the versioned production protocol separately.
