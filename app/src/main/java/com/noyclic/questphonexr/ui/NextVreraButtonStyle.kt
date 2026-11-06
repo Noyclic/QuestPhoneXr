@@ -68,6 +68,8 @@ fun Button.applyNextVreraStyle(
         cornerRadius = dp(12).toFloat()
         setStroke(dp(1), palette.stroke)
     }
+    // Clear the platform Material tint so it cannot recolor our custom gradient.
+    backgroundTintList = null
     background = RippleDrawable(
         ColorStateList.valueOf(palette.ripple),
         shape,
