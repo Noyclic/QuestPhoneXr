@@ -30,6 +30,10 @@ Open http://127.0.0.1:8765/ on the PC. For a phone on the same trusted Wi-Fi, ru
 
 Optional low-load mode: `endvr-host --bind 0.0.0.0 --width 640 --height 360 --fps 30`.
 
+## Preview on the Android phone
+
+Build/install the separate [EndVR Android Client](../../endvr-client/README.md). Keep the phone and PC on the same trusted Wi-Fi, run the host with `--bind 0.0.0.0`, find the PC's LAN IPv4 address, and connect the app to `http://PC-LAN-IP:8765/stream.mjpg`. The app should show the blue left-eye half and red right-eye half with a moving marker. This is only the generated test pattern; it does not display a SteamVR game. The stream is unencrypted and has no pairing/authentication, so do not use a public/guest network or port-forward it.
+
 ## Next PC milestones
 1. Define a capture-source interface and timestamped frames.
 2. Linux capture: PipeWire/Wayland, with explicit X11 fallback.
