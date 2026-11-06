@@ -22,7 +22,7 @@ enum class NextVreraButtonTone {
 fun nextVreraToneFor(label: CharSequence?): NextVreraButtonTone {
     val value = label?.toString()?.lowercase().orEmpty()
     return when {
-        listOf("сброс", "выйти", "отозвать", "удалить", "остановить", "отключить", "reset", "delete", "stop").any(value::contains) ->
+        listOf("сброс", "выйти", "отозвать", "удалить", "остановить", "отключить", "reset", "delete", "stop").any { token -> value.contains(token) } ->
             NextVreraButtonTone.DANGER
 
         listOf("подключ", "запустить", "добавить", "применить", "сохранить", "разрешить", "включить", "назначить", "импорт", "калибров", "open", "launch", "connect", "apply", "save").any(value::contains) ->
