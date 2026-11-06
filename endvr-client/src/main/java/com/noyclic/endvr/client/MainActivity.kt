@@ -63,7 +63,7 @@ class MainActivity : Activity() {
             setBackgroundColor(0xFF151D29.toInt())
         }
         val title = TextView(this).apply {
-            text = "EndVR Client"
+            text = "GVXRS Link"
             textSize = 28f
             setTextColor(0xFFFFFFFF.toInt())
             gravity = Gravity.CENTER
@@ -191,7 +191,7 @@ class MainActivity : Activity() {
             if (elapsed >= 1000L) {
                 val fps = framesInWindow * 1000.0 / elapsed.toDouble()
                 statusLabel.text = String.format(
-                    Locale.US, "Test stream  •  %.1f displayed FPS  •  decode %.1f ms",
+                    Locale.US, "GVXRS Link test  •  %.1f displayed FPS  •  decode %.1f ms",
                     fps, lastDecodeMs
                 )
                 framesInWindow = 0
