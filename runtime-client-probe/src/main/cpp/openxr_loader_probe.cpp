@@ -26,7 +26,7 @@ namespace {
 
 constexpr XrVersion kProbeRequestedApiVersion = XR_MAKE_VERSION(1, 0, 0);
 
-const char* apiVersionText(XrVersion version) {
+std::string apiVersionText(XrVersion version) {
     std::ostringstream stream;
     stream << XR_VERSION_MAJOR(version) << "."
            << XR_VERSION_MINOR(version) << "."
