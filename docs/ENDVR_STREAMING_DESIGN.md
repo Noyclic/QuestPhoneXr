@@ -4,7 +4,7 @@
 
 EndVR is the planned PC-to-Android VR streaming system in QuestPhoneXR. It is separate from EndXR, which is the Android OpenXR runtime. EndVR must not depend on EndXR being selected as the phone's active OpenXR runtime: the phone client must be able to receive and display a stream independently.
 
-This document defines an incremental architecture, not a claim that streaming, a SteamVR driver, or a compositor already exists.
+This document defines an incremental architecture. A generated-frame MJPEG preview now exists between the PC host and a separate Android client; real desktop/SteamVR capture, final low-latency media transport, tracking return and a usable HMD compositor do not exist yet.
 
 ## Product constraints
 
