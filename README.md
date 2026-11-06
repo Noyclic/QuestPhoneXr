@@ -136,7 +136,8 @@ To download a build, open [GitHub Actions](https://github.com/Noyclic/QuestPhone
 - [Project architecture](docs/ARCHITECTURE.md)
 - [External OpenXR loader test guide](docs/OPENXR_LOADER_VALIDATION.md)
 - [EndXR cross-process input IPC security](docs/IPC_SECURITY.md)
-- [Device compatibility diagnostics](docs/DEVICE_COMPATIBILITY.md)\n- [EndVR Android client setup](endvr-client/README.md)\n- [EndVR streaming design and milestones](docs/ENDVR_STREAMING_DESIGN.md)
+- [Device compatibility diagnostics](docs/DEVICE_COMPATIBILITY.md)
+- [EndVR Android client setup](endvr-client/README.md)\n- [EndVR streaming design and milestones](docs/ENDVR_STREAMING_DESIGN.md)
 
 ## Licensing
 
