@@ -36,6 +36,7 @@ The repository contains several working foundations:
 | Separate-process runtime discovery probe | Implemented and exercised in Android emulator CI |
 | Cross-process input snapshots | Implemented; package-scoped read-only grants are available; real-game input still needs device validation |
 | Hand-pose estimates | Available as estimates, not tracked 6DoF controller poses |
+| EndVR phone preview | EV-0 generated MJPEG stereo test pattern can be received by the separate Android client; no desktop/SteamVR capture or live tracking return path yet |
 | Runtime selection through Android RuntimeBroker | Not yet verified on the target phone |
 | Third-party Quest game compatibility | Not yet demonstrated |
 
@@ -76,8 +77,9 @@ Likewise, the current hand-pose output is an estimate derived from the camera im
 - **Android app:** the user interface, library, Sandbox, camera and device diagnostics.
 - **EndXR native runtime:** the Android OpenXR runtime implementation and JNI/native code.
 - **External client probe:** a separate Android package used to test runtime discovery and the official Khronos OpenXR loader outside the main app process.
-- **PC tracking bridge:** an experimental path for sending head-orientation and hand-tracking telemetry to a PC. It is not a video streamer or a SteamVR driver.
-- **EndVR:** a planned, separate PC VR streaming project. Video transport, a SteamVR driver and Linux/Windows host applications are not implemented yet.
+- **PC tracking bridge:** an experimental path for sending head-orientation and hand-tracking telemetry to a PC. It is separate from EndVR's video preview and is not proof of a complete headset.
+- **EndVR Android Client:** a separate phone app for displaying the generated stereo preview from the PC host. It does not require EndXR RuntimeBroker.
+- **EndVR PC host/driver:** a synthetic MJPEG host and an early stationary SteamVR HMD registration prototype; no live game capture, phone pose ingestion or final VR compositor exists yet.
 
 ## Try the project
 
@@ -126,7 +128,7 @@ To download a build, open [GitHub Actions](https://github.com/Noyclic/QuestPhone
 3. Validate camera service stability, hand-pose quality and input latency on physical hardware.
 4. Improve IPC access control and keep the runtime documentation aligned with the implementation.
 5. Continue EndXR interoperability work and test applications individually.
-6. Start EndVR as a separate PC streaming system, prioritizing Linux before Windows.
+6. Continue EndVR from the generated-frame phone preview to real low-latency video, PC capture, phone tracking return and SteamVR integration, with Linux as a first-class host.
 
 ## Documentation
 
