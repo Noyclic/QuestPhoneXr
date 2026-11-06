@@ -23,16 +23,18 @@ The probe records these stages:
    requirements, and attempts `xrCreateSession` / `xrBeginSession`.
 7. It enumerates the swapchain formats advertised by that session, prefers
    `GL_RGBA8` when available, and otherwise uses the runtime's first advertised
-   format. It then creates a small GLES swapchain, enumerates its images, and
-   attempts acquire/wait/release.
-8. It enumerates environment blend modes for primary stereo, prefers
-   `OPAQUE` when supported, and otherwise uses the first mode advertised by the
-   runtime before running one `xrWaitFrame` / `xrBeginFrame` / `xrEndFrame`
-   cycle with zero composition layers. If the HMD system or primary stereo
-   view is unavailable, the GLES session stage is explicitly skipped rather
-   than issuing calls with an invalid system ID. If no blend mode is reported,
-   the frame lifecycle is skipped instead of submitting an unsupported mode.
-8. It tears down the swapchain, session, EGL context and instance.
+   format. It creates a 128x64 GLES swapchain for two 64x64 eye regions.
+8. It renders a red left-eye region and blue right-eye region into a released
+   swapchain image, waits/begins a frame, locates the two stereo views, and
+   submits one `XrCompositionLayerProjection` with separate side-by-side image
+   rectangles. After `xrEndFrame`, it reads one pixel from each half of the
+   probe's EGL pbuffer to check that the compositor copied the expected colors.
+   The probe enumerates environment blend modes and prefers `OPAQUE` when
+   supported; otherwise it uses the first mode advertised by the runtime.
+9. It tears down the reference space, swapchain, session, EGL context and instance.
+   If the HMD system or primary stereo view is unavailable, the GLES session
+   stage is skipped rather than issuing calls with an invalid system ID. If no
+   blend mode is reported, the frame lifecycle is skipped.
 
 The native loader is supplied by the Khronos
 `org.khronos.openxr:openxr_loader_for_android` AAR. The probe does not contain
@@ -50,9 +52,15 @@ a local imitation of the loader or RuntimeBroker.
   stereo view configuration.
 - `external_xrCreateSession=XR_SUCCESS` means the runtime accepted a real
   EGL-bound session from the separate client process.
-- Successful `external_xrCreateSwapchain`, image acquire/wait/release and
-  frame calls verify progressively more of the independent GLES lifecycle.
-  The probe submits no projection layer and does not prove headset presentation.
+- `external_projection_layer_submission=PASS` means the separate client
+  submitted a two-view projection layer and the runtime returned success from
+  `xrEndFrame`.
+- `external_projection_layer_readback=PASS` additionally means the probe read
+  the expected red left-eye pixel and blue right-eye pixel from its EGL pbuffer
+  after the runtime compositor copied the projection layer.
+- This is a real projection-layer submission from another APK, but the probe
+  uses an EGL pbuffer rather than a headset/window surface. It does not prove
+  that pixels reach a physical viewer or that a game is compatible.
 
 If instance creation returns `XR_ERROR_RUNTIME_UNAVAILABLE`, inspect the
 RuntimeBroker report. Service visibility alone does not select an active
@@ -77,10 +85,10 @@ If the Broker is already installed, the Sandbox button explicitly opens the Khro
 The Android 15 CI emulator used by this repository does not include an installable or system RuntimeBroker. Its expected `XR_ERROR_RUNTIME_UNAVAILABLE` is therefore a broker-selection limitation, not proof that the EndXR library failed to load. Physical-device selection and independent client loading remain separate acceptance checks.
 
 A successful `xrCreateInstance` is a major interoperability checkpoint, but
-it is not proof of game compatibility. The probe now goes further and attempts
-an independent GLES session, swapchain and one frame lifecycle. It does not
-submit a projection layer or present a rendered image to a headset. EndXR's
-Action API is still partial: the paired same-signed diagnostic client can read
+it is not proof of game compatibility. The separate client now attempts a
+real GLES projection-layer submission and reads back the compositor output on
+its own pbuffer surface. This is stronger than a zero-layer frame, but it still
+does not present to a headset/window surface. EndXR's Action API is still partial: the paired same-signed diagnostic client can read
 a snapshot directly through the signature permission. QuestPhoneXR also offers
 an explicit, package-scoped read-only URI grant for one installed launcher app
 at a time. That grant covers only `/controller_state`, is tied to the target
