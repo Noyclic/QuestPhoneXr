@@ -2176,7 +2176,6 @@ XrResult validateActionForSession(
 #if defined(__ANDROID__)
 namespace {
 constexpr auto kExternalInputPollInterval = std::chrono::milliseconds(20);
-}
 
 bool startExternalControllerInputPolling(XrInstance_T* instance) {
     if (instance == nullptr || !instance->androidExtensionEnabled ||
@@ -2224,6 +2223,7 @@ void stopExternalControllerInputPolling(XrInstance_T* instance) {
         instance->externalInputPollThread.join();
     }
 }
+} // namespace
 #endif
 bool locateEstimatedHandPose(XrSpace_T* object, XrSpace_T* base, XrPosef* pose) {
     return locateEstimatedHandPoseImpl(object, base, pose);
