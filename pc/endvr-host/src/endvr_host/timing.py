@@ -11,7 +11,7 @@ def advance_frame_deadline(previous_deadline: float, period: float, now: float) 
         raise ValueError("frame period must be positive")
 
     next_deadline = previous_deadline + period
-    if next_deadline <= now:
+    if next_deadline < now:
         missed_slots = int((now - next_deadline) // period) + 1
         next_deadline += missed_slots * period
     return next_deadline
