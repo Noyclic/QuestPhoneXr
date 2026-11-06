@@ -66,7 +66,7 @@ It is not:
 - a calibrated room-space tracking system;
 - proof that the PC can use the phone as a complete VR headset.
 
-EndVR is planned as a separate system with a PC host, Android client, video encoding/decoding, tracking transport and SteamVR integration. Linux is a first-class target; Windows support is also planned. None of those streaming components should be described as complete until implemented and tested.
+EndVR is planned as a separate system with a PC host, Android client, video encoding/decoding, tracking transport and SteamVR integration. Linux is a first-class target; Windows support is also planned. None of those streaming components should be described as complete until implemented and tested. The proposed module boundaries, transport choices and staged implementation criteria are documented in [EndVR streaming design](ENDVR_STREAMING_DESIGN.md).
 
 ### EndGVR — separate legacy Gear VR track
 
