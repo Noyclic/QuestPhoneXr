@@ -4,9 +4,13 @@
 
 NextVRera explores phone-based XR on Android. The phone provides the display, sensors, camera, input and application runtime; a smartphone viewer such as VR Shinecon can be used for stereoscopic viewing.
 
-The Android runtime work is named **GVXRS Mobile**. PC-to-phone VR streaming is a separate planned direction named **GVXRS Link**. The two projects may share a tracking protocol, but they have different responsibilities and should not be coupled into one runtime.
+The Android OpenXR runtime is branded **GVXRS Mobile**; PC-to-phone streaming is **GVXRS Link**; and Gear VR compatibility research is **GVXRS Legacy**. They are independent runtime tracks inside one product family. Shared services such as tracking contracts and diagnostics should be reusable without coupling the runtime lifecycles.
 
-## Naming and compatibility\n\nNextVRera is the user-facing Android application. GVXRS (Global Virtual XR Series) is the technology family. The Android package ID, Kotlin package, native library filename and historical EndXR source/service identifiers remain unchanged for now so that app identity, permissions, IPC and OpenXR loader integration are not broken by a cosmetic rebrand.\n\n## Main components
+## Naming and compatibility
+
+NextVRera is the user-facing Android application. GVXRS (Global Virtual XR Series) is the technology family. The Android package ID, Kotlin package, native library filename and historical EndXR source/service identifiers remain unchanged for now so that app identity, permissions, IPC and OpenXR loader integration are not broken by a cosmetic rebrand.
+
+## Main components
 
 ### Android application
 
@@ -118,7 +122,7 @@ Use separate checkpoints so a passing test cannot be mistaken for a later stage:
 
 ## Rules for future changes
 
-- Keep GVXRS Mobile (Android runtime) separate from GVXRS Link (PC streaming).
+- Keep GVXRS Mobile, GVXRS Legacy and GVXRS Link as separate runtime tracks; share only stable, versioned contracts and platform services.
 - Do not reintroduce Monado as a required dependency.
 - Do not call the current implementation a complete or fully conformant general-purpose Quest runtime.
 - Do not label estimated palm poses as tracked 6DoF controllers.
