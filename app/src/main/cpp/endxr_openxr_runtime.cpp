@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <condition_variable>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -14,6 +16,7 @@
 #include <mutex>
 #include <new>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -110,8 +113,10 @@ struct XrInstance_T {
 #if defined(__ANDROID__)
     JavaVM* applicationVm = nullptr;
     jobject applicationActivity = nullptr;
-    std::mutex externalInputMutex;
-    std::chrono::steady_clock::time_point lastExternalInputPoll{};
+    std::atomic<bool> stopExternalInputPollingRequested{false};
+    std::mutex externalInputWakeMutex;
+    std::condition_variable externalInputWake;
+    std::thread externalInputPollThread;
 #else
     void* applicationVm = nullptr;
     void* applicationActivity = nullptr;
@@ -194,7 +199,8 @@ struct XrAction_T {
 
 namespace {
 #if defined(__ANDROID__)
-bool refreshExternalControllerInput(XrInstance_T* instance);
+bool startExternalControllerInputPolling(XrInstance_T* instance);
+void stopExternalControllerInputPolling(XrInstance_T* instance);
 #endif
 bool locateEstimatedHandPose(XrSpace_T* object, XrSpace_T* base, XrPosef* pose);
 constexpr XrSystemId kEndXrSystemId = 1;
@@ -730,6 +736,13 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrCreateInstance(
         std::lock_guard<std::mutex> lock(g_instanceMutex);
         g_instances.emplace(createdHandle, created);
     }
+#if defined(__ANDROID__)
+    if (created->androidExtensionEnabled) {
+        // Start the Binder/ContentProvider polling worker before returning the
+        // instance. OpenXR frame and pose calls only consume cached native state.
+        startExternalControllerInputPolling(created);
+    }
+#endif
     *instance = createdHandle;
     return XR_SUCCESS;
 }
@@ -756,6 +769,7 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrDestroyInstance(XrInstance instance) {
         g_instances.erase(found);
     }
 #if defined(__ANDROID__)
+    stopExternalControllerInputPolling(object);
     if (object->applicationVm != nullptr && object->applicationActivity != nullptr) {
         JNIEnv* env = nullptr;
         bool attachedHere = false;
@@ -1217,11 +1231,6 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrLocateSpace(
         location->pose.position = {0.0f, 0.0f, 0.0f};
         location->locationFlags = 0;
         if (base->isActionSpace) return XR_SUCCESS;
-#if defined(__ANDROID__)
-        if (XrSession_T* sessionOwner = getSession(object->owner)) {
-            refreshExternalControllerInput(getInstance(sessionOwner->owner));
-        }
-#endif
         XrPosef estimatedPose{};
         if (!locateEstimatedHandPose(object, base, &estimatedPose)) return XR_SUCCESS;
         location->pose = estimatedPose;
@@ -1245,16 +1254,6 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrLocateSpace(
         orientation = g_headOrientation;
         hasOrientation = g_hasHeadOrientation;
     }
-#if defined(__ANDROID__)
-    if (XrSession_T* sessionOwner = getSession(object->owner)) {
-        refreshExternalControllerInput(getInstance(sessionOwner->owner));
-    }
-    {
-        std::lock_guard<std::mutex> lock(g_headPoseMutex);
-        orientation = g_headOrientation;
-        hasOrientation = g_hasHeadOrientation;
-    }
-#endif
     location->pose.orientation = orientation;
     location->pose.position = {0.0f, 0.0f, 0.0f};
     location->locationFlags = hasOrientation
@@ -1286,9 +1285,8 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrLocateViews(
     if (views == nullptr) return XR_ERROR_VALIDATION_FAILURE;
     if (capacity < 2) return XR_ERROR_SIZE_INSUFFICIENT;
 
-#if defined(__ANDROID__)
-    refreshExternalControllerInput(getInstance(owner->owner));
-#endif
+    // Head orientation is updated independently by the runtime's input
+    // worker, so locating views never blocks on Android Binder IPC.
     XrQuaternionf orientation{};
     bool tracked = false;
     {
@@ -1512,8 +1510,6 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrStructureTypeToString(
 }
 
 
-namespace {
-
 bool readFixedName(const char* value, std::size_t capacity, std::string* output) {
     if (value == nullptr || output == nullptr || capacity == 0) return false;
     const auto* terminator = static_cast<const char*>(std::memchr(value, '\0', capacity));
@@ -1597,18 +1593,9 @@ bool refreshExternalControllerInputImpl(XrInstance_T* instance) {
         return false;
     }
 
-    // Only one thread may read/publish an IPC snapshot at a time. Do not block
-    // render threads behind a slow ContentProvider: they keep using the last sample.
-    std::unique_lock<std::mutex> inputPollLock(
-        instance->externalInputMutex, std::try_to_lock);
-    if (!inputPollLock.owns_lock()) return true;
-    const auto now = std::chrono::steady_clock::now();
-    if (instance->lastExternalInputPoll.time_since_epoch().count() != 0 &&
-        now - instance->lastExternalInputPoll < std::chrono::milliseconds(8)) {
-        return true;
-    }
-    instance->lastExternalInputPoll = now;
-
+    // This function is called only by the per-instance polling worker. Binder
+    // and ContentProvider latency must never be paid by xrLocateViews,
+    // xrLocateSpace or xrSyncActions on an application's frame/input thread.
     JNIEnv* env = nullptr;
     bool attachedHere = false;
     const jint envStatus = instance->applicationVm->GetEnv(
@@ -2182,11 +2169,52 @@ XrResult validateActionForSession(
     return XR_SUCCESS;
 }
 
-} // namespace
-
 #if defined(__ANDROID__)
-bool refreshExternalControllerInput(XrInstance_T* instance) {
-    return refreshExternalControllerInputImpl(instance);
+constexpr auto kExternalInputPollInterval = std::chrono::milliseconds(20);
+
+bool startExternalControllerInputPolling(XrInstance_T* instance) {
+    if (instance == nullptr || !instance->androidExtensionEnabled ||
+        instance->applicationVm == nullptr || instance->applicationActivity == nullptr ||
+        instance->externalInputPollThread.joinable()) return false;
+
+    instance->stopExternalInputPollingRequested.store(false, std::memory_order_release);
+    try {
+        instance->externalInputPollThread = std::thread([instance]() {
+            while (!instance->stopExternalInputPollingRequested.load(std::memory_order_acquire)) {
+                try {
+                    refreshExternalControllerInputImpl(instance);
+                } catch (...) {
+                    // A failed snapshot must not terminate the game process.
+                    endxrClearControllerInput();
+                    endxrClearHeadOrientation();
+                    endxrClearHandPoses();
+                }
+
+                std::unique_lock<std::mutex> waitLock(instance->externalInputWakeMutex);
+                instance->externalInputWake.wait_for(
+                    waitLock,
+                    kExternalInputPollInterval,
+                    [instance]() {
+                        return instance->stopExternalInputPollingRequested.load(
+                            std::memory_order_acquire);
+                    }
+                );
+            }
+        });
+    } catch (...) {
+        instance->stopExternalInputPollingRequested.store(true, std::memory_order_release);
+        return false;
+    }
+    return true;
+}
+
+void stopExternalControllerInputPolling(XrInstance_T* instance) {
+    if (instance == nullptr) return;
+    instance->stopExternalInputPollingRequested.store(true, std::memory_order_release);
+    instance->externalInputWake.notify_all();
+    if (instance->externalInputPollThread.joinable()) {
+        instance->externalInputPollThread.join();
+    }
 }
 #endif
 bool locateEstimatedHandPose(XrSpace_T* object, XrSpace_T* base, XrPosef* pose) {
@@ -2508,12 +2536,10 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrSyncActions(
             !validUserPath(owner->owner, item.subactionPath)) return XR_ERROR_PATH_INVALID;
         active.push_back(item);
     }
-#if defined(__ANDROID__)
-    // The runtime is loaded into the game process, while QuestPhoneXR publishes
-    // controller snapshots from its own process. Pull one fresh snapshot at
-    // the action synchronization boundary, not once per individual action.
-    refreshExternalControllerInput(getInstance(owner->owner));
-#endif
+    // Input is refreshed by the instance-owned IPC worker. Synchronize only
+    // the most recent validated sample here; never issue Binder work on the
+    // application's action/input thread.
+
     owner->activeActionSets = std::move(active);
     for (int hand = 0; hand < 2; ++hand) {
         const EndXrControllerInput input = readControllerInput(hand);
