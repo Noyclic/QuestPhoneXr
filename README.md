@@ -3,7 +3,7 @@
 **NextVRera is an Android XR project that explores what a regular smartphone can do in virtual reality.**
 
 <p align="center">
-  <img src="docs/assets/nextvrera-hero.svg" alt="Minimal 2D illustration of a VR headset, MediaPipe-style hand skeletons and standard VR motion controllers" width="100%" />
+  <img src="docs/assets/nextvrera-hero.svg" alt="NextVRera branded virtual reality platform illustration" width="100%" />
 </p>
 
 The long-term idea is simple: use an Android phone as the XR device, run lightweight VR experiences directly on it, and build an OpenXR runtime that can gradually support more demanding applications.
