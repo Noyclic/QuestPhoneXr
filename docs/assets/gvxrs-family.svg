@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="430" viewBox="0 0 1120 430" fill="none" role="img" aria-labelledby="title desc">
+<title id="title">GVXRS runtime family</title><desc id="desc">GVXRS Global Virtual XR Series with Mobile, Legacy, Link and Core technology tracks.</desc>
+<defs>
+ <linearGradient id="bg" x1="0" y1="0" x2="1120" y2="430" gradientUnits="userSpaceOnUse"><stop stop-color="#081320"/><stop offset=".55" stop-color="#111D31"/><stop offset="1" stop-color="#1B1B38"/></linearGradient>
+ <linearGradient id="mobile" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#63E8D1"/><stop offset="1" stop-color="#35AFCB"/></linearGradient>
+ <linearGradient id="legacy" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#B1A2FF"/><stop offset="1" stop-color="#726CF3"/></linearGradient>
+ <linearGradient id="link" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#73C8FF"/><stop offset="1" stop-color="#5878F5"/></linearGradient>
+ <linearGradient id="core" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#F8C87B"/><stop offset="1" stop-color="#DB8C62"/></linearGradient>
+ <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" stroke="#A5B9D7" stroke-opacity=".07"/></pattern>
+</defs>
+<rect width="1120" height="430" rx="28" fill="url(#bg)"/><rect width="1120" height="430" rx="28" fill="url(#grid)"/>
+<text x="56" y="58" fill="#78EAD8" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="12" font-weight="700" letter-spacing="3">THE TECHNOLOGY FAMILY</text>
+<text x="56" y="103" fill="#F3F7FF" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="35" font-weight="750">GVXRS</text>
+<text x="205" y="101" fill="#99A9C4" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="16" letter-spacing="1.5">GLOBAL VIRTUAL XR SERIES</text>
+<text x="56" y="132" fill="#7185A5" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14">One product family. Independent runtime tracks. Shared platform foundations.</text>
+<path d="M560 166v37M180 203h760M180 203v29M433 203v29M686 203v29M940 203v29" stroke="#7185A4" stroke-opacity=".55" stroke-width="2" stroke-linecap="round"/>
+<circle cx="560" cy="166" r="5" fill="#65E7D2"/><circle cx="560" cy="166" r="12" stroke="#65E7D2" stroke-opacity=".22"/>
+<g>
+ <rect x="48" y="232" width="264" height="144" rx="18" fill="#102D36" stroke="#4CCAB8" stroke-opacity=".65"/>
+ <rect x="48" y="232" width="264" height="4" rx="2" fill="url(#mobile)"/>
+ <circle cx="88" cy="276" r="19" fill="#163E47" stroke="#64E7D0" stroke-opacity=".6"/>
+ <path d="M77 277c3-7 7-10 11-10s8 3 11 10c-3 7-7 10-11 10s-8-3-11-10Z" stroke="#76EFDB" stroke-width="2" fill="none"/><path d="M83 277h10" stroke="#76EFDB" stroke-width="2" stroke-linecap="round"/>
+ <text x="119" y="271" fill="#ECFFFB" font-family="Inter,Arial,sans-serif" font-size="20" font-weight="700">Mobile</text>
+ <text x="72" y="322" fill="#A7CFCB" font-family="Inter,Arial,sans-serif" font-size="13">Android OpenXR runtime</text>
+ <text x="72" y="344" fill="#6EAAA3" font-family="Inter,Arial,sans-serif" font-size="11">Modern phone-based XR</text>
+ <circle cx="282" cy="349" r="4" fill="#66E7D0"/>
+</g>
+<g>
+ <rect x="326" y="232" width="264" height="144" rx="18" fill="#211F3D" stroke="#9287F6" stroke-opacity=".65"/>
+ <rect x="326" y="232" width="264" height="4" rx="2" fill="url(#legacy)"/>
+ <circle cx="366" cy="276" r="19" fill="#302B55" stroke="#A89CFF" stroke-opacity=".6"/>
+ <path d="M352 278c2-11 7-16 14-16s12 5 14 16l-5 7h-18z" stroke="#B9AEFF" stroke-width="2" fill="none"/><path d="M359 276h14" stroke="#B9AEFF" stroke-width="2"/>
+ <text x="397" y="271" fill="#F5F2FF" font-family="Inter,Arial,sans-serif" font-size="20" font-weight="700">Legacy</text>
+ <text x="350" y="322" fill="#C5BDEB" font-family="Inter,Arial,sans-serif" font-size="13">Gear VR compatibility</text>
+ <text x="350" y="344" fill="#9189C1" font-family="Inter,Arial,sans-serif" font-size="11">Research and API bridges</text>
+ <circle cx="560" cy="349" r="4" fill="#A99EFF"/>
+</g>
+<g>
+ <rect x="604" y="232" width="264" height="144" rx="18" fill="#142941" stroke="#68B7F7" stroke-opacity=".65"/>
+ <rect x="604" y="232" width="264" height="4" rx="2" fill="url(#link)"/>
+ <circle cx="644" cy="276" r="19" fill="#1D3C5C" stroke="#72C7FF" stroke-opacity=".6"/>
+ <rect x="632" y="267" width="24" height="17" rx="3" stroke="#8BD3FF" stroke-width="2"/><path d="M637 289h14m-7-5v5" stroke="#8BD3FF" stroke-width="2" stroke-linecap="round"/>
+ <text x="675" y="271" fill="#EFF8FF" font-family="Inter,Arial,sans-serif" font-size="20" font-weight="700">Link</text>
+ <text x="628" y="322" fill="#B0D4EF" font-family="Inter,Arial,sans-serif" font-size="13">PC-to-phone VR streaming</text>
+ <text x="628" y="344" fill="#7EA7CA" font-family="Inter,Arial,sans-serif" font-size="11">Linux-first · Windows planned</text>
+ <circle cx="838" cy="349" r="4" fill="#7CCAFF"/>
+</g>
+<g>
+ <rect x="882" y="232" width="190" height="144" rx="18" fill="#30271F" stroke="#D9A36C" stroke-opacity=".65"/>
+ <rect x="882" y="232" width="190" height="4" rx="2" fill="url(#core)"/>
+ <circle cx="922" cy="276" r="19" fill="#48372C" stroke="#F0C17F" stroke-opacity=".65"/>
+ <circle cx="922" cy="276" r="10" stroke="#F0C17F" stroke-width="2"/><circle cx="922" cy="276" r="3" fill="#F0C17F"/><path d="M922 261v5m0 20v5m-15-15h5m20 0h5" stroke="#F0C17F" stroke-width="2" stroke-linecap="round"/>
+ <text x="953" y="271" fill="#FFF7ED" font-family="Inter,Arial,sans-serif" font-size="20" font-weight="700">Core</text>
+ <text x="906" y="322" fill="#E7C6A5" font-family="Inter,Arial,sans-serif" font-size="13">Shared foundations</text>
+ <text x="906" y="344" fill="#B38F6E" font-family="Inter,Arial,sans-serif" font-size="11">Tracking · settings · telemetry</text>
+</g>
+<text x="56" y="408" fill="#647895" font-family="Inter,Arial,sans-serif" font-size="11">Conceptual product architecture — tracks have different APIs and readiness levels.</text>
+</svg>
