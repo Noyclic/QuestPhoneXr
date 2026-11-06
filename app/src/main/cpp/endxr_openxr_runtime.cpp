@@ -113,7 +113,7 @@ struct XrInstance_T {
 #if defined(__ANDROID__)
     JavaVM* applicationVm = nullptr;
     jobject applicationActivity = nullptr;
-    std::atomic<bool> stopExternalInputPolling{false};
+    std::atomic<bool> stopExternalInputPollingRequested{false};
     std::mutex externalInputWakeMutex;
     std::condition_variable externalInputWake;
     std::thread externalInputPollThread;
@@ -2180,10 +2180,10 @@ void XrInstance_T::startExternalInputPolling() {
     if (!androidExtensionEnabled || applicationVm == nullptr || applicationActivity == nullptr ||
         externalInputPollThread.joinable()) return;
 
-    stopExternalInputPolling.store(false, std::memory_order_release);
+    stopExternalInputPollingRequested.store(false, std::memory_order_release);
     try {
         externalInputPollThread = std::thread([this]() {
-            while (!stopExternalInputPolling.load(std::memory_order_acquire)) {
+            while (!stopExternalInputPollingRequested.load(std::memory_order_acquire)) {
                 try {
                     refreshExternalControllerInputImpl(this);
                 } catch (...) {
@@ -2198,18 +2198,18 @@ void XrInstance_T::startExternalInputPolling() {
                     waitLock,
                     kExternalInputPollInterval,
                     [this]() {
-                        return stopExternalInputPolling.load(std::memory_order_acquire);
+                        return stopExternalInputPollingRequested.load(std::memory_order_acquire);
                     }
                 );
             }
         });
     } catch (...) {
-        stopExternalInputPolling.store(true, std::memory_order_release);
+        stopExternalInputPollingRequested.store(true, std::memory_order_release);
     }
 }
 
 void XrInstance_T::stopExternalInputPolling() {
-    stopExternalInputPolling.store(true, std::memory_order_release);
+    stopExternalInputPollingRequested.store(true, std::memory_order_release);
     externalInputWake.notify_all();
     if (externalInputPollThread.joinable()) externalInputPollThread.join();
 }
