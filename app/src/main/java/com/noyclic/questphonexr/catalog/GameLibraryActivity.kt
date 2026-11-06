@@ -22,6 +22,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import com.noyclic.questphonexr.MainActivity
+import com.noyclic.questphonexr.R
 import com.noyclic.questphonexr.vr.PhoneVrPreviewActivity
 import com.noyclic.questphonexr.ui.applyNextVreraStyle
 import com.noyclic.questphonexr.ui.nextVreraToneFor
@@ -384,7 +385,7 @@ class GameLibraryActivity : ComponentActivity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(18), dp(18), dp(12))
-            setBackgroundColor(Color.rgb(14, 17, 23))
+            setBackgroundResource(R.drawable.bg_nextvrera_atmosphere)
         }
 
         root.addView(button("← Выбор режима").apply {
