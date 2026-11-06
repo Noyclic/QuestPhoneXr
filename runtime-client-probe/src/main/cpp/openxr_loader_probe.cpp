@@ -24,6 +24,33 @@
 
 namespace {
 
+constexpr XrVersion kProbeRequestedApiVersion = XR_MAKE_VERSION(1, 0, 0);
+
+const char* apiVersionText(XrVersion version) {
+    std::ostringstream stream;
+    stream << XR_VERSION_MAJOR(version) << "."
+           << XR_VERSION_MINOR(version) << "."
+           << XR_VERSION_PATCH(version);
+    return stream.str();
+}
+
+const char* instanceCreateFailureReason(XrResult result) {
+    switch (result) {
+        case XR_ERROR_API_VERSION_UNSUPPORTED:
+            return "The active runtime rejected the application's requested OpenXR API version.";
+        case XR_ERROR_RUNTIME_UNAVAILABLE:
+            return "Android RuntimeBroker did not provide an active OpenXR runtime.";
+        case XR_ERROR_EXTENSION_NOT_PRESENT:
+            return "The active runtime does not support one or more requested instance extensions.";
+        case XR_ERROR_INITIALIZATION_FAILED:
+            return "Runtime negotiation or initialization failed; inspect the Broker and runtime reports.";
+        case XR_ERROR_API_LAYER_NOT_PRESENT:
+            return "An enabled API layer is unavailable.";
+        default:
+            return "Instance creation failed; use this exact result with the Broker and runtime reports.";
+    }
+}
+
 const char* resultName(XrResult result) {
     switch (result) {
         case XR_SUCCESS: return "XR_SUCCESS";
@@ -243,7 +270,8 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
     report << "Khronos OpenXR Android Loader probe\n";
     report << "probe_package=com.noyclic.xrclientprobe\n";
     report << "probe_scope=official Khronos Android loader in a separate application process\n";
-    report << "loader_api_version=" << XR_CURRENT_API_VERSION << "\n";
+    report << "loader_header_api_version=" << apiVersionText(XR_CURRENT_API_VERSION) << "\n";
+    report << "application_requested_api_version=" << apiVersionText(kProbeRequestedApiVersion) << "\n";
 
     if (activity == nullptr) {
         report << "jni_activity=missing\n";
@@ -361,7 +389,7 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
         "QuestPhoneXR"
     );
     instanceCreateInfo.applicationInfo.engineVersion = 1;
-    instanceCreateInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
+    instanceCreateInfo.applicationInfo.apiVersion = kProbeRequestedApiVersion;
 
     const char* enabledExtensions[] = {
         XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME,
@@ -378,10 +406,12 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
     report << "xrCreateInstance=" << resultText(createInstanceResult) << "\n";
 
     if (XR_FAILED(createInstanceResult) || instance == XR_NULL_HANDLE) {
-        report << "runtime_loaded=NO\n";
+        report << "runtime_loaded="
+               << (createInstanceResult == XR_ERROR_RUNTIME_UNAVAILABLE ? "NO" : "NOT_CONFIRMED")
+               << "\n";
         report << "runtime_instance_created=NO\n";
-        report << "interpretation=check the active Android OpenXR RuntimeBroker; "
-                  "service visibility alone does not select a runtime\n";
+        report << "instance_creation_diagnosis="
+               << instanceCreateFailureReason(createInstanceResult) << "\n";
         const std::string value = report.str();
         return environment->NewStringUTF(value.c_str());
     }
