@@ -21,7 +21,7 @@ import com.noyclic.questphonexr.sandbox.SandboxActivity
 import com.noyclic.questphonexr.vr.PhoneVrPreviewActivity
 import com.noyclic.questphonexr.runtime.EndXrInputAccessManager
 
-/** The phone-first entry point: choose which QuestPhoneXR mode to open. */
+/** The phone-first entry point for NextVRera and the GVXRS platform. */
 class ModeSelectionActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,11 +70,17 @@ class ModeSelectionActivity : ComponentActivity() {
         }
 
         content.addView(text(
-            "QUESTPHONE XR",
-            12f,
-            0xFF8FD3B5.toInt(),
+            "NextVRera",
+            22f,
+            0xFFF2F7FF.toInt(),
             Typeface.BOLD
         ))
+        content.addView(text(
+            "GVXRS  ·  GLOBAL VIRTUAL XR SERIES",
+            10f,
+            0xFF8FD3B5.toInt(),
+            Typeface.BOLD
+        ).apply { setPadding(0, 0, 0, dp(5)) })
         content.addView(text(
             "Выбери режим",
             30f,
@@ -119,8 +125,8 @@ class ModeSelectionActivity : ComponentActivity() {
         )
         modes.addView(
             modeCard(
-                title = "SteamVR · ПК",
-                description = "Подключение к ПК и передача телеметрии головы и рук. Полный видеостриминг и драйвер SteamVR ещё разрабатываются.",
+                title = "GVXRS Link · PCVR",
+                description = "Экспериментальная связь с ПК и передача телеметрии головы и рук. Полный видеостриминг и интеграция SteamVR ещё разрабатываются.",
                 accent = 0xFFFFD28A.toInt(),
                 buttonLabel = "Настроить связь с ПК"
             ) {
