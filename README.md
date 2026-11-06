@@ -1,69 +1,77 @@
-# QuestPhoneXR
+# NextVRera
 
-**QuestPhoneXR is an Android XR project that explores what a regular smartphone can do in virtual reality.**
+**NextVRera is the main Android application of GVXRS — Global Virtual XR Series.** GVXRS is an experimental family of phone-based XR, legacy VR compatibility and PCVR streaming technologies.
 
 <p align="center">
-  <img src="docs/assets/questphonexr-hero.svg" alt="Minimal 2D illustration of a VR headset, MediaPipe-style hand skeletons and standard VR motion controllers" width="100%" />
+  <img src="docs/assets/nextvrera-hero.svg" alt="NextVRera and GVXRS virtual reality platform artwork" width="100%" />
 </p>
 
-The long-term idea is simple: use an Android phone as the XR device, run lightweight VR experiences directly on it, and build an OpenXR runtime that can gradually support more demanding applications.
+The long-term idea is to make one coherent VR platform from several independent runtime tracks. A regular Android phone can act as a lightweight XR device, run compatible OpenXR experiences, explore legacy VR compatibility and connect to a PC for streamed VR.
 
-The project is called **EndXR** on the Android runtime side. A separate PC streaming component, planned as **EndVR**, is a future direction—not a feature that is already available.
+## GVXRS runtime family
 
-> **Current stage:** an early, actively developed prototype. The native runtime, Sandbox, input bridge and Android test pipeline are in place, but real third-party game compatibility has not yet been demonstrated on a physical phone.
+- **GVXRS Mobile** — the Android OpenXR runtime track. Its current native implementation still contains legacy EndXR source, service and library identifiers for compatibility.
+- **GVXRS Legacy** — the Gear VR compatibility track. It is isolated from the modern OpenXR runtime and currently focuses on identifying legacy dependencies and documenting what a future compatibility layer would need.
+- **GVXRS Link** — the PC-to-phone VR streaming track, with Linux treated as a first-class host platform and Windows also planned.
+- **GVXRS Core** — shared platform foundations such as tracking data models, diagnostics, capabilities and common settings. This is an architectural grouping, not a claim that every shared service is already complete.
 
-## What QuestPhoneXR is working towards
+The app is named **NextVRera**. Its Android application ID and Kotlin package remain `com.noyclic.questphonexr` for now; changing those technical identifiers is a separate migration because they are also used by runtime discovery, IPC permissions and installed-app identity.
 
-- **Phone-based VR:** use a smartphone viewer such as VR Shinecon to view a stereoscopic scene.
-- **Hand tracking:** use the phone camera and MediaPipe to detect hands and gestures.
-- **OpenXR:** provide an Android runtime foundation through the native EndXR implementation.
-- **Game experiments:** investigate which Android and Quest-oriented applications can be adapted, and which require deeper changes.
-- **PC streaming (future):** explore a separate EndVR system for streaming PC VR to the phone, with Linux as a first-class platform.
+## What the project is working towards
+
+- **Phone-based VR:** use a smartphone viewer such as VR Shinecon for stereoscopic viewing.
+- **Hand tracking:** use the phone camera and MediaPipe to estimate hands and gestures. Camera use stays optional and starts only after the user enables it.
+- **OpenXR:** provide an Android runtime foundation through GVXRS Mobile.
+- **Legacy compatibility research:** inspect Gear VR-era APK dependencies without claiming that those applications already run.
+- **PC streaming:** develop GVXRS Link as a separate host/client path, prioritizing Linux and keeping Windows in scope.
 
 A Meta Quest headset is not required for the phone-based development path.
 
 ## What works today
-
-The repository contains several working foundations:
 
 | Area | Current state |
 | --- | --- |
 | Android application and game library | Implemented |
 | Sandbox and in-process stereo rendering | Implemented and covered by CI tests |
 | CameraX and MediaPipe hand tracking | Implemented; physical-device performance still needs testing |
-| Native EndXR OpenXR bootstrap | Implemented and covered by native tests |
+| Native OpenXR bootstrap | Implemented and covered by native tests |
 | OpenXR Actions and input API | Partial implementation |
 | Separate-process runtime discovery probe | Implemented and exercised in Android emulator CI |
 | Cross-process input snapshots | Implemented; package-scoped read-only grants are available; real-game input still needs device validation |
 | Hand-pose estimates | Available as estimates, not tracked 6DoF controller poses |
 | Runtime selection through Android RuntimeBroker | Not yet verified on the target phone |
 | Third-party Quest game compatibility | Not yet demonstrated |
+| PCVR video streaming and SteamVR integration | Experimental work; not a finished headset path |
 
-See [the EndXR runtime status](docs/ENDXR_RUNTIME.md) for the detailed implementation notes and limitations.
+See [GVXRS Mobile runtime status](docs/ENDXR_RUNTIME.md) for implementation details and limitations.
 
 ## Visual overview
 
-These illustrations show the main systems being explored in QuestPhoneXR. They are conceptual diagrams, not screenshots of a finished runtime or proof of device compatibility.
+These illustrations describe the systems being explored. They are conceptual vector artwork, not screenshots of a finished runtime or proof of device compatibility.
 
 <p align="center">
-  <img src="docs/assets/sandbox.svg" alt="Concept illustration of the EndXR Sandbox test scene" width="100%" />
+  <img src="docs/assets/gvxrs-family.svg" alt="GVXRS family overview showing Mobile, Legacy, Link and Core" width="100%" />
 </p>
 
 <p align="center">
-  <img src="docs/assets/hand-tracking.svg" alt="Illustration of camera-based hand tracking landmarks" width="100%" />
+  <img src="docs/assets/sandbox.svg" alt="Illustration of the NextVRera Sandbox test scene" width="100%" />
 </p>
 
 <p align="center">
-  <img src="docs/assets/joycon-controls.svg" alt="Nintendo Switch Joy-Con input concept" width="100%" />
+  <img src="docs/assets/hand-tracking.svg" alt="Illustration of optional camera-based hand tracking" width="100%" />
 </p>
 
 <p align="center">
-  <img src="docs/assets/openxr-flow.svg" alt="Simplified OpenXR application, loader and EndXR runtime flow" width="100%" />
+  <img src="docs/assets/joycon-controls.svg" alt="Illustration of optional Joy-Con input controls" width="100%" />
 </p>
 
-## Important: what this does not mean
+<p align="center">
+  <img src="docs/assets/openxr-flow.svg" alt="Simplified OpenXR application, loader and GVXRS Mobile runtime flow" width="100%" />
+</p>
 
-QuestPhoneXR is **not yet a universal Quest APK launcher**.
+## Important compatibility limits
+
+NextVRera is **not yet a universal Quest APK launcher**.
 
 An APK appearing in the library does not mean it can run in VR. Some applications are ordinary Android apps, some can be adapted or ported, and some depend on Meta/Oculus services or runtime features that this project does not provide.
 
@@ -71,13 +79,14 @@ The APK analyzer performs static inspection: it looks for engine and XR-related 
 
 Likewise, the current hand-pose output is an estimate derived from the camera image and MediaPipe landmarks. It must not be confused with calibrated, tracked 6DoF controllers or the OpenXR hand-tracking extension.
 
-## How the project is organized
+## Project organization
 
-- **Android app:** the user interface, library, Sandbox, camera and device diagnostics.
-- **EndXR native runtime:** the Android OpenXR runtime implementation and JNI/native code.
+- **NextVRera Android app:** user interface, library, Sandbox, camera and device diagnostics.
+- **GVXRS Mobile:** Android OpenXR runtime implementation. Existing native entry points, service classes and the `libendxr_openxr.so` filename are retained internally for now.
 - **External client probe:** a separate Android package used to test runtime discovery and the official Khronos OpenXR loader outside the main app process.
-- **PC tracking bridge:** an experimental path for sending head-orientation and hand-tracking telemetry to a PC. It is not a video streamer or a SteamVR driver.
-- **EndVR:** a planned, separate PC VR streaming project. Video transport, a SteamVR driver and Linux/Windows host applications are not implemented yet.
+- **GVXRS Core foundations:** shared tracking contracts, capability reporting and diagnostics where their lifecycle can safely be shared.
+- **GVXRS Link:** PC host, Android streaming client, video transport and SteamVR integration. These components remain staged work and must not be described as complete until implemented and tested.
+- **GVXRS Legacy:** a separate Gear VR compatibility research track. It does not yet provide VrApi, Gear VR Services or a legacy compositor.
 
 ## Try the project
 
@@ -106,14 +115,14 @@ The debug APKs are produced under each module's `build/outputs/apk/debug/` direc
 
 GitHub Actions runs automatically on pushes and pull requests targeting `main`. The workflow:
 
-1. Runs the native EndXR core and OpenXR bootstrap tests.
+1. Runs the native OpenXR core and bootstrap tests.
 2. Runs Kotlin/JVM unit tests.
 3. Builds the main app and the separate external-client probe APK.
 4. Checks that required native libraries and the MediaPipe model are packaged.
 5. Starts an Android 15 emulator and runs navigation, Sandbox and external-loader smoke tests.
 6. Uploads APKs, screenshots, logs and test reports as workflow artifacts.
 
-You do not need to press **Run workflow** for the normal build and test pipeline: pushing a commit to `main` starts it automatically. A manual workflow-dispatch option also exists.
+A normal push to `main` starts the build and test pipeline. A manual workflow-dispatch option also exists.
 
 **Important:** an emulator test is not a substitute for testing the physical phone. The emulator cannot confirm camera tracking quality, thermal behaviour, sustained frame rate, vendor RuntimeBroker availability or compatibility with a real XR game.
 
@@ -121,21 +130,23 @@ To download a build, open [GitHub Actions](https://github.com/Noyclic/QuestPhone
 
 ## Next milestones
 
-1. Verify EndXR selection through a real Android RuntimeBroker on the target phone.
+1. Verify GVXRS Mobile selection through a real Android RuntimeBroker on the target phone.
 2. Test an external OpenXR client through instance creation, session creation, swapchain operations and frame submission.
 3. Validate camera service stability, hand-pose quality and input latency on physical hardware.
-4. Improve IPC access control and keep the runtime documentation aligned with the implementation.
-5. Continue EndXR interoperability work and test applications individually.
-6. Start EndVR as a separate PC streaming system, prioritizing Linux before Windows.
+4. Improve IPC access control and keep runtime documentation aligned with implementation.
+5. Continue GVXRS Mobile interoperability work and test applications individually.
+6. Advance GVXRS Link from generated preview frames toward real PC capture, low-latency video and host XR integration.
+7. Define the exact legacy API/service requirements for GVXRS Legacy before attempting game execution.
 
 ## Documentation
 
-- [EndXR runtime: implementation and limitations](docs/ENDXR_RUNTIME.md)
+- [GVXRS Mobile runtime: implementation and limitations](docs/ENDXR_RUNTIME.md)
 - [Project architecture](docs/ARCHITECTURE.md)
 - [External OpenXR loader test guide](docs/OPENXR_LOADER_VALIDATION.md)
-- [EndXR cross-process input IPC security](docs/IPC_SECURITY.md)
+- [Cross-process input IPC security](docs/IPC_SECURITY.md)
 - [Device compatibility diagnostics](docs/DEVICE_COMPATIBILITY.md)
+- [GVXRS Link streaming design](docs/ENDVR_STREAMING_DESIGN.md)
 
 ## Licensing
 
-QuestPhoneXR project source is licensed under the MIT License unless a file or third-party dependency specifies otherwise. Third-party libraries, SDKs, game code, assets and models retain their own licenses.
+NextVRera project source is licensed under the MIT License unless a file or third-party dependency specifies otherwise. Third-party libraries, SDKs, game code, assets and models retain their own licenses.
