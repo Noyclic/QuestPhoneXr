@@ -1,6 +1,6 @@
 # EndVR PC Host — EV-0
 
-This is a PC-only implementation slice. It does not modify Android runtime, IPC, camera, MediaPipe, OpenXR input or tracking code.
+This is the PC-host side of the EndVR EV-0 preview. The receiver is a separate Android app in `endvr-client`; neither component depends on the EndXR runtime, IPC, camera or MediaPipe code.
 
 ## Implemented
 - Python 3.10+ host for Linux and Windows.
