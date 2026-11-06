@@ -58,6 +58,8 @@ import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
 import com.noyclic.questphonexr.input.XrTrackingUdpSender
 import com.noyclic.questphonexr.vr.ViewerProfile
 import com.noyclic.questphonexr.vr.ViewerProfileStore
+import com.noyclic.questphonexr.ui.applyNextVreraStyle
+import com.noyclic.questphonexr.ui.nextVreraToneFor
 import com.noyclic.questphonexr.performance.AndroidDeviceProfiler
 import com.noyclic.questphonexr.performance.AdaptivePerformanceController
 import com.noyclic.questphonexr.performance.AdaptivePerformanceState
@@ -880,9 +882,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             copyEndXrOpenXrDiagnostic()
         }.apply {
             textSize = 13f
-            setTextColor(Color.WHITE)
             contentDescription = "Скопировать диагностику EndXR"
-            backgroundTintList = android.content.res.ColorStateList.valueOf(0xFF176B4A.toInt())
             setPadding(dp(12), dp(5), dp(12), dp(5))
             minHeight = dp(42)
             elevation = dp(6).toFloat()
@@ -1856,7 +1856,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private fun controlButton(label: String, action: () -> Unit): Button =
         Button(this).apply {
             text = label
-            isAllCaps = false
+            applyNextVreraStyle(nextVreraToneFor(label))
             setOnClickListener { action() }
         }
 
