@@ -6,4 +6,4 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = "QuestPhoneXR"
-include(":app", ":runtime-client-probe")
+include(":app", ":runtime-client-probe", ":endvr-client")
