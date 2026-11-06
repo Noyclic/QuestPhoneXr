@@ -3,6 +3,7 @@ import time
 from aiohttp import web
 from .metrics import HostMetrics
 from .test_pattern import make_test_frame
+from .timing import advance_frame_deadline
 
 BOUNDARY = "endvrframe"
 
@@ -40,7 +41,7 @@ class EndVRHost:
                 header = (f"--{BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: {len(jpeg)}\r\n\r\n").encode("ascii")
                 await response.write(header + jpeg + b"\r\n")
                 frame_number += 1
-                deadline += period
+                deadline = advance_frame_deadline(deadline, period, time.monotonic())
                 await asyncio.sleep(max(0.0, deadline-time.monotonic()))
         except (ConnectionResetError, asyncio.CancelledError):
             pass

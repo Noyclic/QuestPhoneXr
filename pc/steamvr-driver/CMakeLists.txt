@@ -9,8 +9,8 @@ include(FetchContent)
 FetchContent_Declare(
   openvr
   GIT_REPOSITORY https://github.com/ValveSoftware/openvr.git
-  GIT_TAG master
-  GIT_SHALLOW TRUE
+  # Immutable upstream revision: avoid non-reproducible builds from master.
+  GIT_TAG 0924064316de3effbcd1acf1e309182a2deb1c05
 )
 FetchContent_MakeAvailable(openvr)
 

@@ -4,6 +4,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <chrono>
+#include <thread>
 
 namespace {
 void expect(bool condition, const char* message) {
@@ -378,6 +380,13 @@ void testGlesSessionSwapchainAndFrameLifecycle() {
                std::abs(locatedViews[0].pose.orientation.z - 0.70710678f) < 0.001f &&
                std::abs(locatedViews[0].pose.orientation.w - 0.70710678f) < 0.001f,
            "apply phone rotation-vector quaternion to external stereo views");
+    std::this_thread::sleep_for(std::chrono::milliseconds(550));
+    expect(locateViews(session, &locateInfo, &viewState, 2, &locatedViewCount,
+                       locatedViews) == XR_SUCCESS &&
+               (viewState.viewStateFlags &
+                   (XR_VIEW_STATE_ORIENTATION_VALID_BIT |
+                    XR_VIEW_STATE_ORIENTATION_TRACKED_BIT)) == 0,
+           "drop stale head-orientation flags after the native 500 ms timeout");
     endxrClearHeadOrientation();
 
     auto waitFrame = reinterpret_cast<PFN_xrWaitFrame>(
@@ -470,6 +479,7 @@ void testActionInputApiLifecycleAndNeutralState() {
     XrPath leftHand = XR_NULL_PATH;
     XrPath rightHand = XR_NULL_PATH;
     XrPath profile = XR_NULL_PATH;
+    XrPath touchProfile = XR_NULL_PATH;
     XrPath leftSelect = XR_NULL_PATH;
     XrPath rightSelect = XR_NULL_PATH;
     XrPath leftTriggerValue = XR_NULL_PATH, rightTriggerValue = XR_NULL_PATH;
@@ -484,6 +494,9 @@ void testActionInputApiLifecycleAndNeutralState() {
     expect(stringToPath(instance, "/interaction_profiles/khr/simple_controller",
                         &profile) == XR_SUCCESS,
            "intern simple-controller interaction profile");
+    expect(stringToPath(instance, "/interaction_profiles/oculus/touch_controller",
+                        &touchProfile) == XR_SUCCESS,
+           "intern Oculus Touch interaction profile");
     expect(stringToPath(instance, "/user/hand/left/input/select/click",
                         &leftSelect) == XR_SUCCESS,
            "intern left select binding path");
@@ -604,7 +617,10 @@ void testActionInputApiLifecycleAndNeutralState() {
     suggested.countSuggestedBindings = 8;
     suggested.suggestedBindings = bindings;
     expect(suggestBindings(instance, &suggested) == XR_SUCCESS,
-           "accept validated interaction-profile binding suggestions");
+           "accept validated simple-controller interaction-profile bindings");
+    suggested.interactionProfile = touchProfile;
+    expect(suggestBindings(instance, &suggested) == XR_SUCCESS,
+           "accept validated Touch interaction-profile bindings");
 
     auto getSystem = reinterpret_cast<PFN_xrGetSystem>(
         resolve(request.getInstanceProcAddr, instance, "xrGetSystem"));
@@ -774,8 +790,8 @@ void testActionInputApiLifecycleAndNeutralState() {
     XrInteractionProfileState profileState{};
     profileState.type = XR_TYPE_INTERACTION_PROFILE_STATE;
     expect(currentProfile(session, leftHand, &profileState) == XR_SUCCESS &&
-               profileState.interactionProfile == profile,
-           "report suggested simple-controller profile for active left input");
+               profileState.interactionProfile == touchProfile,
+           "prefer Quest Touch profile when Touch and simple-controller bindings are both suggested");
     expect(currentProfile(session, rightHand, &profileState) == XR_SUCCESS &&
                profileState.interactionProfile == XR_NULL_PATH,
            "right interaction profile remains inactive without right input");
