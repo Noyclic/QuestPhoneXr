@@ -69,7 +69,7 @@ class MainActivity : ComponentActivity(), InputManager.InputDeviceListener {
     private var selectedProfile: GameInputProfile? = BuiltInGameInputProfiles.all.firstOrNull()
     private var selectedGameAdapter: GameInputAdapter? =
         selectedProfile?.let(::ProfiledVrGameInputAdapter)
-    private var cameraStatusMessage = "QuestPhoneXR · диагностика отслеживания"
+    private var cameraStatusMessage = "NextVRera · диагностика отслеживания"
     private var latestHandCount = 0
     private var latestPinchDistance = "—"
     private var cameraProvider: ProcessCameraProvider? = null
