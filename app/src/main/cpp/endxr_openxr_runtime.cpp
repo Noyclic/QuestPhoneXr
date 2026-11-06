@@ -117,6 +117,8 @@ struct XrInstance_T {
     std::mutex externalInputWakeMutex;
     std::condition_variable externalInputWake;
     std::thread externalInputPollThread;
+    void startExternalInputPolling();
+    void stopExternalInputPolling();
 #else
     void* applicationVm = nullptr;
     void* applicationActivity = nullptr;
@@ -196,11 +198,6 @@ struct XrAction_T {
     std::vector<XrPath> subactionPaths;
     std::unordered_set<XrSpace> spaces;
 };
-
-#if defined(__ANDROID__)
-bool startExternalControllerInputPolling(XrInstance_T* instance);
-void stopExternalControllerInputPolling(XrInstance_T* instance);
-#endif
 
 namespace {
 bool locateEstimatedHandPose(XrSpace_T* object, XrSpace_T* base, XrPosef* pose);
@@ -741,7 +738,7 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrCreateInstance(
     if (created->androidExtensionEnabled) {
         // Start the Binder/ContentProvider polling worker before returning the
         // instance. OpenXR frame and pose calls only consume cached native state.
-        startExternalControllerInputPolling(created);
+        created->startExternalInputPolling();
     }
 #endif
     *instance = createdHandle;
@@ -770,7 +767,7 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrDestroyInstance(XrInstance instance) {
         g_instances.erase(found);
     }
 #if defined(__ANDROID__)
-    stopExternalControllerInputPolling(object);
+    object->stopExternalInputPolling();
     if (object->applicationVm != nullptr && object->applicationActivity != nullptr) {
         JNIEnv* env = nullptr;
         bool attachedHere = false;
@@ -2179,19 +2176,16 @@ namespace {
 constexpr auto kExternalInputPollInterval = std::chrono::milliseconds(20);
 }
 
-bool startExternalControllerInputPolling(XrInstance_T* instance) {
-    if (instance == nullptr || !instance->androidExtensionEnabled ||
-        instance->applicationVm == nullptr || instance->applicationActivity == nullptr) {
-        return false;
-    }
-    if (instance->externalInputPollThread.joinable()) return true;
+void XrInstance_T::startExternalInputPolling() {
+    if (!androidExtensionEnabled || applicationVm == nullptr || applicationActivity == nullptr ||
+        externalInputPollThread.joinable()) return;
 
-    instance->stopExternalInputPolling.store(false, std::memory_order_release);
+    stopExternalInputPolling.store(false, std::memory_order_release);
     try {
-        instance->externalInputPollThread = std::thread([instance]() {
-            while (!instance->stopExternalInputPolling.load(std::memory_order_acquire)) {
+        externalInputPollThread = std::thread([this]() {
+            while (!stopExternalInputPolling.load(std::memory_order_acquire)) {
                 try {
-                    refreshExternalControllerInputImpl(instance);
+                    refreshExternalControllerInputImpl(this);
                 } catch (...) {
                     // A failed snapshot must not terminate the game process.
                     endxrClearControllerInput();
@@ -2199,31 +2193,25 @@ bool startExternalControllerInputPolling(XrInstance_T* instance) {
                     endxrClearHandPoses();
                 }
 
-                std::unique_lock<std::mutex> waitLock(instance->externalInputWakeMutex);
-                instance->externalInputWake.wait_for(
+                std::unique_lock<std::mutex> waitLock(externalInputWakeMutex);
+                externalInputWake.wait_for(
                     waitLock,
                     kExternalInputPollInterval,
-                    [instance]() {
-                        return instance->stopExternalInputPolling.load(
-                            std::memory_order_acquire);
+                    [this]() {
+                        return stopExternalInputPolling.load(std::memory_order_acquire);
                     }
                 );
             }
         });
     } catch (...) {
-        instance->stopExternalInputPolling.store(true, std::memory_order_release);
-        return false;
+        stopExternalInputPolling.store(true, std::memory_order_release);
     }
-    return true;
 }
 
-void stopExternalControllerInputPolling(XrInstance_T* instance) {
-    if (instance == nullptr) return;
-    instance->stopExternalInputPolling.store(true, std::memory_order_release);
-    instance->externalInputWake.notify_all();
-    if (instance->externalInputPollThread.joinable()) {
-        instance->externalInputPollThread.join();
-    }
+void XrInstance_T::stopExternalInputPolling() {
+    stopExternalInputPolling.store(true, std::memory_order_release);
+    externalInputWake.notify_all();
+    if (externalInputPollThread.joinable()) externalInputPollThread.join();
 }
 #endif
 bool locateEstimatedHandPose(XrSpace_T* object, XrSpace_T* base, XrPosef* pose) {
