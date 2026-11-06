@@ -204,6 +204,12 @@ constexpr std::uint32_t kMaximumEyeWidth = 1200;
 constexpr std::uint32_t kMaximumEyeHeight = 1200;
 constexpr std::uint32_t kEndXrVendorId = 0x454E4458; // "ENDX"
 constexpr XrVersion kEndXrApiVersion = XR_MAKE_VERSION(1, 0, 0);
+// OpenXR patch revisions do not add a new API surface. EndXR currently
+// implements the 1.0 command set, so 1.0.x is accepted while 1.1+ is rejected.
+bool isSupportedApiVersion(XrVersion requested) {
+    return XR_VERSION_MAJOR(requested) == XR_VERSION_MAJOR(kEndXrApiVersion) &&
+        XR_VERSION_MINOR(requested) <= XR_VERSION_MINOR(kEndXrApiVersion);
+}
 constexpr XrDuration kFramePeriod = 33333333;
 constexpr float kHalfIpdMeters = 0.032f;
 constexpr const char* kRuntimeName = "EndXR Phone Runtime";
@@ -636,8 +642,9 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrEnumerateInstanceExtensionProperties(
 XRAPI_ATTR XrResult XRAPI_CALL endxrCreateInstance(
     const XrInstanceCreateInfo* createInfo, XrInstance* instance
 ) {
-    if (createInfo == nullptr || instance == nullptr) return XR_ERROR_VALIDATION_FAILURE;
+    if (instance == nullptr) return XR_ERROR_VALIDATION_FAILURE;
     *instance = XR_NULL_HANDLE;
+    if (createInfo == nullptr) return XR_ERROR_VALIDATION_FAILURE;
     if (createInfo->type != XR_TYPE_INSTANCE_CREATE_INFO) return XR_ERROR_VALIDATION_FAILURE;
     if (createInfo->enabledApiLayerCount != 0) return XR_ERROR_API_LAYER_NOT_PRESENT;
     if (createInfo->enabledExtensionCount > 2) return XR_ERROR_EXTENSION_NOT_PRESENT;
@@ -674,7 +681,7 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrCreateInstance(
     }
 
     const XrVersion requested = createInfo->applicationInfo.apiVersion;
-    if (XR_VERSION_MAJOR(requested) != 1 || XR_VERSION_MINOR(requested) > 0) {
+    if (!isSupportedApiVersion(requested)) {
         return XR_ERROR_API_VERSION_UNSUPPORTED;
     }
 
