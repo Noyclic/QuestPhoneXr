@@ -11,7 +11,7 @@
 #endif
 
 namespace {
-constexpr char kSerial[] = "ENDVR-PHONE-HMD-0001";
+constexpr char kSerial[] = "GVXRS-LINK-PHONE-HMD-0001";
 constexpr uint32_t kEyeWidth = 960;
 constexpr uint32_t kEyeHeight = 1080;
 constexpr float kRefreshRate = 60.0f;
@@ -28,8 +28,8 @@ public:
         active_ = true;
         auto properties = vr::VRProperties();
         const auto container = properties->TrackedDeviceToPropertyContainer(objectId_);
-        properties->SetStringProperty(container, vr::Prop_TrackingSystemName_String, "endvr");
-        properties->SetStringProperty(container, vr::Prop_ModelNumber_String, "EndVR Phone HMD (prototype)");
+        properties->SetStringProperty(container, vr::Prop_TrackingSystemName_String, "gvxrs_link");
+        properties->SetStringProperty(container, vr::Prop_ModelNumber_String, "GVXRS Link Phone HMD (prototype)");
         properties->SetStringProperty(container, vr::Prop_SerialNumber_String, kSerial);
         properties->SetStringProperty(container, vr::Prop_ManufacturerName_String, "Noyclic");
         properties->SetStringProperty(container, vr::Prop_RenderModelName_String, "generic_hmd");
