@@ -69,7 +69,7 @@ class ModeSelectionActivity : ComponentActivity() {
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(22), dp(18), dp(22), dp(18))
-            setBackgroundColor(Color.rgb(14, 17, 23))
+            setBackgroundResource(R.drawable.bg_nextvrera_atmosphere)
         }
 
         content.addView(text(
