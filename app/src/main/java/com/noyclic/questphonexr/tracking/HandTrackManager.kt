@@ -113,6 +113,9 @@ internal class HandTrackManager(
             )
         }
 
+        fun visibleOutput(timestampMs: Long): TrackedHand? =
+            output.takeIf { timestampMs - lastSeenTimestampMs <= MAX_OUTPUT_HOLD_MS }
+
         fun markMissing(timestampMs: Long) {
             if (!pinchWasReleasedForLoss &&
                 timestampMs - lastSeenTimestampMs >= pinchReleaseDelayMs
@@ -296,9 +299,12 @@ internal class HandTrackManager(
 
         val visible = ArrayList<TrackedHand>(maxHands)
         for (track in tracks) {
-            if (isAssigned(track.id, assignedTrackIds, assignedTrackCount)) {
-                visible.add(track.output)
+            val current = if (isAssigned(track.id, assignedTrackIds, assignedTrackCount)) {
+                track.output
+            } else {
+                track.visibleOutput(timestampMs)
             }
+            if (current != null) visible.add(current)
         }
         return visible
     }
@@ -341,6 +347,7 @@ internal class HandTrackManager(
         const val LANDMARK_COUNT = 21
         const val DEFAULT_RETENTION_MS = 350L
         const val DEFAULT_PINCH_RELEASE_DELAY_MS = 120L
+        const val MAX_OUTPUT_HOLD_MS = 80L
         const val VELOCITY_RESET_GAP_MS = 120L
         const val REPLACE_STALE_TRACK_MS = 180L
         const val MAX_IMAGE_VELOCITY = 3.0f
