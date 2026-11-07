@@ -354,6 +354,24 @@ class SandboxSimulationTest {
     }
 
     @Test
+    fun handPoseKeepsAdvancingAcrossRenderTicksWithoutNewCameraResult() {
+        val interpolator = SandboxHandPoseInterpolator()
+        fun hand(x: Float) = TrackedHand(
+            points = MutableList(21) { HandPoint(x, 0f, 0f) },
+            side = HandSide.RIGHT,
+            trackingId = 9L
+        )
+
+        interpolator.sample(hand(0.1f), 100L, 100L, 100L)
+        val cameraResult = hand(0.3f)
+        val firstRender = interpolator.sample(cameraResult, 166L, 166L, 166L)!!
+        val nextRender = interpolator.sample(cameraResult, 166L, 166L, 182L)!!
+
+        assertTrue(nextRender.points[0].x > firstRender.points[0].x)
+        assertTrue(nextRender.points[0].x < cameraResult.points[0].x)
+    }
+
+    @Test
     fun handPoseInterpolatorBoundsForwardPrediction() {
         val interpolator = SandboxHandPoseInterpolator()
         fun hand(x: Float) = TrackedHand(
