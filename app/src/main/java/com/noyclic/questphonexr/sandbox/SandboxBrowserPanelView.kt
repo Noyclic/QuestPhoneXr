@@ -45,6 +45,11 @@ internal class SandboxBrowserPanelView @JvmOverloads constructor(
     private val addressField = EditText(context)
     private val webView = KeyboardControlledWebView(context)
     private val keyboard = SandboxVirtualKeyboardView(context, ::dispatchVirtualKey)
+    private var closeButton: Button? = null
+    private var lastCloseAffordance = SandboxBrowserInteraction.CloseAffordance(
+        visible = false,
+        hovered = false
+    )
 
     private var activePointerSide: HandSide? = null
     private var activePointerDownTime = 0L
@@ -113,9 +118,19 @@ internal class SandboxBrowserPanelView @JvmOverloads constructor(
             toolbarButton("GO") { navigate() },
             LayoutParams(82, LayoutParams.MATCH_PARENT)
         )
+        val closeControl = toolbarButton("×") { onCloseRequested() }.apply {
+            textSize = 28f
+            alpha = IDLE_CLOSE_BUTTON_ALPHA
+            contentDescription = "Закрыть 3D-браузер"
+            setBackgroundColor(Color.rgb(43, 66, 91))
+        }
+        closeButton = closeControl
         toolbar.addView(
-            toolbarButton("×") { onCloseRequested() },
-            LayoutParams(54, LayoutParams.MATCH_PARENT)
+            closeControl,
+            LayoutParams(
+                SandboxBrowserInteraction.CLOSE_BUTTON_LAYOUT_WIDTH,
+                LayoutParams.MATCH_PARENT
+            )
         )
         addView(toolbar, LayoutParams(LayoutParams.MATCH_PARENT, 60))
     }
@@ -306,11 +321,36 @@ internal class SandboxBrowserPanelView @JvmOverloads constructor(
         return bitmap
     }
 
+    private fun updateCloseAffordance(snapshot: SandboxSceneSnapshot) {
+        val next = SandboxBrowserInteraction.closeAffordance(
+            snapshot.leftHand,
+            snapshot.rightHand
+        )
+        if (next == lastCloseAffordance) return
+        lastCloseAffordance = next
+
+        closeButton?.apply {
+            alpha = when {
+                next.hovered -> 1f
+                next.visible -> 0.96f
+                else -> IDLE_CLOSE_BUTTON_ALPHA
+            }
+            setBackgroundColor(
+                when {
+                    next.hovered -> Color.rgb(190, 48, 62)
+                    next.visible -> Color.rgb(105, 54, 65)
+                    else -> Color.rgb(43, 66, 91)
+                }
+            )
+        }
+    }
+
     /**
      * Convert a camera pinch into Android down/move/up events targeted at the
      * WebView or virtual keyboard. Only one hand owns the pointer at a time.
      */
     fun updateHandInput(snapshot: SandboxSceneSnapshot) {
+        updateCloseAffordance(snapshot)
         val activeSide = activePointerSide
         if (activeSide != null) {
             val hand = if (activeSide == HandSide.LEFT) snapshot.leftHand else snapshot.rightHand
@@ -411,6 +451,7 @@ internal class SandboxBrowserPanelView @JvmOverloads constructor(
     private companion object {
         const val DEFAULT_HOME = "https://www.google.com"
         const val POINTER_KEEPALIVE_MS = 80L
+        const val IDLE_CLOSE_BUTTON_ALPHA = 0.28f
     }
 }
 
