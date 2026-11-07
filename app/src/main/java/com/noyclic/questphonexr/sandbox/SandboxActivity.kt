@@ -51,6 +51,7 @@ import com.noyclic.questphonexr.input.VirtualControllerMapper
 import com.noyclic.questphonexr.input.VirtualControllerState
 import com.noyclic.questphonexr.input.ControllerInputSource
 import com.noyclic.questphonexr.tracking.HandLandmarkerController
+import com.google.mediapipe.tasks.core.Delegate
 import com.noyclic.questphonexr.tracking.HandCameraPreference
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.HandTrackingMetricsSnapshot
@@ -1120,11 +1121,12 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     maxHands = handTrackingPreset.maxTrackedHands,
                     minimumInferenceIntervalMs = adaptivePerformanceState.minimumInferenceIntervalMs,
                     // Keep the camera source at 640×480, but feed a bounded 480×360
-                    // bitmap to the CPU model. This avoids paying full camera-resolution
+                    // bitmap to the MediaPipe model. This avoids paying full camera-resolution
                     // inference cost while retaining enough detail for hand landmarks.
                     outputWidthPx = minOf(effectiveCameraWidthPx(), MODEL_INPUT_WIDTH_PX),
                     outputHeightPx = minOf(effectiveCameraHeightPx(), MODEL_INPUT_HEIGHT_PX),
-                    onMetrics = { snapshot -> latestSandboxTrackingMetrics = snapshot }
+                    onMetrics = { snapshot -> latestSandboxTrackingMetrics = snapshot },
+                    preferredDelegate = Delegate.GPU
                 )
                 handTracker = tracker
                 val analysis = ImageAnalysis.Builder()
