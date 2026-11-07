@@ -3,6 +3,8 @@ package com.noyclic.questphonexr.sandbox
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
+import com.noyclic.questphonexr.tracking.HandSide
 import org.junit.Test
 
 class SandboxBrowserInteractionTest {
@@ -70,6 +72,90 @@ class SandboxBrowserInteractionTest {
         assertNull(SandboxBrowserInteraction.map(outside))
         assertNull(SandboxBrowserInteraction.map(tooFar))
     }
+
+    @Test
+    fun closeAffordanceWakesWhenTrackedHandApproachesPanel() {
+        val state = SandboxBrowserInteraction.closeAffordance(
+            hand(
+                HandSide.LEFT,
+                SandboxVector3(
+                    SandboxBrowserInteraction.PANEL_CENTER_X,
+                    SandboxBrowserInteraction.PANEL_CENTER_Y,
+                    SandboxBrowserInteraction.PANEL_CENTER_Z + 0.55f
+                )
+            ),
+            untrackedHand(HandSide.RIGHT)
+        )
+
+        assertTrue(state.visible)
+        assertFalse(state.hovered)
+    }
+
+    @Test
+    fun closeAffordanceHighlightsOnlyWhenCursorIsOverTopRightCorner() {
+        val closeCorner = SandboxBrowserInteraction.toWorld(
+            SandboxBrowserInteraction.PixelPoint(920f, 24f)
+        )
+        val state = SandboxBrowserInteraction.closeAffordance(
+            hand(HandSide.RIGHT, closeCorner),
+            untrackedHand(HandSide.LEFT)
+        )
+
+        assertTrue(state.visible)
+        assertTrue(state.hovered)
+    }
+
+    @Test
+    fun closeAffordanceDoesNotHighlightTheCornerForOtherPanelPositions() {
+        val center = SandboxBrowserInteraction.toWorld(
+            SandboxBrowserInteraction.PixelPoint(480f, 320f)
+        )
+        val state = SandboxBrowserInteraction.closeAffordance(
+            hand(HandSide.LEFT, center),
+            untrackedHand(HandSide.RIGHT)
+        )
+
+        assertTrue(state.visible)
+        assertFalse(state.hovered)
+    }
+
+    @Test
+    fun closeAffordanceIgnoresLostHandsAndHandsTooFarFromPanel() {
+        val tooFar = SandboxVector3(
+            SandboxBrowserInteraction.PANEL_CENTER_X,
+            SandboxBrowserInteraction.PANEL_CENTER_Y,
+            SandboxBrowserInteraction.PANEL_CENTER_Z + 1.2f
+        )
+        val lost = SandboxBrowserInteraction.closeAffordance(
+            untrackedHand(HandSide.LEFT),
+            untrackedHand(HandSide.RIGHT)
+        )
+        val distant = SandboxBrowserInteraction.closeAffordance(
+            hand(HandSide.LEFT, tooFar),
+            untrackedHand(HandSide.RIGHT)
+        )
+
+        assertFalse(lost.visible)
+        assertFalse(lost.hovered)
+        assertFalse(distant.visible)
+        assertFalse(distant.hovered)
+    }
+
+    private fun hand(side: HandSide, cursor: SandboxVector3) = SandboxHandState(
+        hand = side,
+        cursor = cursor,
+        grabbing = false,
+        connected = true,
+        cameraTracked = true
+    )
+
+    private fun untrackedHand(side: HandSide) = SandboxHandState(
+        hand = side,
+        cursor = SandboxVector3(0f, 0f, 0f),
+        grabbing = false,
+        connected = false,
+        cameraTracked = false
+    )
 
     @Test
     fun dragMappingClampsToVisiblePanelEdge() {
