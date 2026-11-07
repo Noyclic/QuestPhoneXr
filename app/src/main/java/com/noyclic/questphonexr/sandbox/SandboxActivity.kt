@@ -516,6 +516,49 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         EndXrInputSnapshotStore.publishHandPoses(cameraInput.leftPose, cameraInput.rightPose)
     }
 
+    private fun launchExternalOpenXrProbe() {
+        val probePackage = "com.noyclic.xrclientprobe"
+        val launchIntent = packageManager.getLaunchIntentForPackage(probePackage)
+        if (launchIntent != null) {
+            runCatching { startActivity(launchIntent) }
+                .onFailure { error ->
+                    Toast.makeText(
+                        this,
+                        "Не удалось открыть внешний тест: ${error.message ?: "ошибка запуска"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Внешний OpenXR тест не установлен")
+            .setMessage(
+                "Для независимой проверки нужен отдельный APK EndXR External Client Probe. " +
+                    "Скачай QuestPhoneXR-debug-apk и QuestPhoneXR-external-client-probe-apk " +
+                    "из одного и того же запуска GitHub Actions и установи оба. " +
+                    "Одинаковая подпись нужна диагностическому клиенту для проверки защищённого IPC."
+            )
+            .setPositiveButton("Открыть GitHub Actions") { _, _ ->
+                runCatching {
+                    startActivity(
+                        Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse("https://github.com/Noyclic/QuestPhoneXr/actions")
+                        )
+                    )
+                }.onFailure { error ->
+                    Toast.makeText(
+                        this,
+                        "Не удалось открыть GitHub Actions: ${error.message ?: "ошибка"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            .setNegativeButton("Закрыть", null)
+            .show()
+    }
+
     private fun showRuntimeBrokerDiagnostic() {
         Toast.makeText(this, "Проверяем OpenXR RuntimeBroker…", Toast.LENGTH_SHORT).show()
         Thread({
@@ -916,6 +959,27 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             ).apply {
                 bottomMargin = dp(62)
                 marginStart = dp(12)
+            }
+        )
+
+        val externalProbeButton = controlButton("Внешний OpenXR тест") {
+            launchExternalOpenXrProbe()
+        }.apply {
+            textSize = 13f
+            contentDescription = "Запустить отдельное приложение для проверки OpenXR Loader и EndXR"
+            setPadding(dp(12), dp(5), dp(12), dp(5))
+            minHeight = dp(40)
+            elevation = dp(6).toFloat()
+        }
+        root.addView(
+            externalProbeButton,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.END
+            ).apply {
+                bottomMargin = dp(158)
+                marginEnd = dp(12)
             }
         )
 
