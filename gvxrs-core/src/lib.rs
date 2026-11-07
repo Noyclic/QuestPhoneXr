@@ -5,7 +5,7 @@
 //! It is a safe Rust parity implementation of the app-side lifecycle helper
 //! currently called by Android JNI. It is not the loader-facing OpenXR engine.
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 pub mod tracking;
 mod core_ffi;
