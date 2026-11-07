@@ -159,6 +159,32 @@ class SandboxSimulationTest {
     }
 
     @Test
+    fun cameraTrackedLandmarksAreNotSmoothedAgainAtRenderRate() {
+        val simulation = SandboxSimulation()
+        fun trackedHand(indexX: Float): TrackedHand {
+            val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+            points[5] = HandPoint(0.6f, 0.4f, 0f)
+            points[17] = HandPoint(0.4f, 0.4f, 0f)
+            points[8] = HandPoint(indexX, 0.5f, 0f)
+            return TrackedHand(points = points, side = HandSide.RIGHT)
+        }
+
+        simulation.update(
+            emptyList(),
+            HandTrackingFrame(100L, listOf(trackedHand(0.6f))),
+            1f / 30f
+        )
+        simulation.update(
+            emptyList(),
+            HandTrackingFrame(133L, listOf(trackedHand(0.8f))),
+            1f / 30f
+        )
+
+        val expectedX = (0.8f - 0.5f) * 2.55f * 2.4f
+        assertEquals(expectedX, simulation.snapshot().rightHand.cursor.x, 0.002f)
+    }
+
+    @Test
     fun joyConStickMovesPlayerWhileCameraTrackedHandRemainsIndependent() {
         val simulation = SandboxSimulation()
         val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
