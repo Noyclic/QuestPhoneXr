@@ -28,10 +28,11 @@ class HandKinematicReconstructorTest {
         val settled = reconstructor.reconstruct(second, 1L, 116L)!!
         val fast = reconstructor.reconstruct(third, 1L, 132L)!!
 
+        // OpenXR joint 10 is the index fingertip (MediaPipe landmark 8).
         val smallRawDelta = second[8].x - first[8].x
-        val smallFilteredDelta = settled[9].x - initial[9].x
+        val smallFilteredDelta = settled[10].x - initial[10].x
         assertTrue(kotlin.math.abs(smallFilteredDelta) < kotlin.math.abs(smallRawDelta))
-        assertTrue(fast[9].x - settled[9].x > 0.10f)
+        assertTrue(fast[10].x - settled[10].x > 0.10f)
     }
 
     @Test
@@ -42,10 +43,22 @@ class HandKinematicReconstructorTest {
         val moved = first.map { it.copy(x = it.x + 0.10f) }
 
         val changedIdentity = reconstructor.reconstruct(moved, 2L, 116L)!!
-        assertEquals(moved[8].x, changedIdentity[9].x, 0.0001f)
+        assertEquals(moved[8].x, changedIdentity[10].x, 0.0001f)
 
         val afterGap = reconstructor.reconstruct(first, 2L, 500L)!!
-        assertEquals(first[8].x, afterGap[9].x, 0.0001f)
+        assertEquals(first[8].x, afterGap[10].x, 0.0001f)
+    }
+
+    @Test
+    fun resetsOnTimestampRollback() {
+        val reconstructor = HandKinematicReconstructor()
+        val first = sampleHand()
+        reconstructor.reconstruct(first, 1L, 100L)
+        val moved = first.map { it.copy(x = it.x + 0.10f) }
+        reconstructor.reconstruct(moved, 1L, 116L)
+
+        val afterRollback = reconstructor.reconstruct(first, 1L, 110L)!!
+        assertEquals(first[8].x, afterRollback[10].x, 0.0001f)
     }
 
     @Test
