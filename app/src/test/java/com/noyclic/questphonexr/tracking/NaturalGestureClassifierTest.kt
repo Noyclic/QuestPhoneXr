@@ -71,15 +71,19 @@ class NaturalGestureClassifierTest {
         val incomplete = point.copy(rawPoints = point.rawPoints.dropLast(1), rawWorldPoints = emptyList())
         assertEquals(NaturalHandGesture.NONE, classifier.update(incomplete, 100L).gesture)
 
-        val invalid = point.copy(rawWorldPoints = point.rawWorldPoints.toMutableList().also {
+        val invalidWorld = point.rawWorldPoints.toMutableList().also {
             it[8] = HandPoint(Float.NaN, 0f, 0f)
-        })
+        }
+        val invalidImage = point.rawPoints.toMutableList().also {
+            it[8] = HandPoint(Float.NaN, 0f, 0f)
+        }
+        val invalid = point.copy(rawWorldPoints = invalidWorld, rawPoints = invalidImage)
         assertEquals(NaturalHandGesture.NONE, classifier.update(invalid, 133L).gesture)
 
         val ambiguousPoints = point.rawWorldPoints.toMutableList().also {
-            // Bend the index DIP and tip toward the palm: neither reliably extended nor curled.
-            it[7] = HandPoint(it[7].x + 0.018f, it[7].y - 0.012f, it[7].z)
-            it[8] = HandPoint(it[8].x + 0.020f, it[8].y - 0.024f, it[8].z)
+            // A sideways index finger lands between the straight and curled score bands.
+            it[7] = HandPoint(0.070f, 0.075f, 0f)
+            it[8] = HandPoint(0.100f, 0.075f, 0f)
         }
         val ambiguous = point.copy(rawWorldPoints = ambiguousPoints)
         assertEquals(NaturalHandGesture.NONE, classifier.update(ambiguous, 166L).gesture)
