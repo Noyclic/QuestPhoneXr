@@ -1129,8 +1129,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                         },
                         maxHands = handTrackingPreset.maxTrackedHands,
                         minimumInferenceIntervalMs = adaptivePerformanceState.minimumInferenceIntervalMs,
-                        // Keep the camera source at 640×480, but feed a bounded 480×360
-                        // bitmap to the MediaPipe model.
+                        // The selected preset can use a smaller model bitmap than the
+                        // CameraX source to trade landmark detail for inference workload.
                         outputWidthPx = minOf(effectiveCameraWidthPx(), handTrackingPreset.modelInputWidthPx),
                         outputHeightPx = minOf(effectiveCameraHeightPx(), handTrackingPreset.modelInputHeightPx),
                         onMetrics = { snapshot -> latestSandboxTrackingMetrics = snapshot },
@@ -1929,8 +1929,12 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         } else {
             "—"
         }
-        val inferenceFps =
-            1000L / adaptivePerformanceState.minimumInferenceIntervalMs.coerceAtLeast(1L)
+        val inferenceIntervalMs = adaptivePerformanceState.minimumInferenceIntervalMs
+        val inferenceRateLabel = if (inferenceIntervalMs == 0L) {
+            "без искусственного ограничения"
+        } else {
+            "до ${1000L / inferenceIntervalMs} кадров/с"
+        }
 
         return buildString {
             append("QUESTPHONEXR · VR-ПЕСОЧНИЦА · СТЕРЕО 3DoF")
@@ -1944,8 +1948,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             append(" · ").append(adaptivePerformanceState.label)
             append(" · камера ").append(effectiveCameraWidthPx())
             append('×').append(effectiveCameraHeightPx())
-            append(" · ").append(handTrackingPreset.maxTrackedHands).append(" рук · MediaPipe до ")
-                .append(inferenceFps).append(" кадр/с")
+            append(" · ").append(handTrackingPreset.maxTrackedHands).append(" рук · MediaPipe ")
+                .append(inferenceRateLabel)
             append('\n')
             append(cameraStatusMessage).append(" · рук: ").append(latestHandFrame.handCount)
             append('\n')
