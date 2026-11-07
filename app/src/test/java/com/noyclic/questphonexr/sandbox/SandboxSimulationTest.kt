@@ -132,6 +132,35 @@ class SandboxSimulationTest {
     }
 
     @Test
+    fun browserInteractionModeKeepsPinchForClicksInsteadOfGrabbingObjects() {
+        val simulation = SandboxSimulation()
+        val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+        points[0] = HandPoint(0.2f, 0.4f, 0f)
+        points[4] = HandPoint(0.46f, 0.51f, 0f)
+        points[8] = HandPoint(0.54f, 0.49f, 0f)
+        val hand = TrackedHand(
+            points = points,
+            pinchStrength = 0.9f,
+            isPinching = true,
+            side = HandSide.LEFT
+        )
+        val frame = HandTrackingFrame(120L, listOf(hand))
+
+        simulation.setBrowserInteractionMode(true)
+        simulation.update(emptyList(), frame, 1f / 30f)
+        val browserSnapshot = simulation.snapshot()
+
+        assertTrue(browserSnapshot.leftHand.pinching)
+        assertFalse(browserSnapshot.leftHand.grabbing)
+        assertEquals(0, browserSnapshot.grabbedObjectCount)
+
+        simulation.setBrowserInteractionMode(false)
+        simulation.update(emptyList(), HandTrackingFrame(136L, listOf(hand)), 1f / 30f)
+        assertTrue(simulation.snapshot().leftHand.grabbing)
+        assertEquals(1, simulation.snapshot().grabbedObjectCount)
+    }
+
+    @Test
     fun curledThreeFingerPowerGripGrabsWithoutPinching() {
         val simulation = SandboxSimulation()
         val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
