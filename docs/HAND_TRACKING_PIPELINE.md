@@ -116,3 +116,16 @@ These safeguards are regression-tested in the JVM suite. They still need physica
 The next hardening increment separates motion confidence from visual filter continuity. After a detection gap longer than 120 ms, palm velocity and pinch state are reset immediately, but image/world presentation filters are allowed to remain warm until their own 250 ms hard-reset threshold. A returning hand can therefore blend back into the visible pose instead of always snapping to the first raw sample; discrete pinch state does not carry across that gap.
 
 The world-landmark presentation filter now has a metric-space jump budget (2.4 m/s for palm/joint landmarks and 4.0 m/s for thumb/index tips). This is only for the displayed hand pose. Pinch measurement remains on raw world landmarks, and a regression test explicitly verifies that a pinch can activate immediately while the displayed world fingertip mesh is still smoothing.
+
+
+## 3D Sandbox hand-pose presentation
+
+After the MediaPipe display landmarks are mapped through calibration and the camera-to-world rotation, Sandbox applies a separate render-only 3D pose smoother to the 21 world-space landmarks:
+
+- It uses an exact critically damped spring step rather than a fixed per-frame lerp. The time-based integration keeps its response consistent across the selected 20–60 FPS render rates.
+- One response frequency is shared across the complete hand. Palm, knuckles and fingertips therefore settle together instead of each joint acquiring a different smoothing delay.
+- The response adapts to palm-center motion: low-speed micro-jitter is damped more strongly, while faster hand movement raises the response frequency to reduce visual lag.
+- The smoother runs after 3D mapping, so it stabilizes world X/Y and depth Z together. It resets on hand identity changes, calibration changes, tracking loss, or invalid pose data.
+- It is strictly a presentation layer. Interaction cursor, pinch/grab state and OpenXR input continue to use the newest tracked observation; this additional smoothing does not delay trigger input or the controller snapshot.
+
+The JVM regression suite covers convergence without overshoot, faster response at higher palm speed, shared whole-hand response, depth smoothing, identity resets, missing-hand resets and invalid-coordinate recovery. Physical Redmi testing is still required to tune the response frequency against actual perceived hand motion and rendering cadence.
