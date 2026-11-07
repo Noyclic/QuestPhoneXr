@@ -65,6 +65,22 @@ class VirtualControllerMapperTest {
     }
 
     @Test
+    fun incompleteFingerLandmarksDoNotProduceGripStrength() {
+        val complete = hand(HandSide.LEFT, pinch = 0f)
+        val incomplete = complete.copy(
+            points = complete.points.dropLast(1),
+            worldPoints = complete.worldPoints.dropLast(1)
+        )
+
+        val frame = mapper.map(
+            HandTrackingFrame(123L, listOf(incomplete)),
+            emptyList()
+        )
+
+        assertEquals(0f, frame.left.grip, 0f)
+    }
+
+    @Test
     fun combinesAssignedGamepadAndHandTracking() {
         val physical = PhysicalControllerSnapshot(
             deviceId = 7,
