@@ -268,6 +268,8 @@ class SandboxRenderer : GLSurfaceView.Renderer {
 
             if (browserVisible && browserTextureId != 0) {
                 drawBrowserPanel()
+                drawBrowserPointer(snapshot.leftHand, leftCursorMesh)
+                drawBrowserPointer(snapshot.rightHand, rightCursorMesh)
             }
 
             val leftHand = snapshot.leftHand
@@ -351,6 +353,14 @@ class SandboxRenderer : GLSurfaceView.Renderer {
         GLES20.glDisableVertexAttribArray(browserTexturePositionHandle)
         GLES20.glDisableVertexAttribArray(browserTextureUvHandle)
         browserQuadBuffer.position(0)
+    }
+
+    private fun drawBrowserPointer(hand: SandboxHandState, pointerMesh: Mesh) {
+        if (!hand.cameraTracked) return
+        val pixel = SandboxBrowserInteraction.map(hand.cursor) ?: return
+        val position = SandboxBrowserInteraction.toWorld(pixel)
+        val size = if (hand.pinching) 0.048f else 0.030f
+        drawMesh(pointerMesh, position.x, position.y, position.z, size, size, size)
     }
 
     private fun createBrowserQuadBuffer(): FloatBuffer {
