@@ -37,6 +37,7 @@ This document describes the Android camera-to-hand-input path and its current sa
 - Pinch distance is normalized by palm width so the gesture is less sensitive to how close the hand is to the camera.
 - Pinch uses the newest raw thumb/index/palm landmarks rather than the already-filtered render mesh, avoiding two serial smoothing stages on fingertip motion. Its own time-aware smoother uses separate activation and release thresholds (0.62 / 0.40) to respond to deliberate partial closure without treating a relaxed open hand as a pinch. Missing or invalid key landmarks clear the gesture rather than leaving a stuck pinch.
 - The gesture hot path validates the four required landmarks directly without creating a temporary list.
+- The latest normalized thumb/index distance ratio is carried with each tracked hand. Sandbox diagnostics show strength, normalized gap and ON/OFF state so real-device threshold tuning can distinguish landmark quality from downstream input mapping.
 
 ## Device tuning and limits
 
