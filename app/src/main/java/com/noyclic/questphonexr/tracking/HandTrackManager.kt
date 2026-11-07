@@ -28,7 +28,14 @@ internal class HandTrackManager(
         observation: HandObservation,
         timestampMs: Long
     ) {
-        private val imageFilter = OneEuroHandFilter()
+        // Keep the palm/knuckles quiet, but let the visible thumb and index tips
+        // follow fast pinch motion with a higher adaptive cutoff.
+        private val imageFilter = OneEuroHandFilter(
+            responsiveLandmarkA = THUMB_TIP_INDEX,
+            responsiveLandmarkB = INDEX_TIP_INDEX,
+            responsiveMinCutoffHz = RESPONSIVE_TIP_MIN_CUTOFF_HZ,
+            responsiveBeta = RESPONSIVE_TIP_BETA
+        )
         private val worldFilter = OneEuroHandFilter(
             minCutoffHz = WORLD_MIN_CUTOFF_HZ,
             beta = WORLD_BETA
@@ -366,6 +373,10 @@ internal class HandTrackManager(
     private companion object {
         val PALM_CENTER_INDICES = intArrayOf(0, 5, 9, 13, 17)
         const val LANDMARK_COUNT = 21
+        const val THUMB_TIP_INDEX = 4
+        const val INDEX_TIP_INDEX = 8
+        const val RESPONSIVE_TIP_MIN_CUTOFF_HZ = 3.2f
+        const val RESPONSIVE_TIP_BETA = 0.65f
         const val MAX_TRACKS = 2
         const val DEFAULT_RETENTION_MS = 350L
         const val DEFAULT_PINCH_RELEASE_DELAY_MS = 120L
