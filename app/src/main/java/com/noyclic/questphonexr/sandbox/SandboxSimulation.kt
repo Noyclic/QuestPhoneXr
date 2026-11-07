@@ -609,7 +609,7 @@ class SandboxSimulation {
             return (thumbTip + indexTip) * 0.5f
         }
         if (isPowerGripping) {
-            val palmPoints = PALM_MCP_INDICES.mapNotNull(landmarks::getOrNull)
+            val palmPoints = PALM_MCP_INDICES.map { index -> landmarks.getOrNull(index) }.filterNotNull()
             if (palmPoints.isNotEmpty()) {
                 return palmPoints.reduce { total, point -> total + point } *
                     (1f / palmPoints.size.toFloat())
@@ -620,7 +620,7 @@ class SandboxSimulation {
 
     private fun applyFingerContacts(hand: ControllerState, deltaSeconds: Float) {
         if (!hand.cameraTracked || hand.grabbing) return
-        val fingertips = FINGERTIP_INDICES.mapNotNull(hand.contactLandmarks::getOrNull)
+        val fingertips = FINGERTIP_INDICES.map { index -> hand.contactLandmarks.getOrNull(index) }.filterNotNull()
         if (fingertips.isEmpty()) return
         for (item in objects) {
             if (item.heldBy != null || item.type == SandboxObjectType.TARGET) continue
