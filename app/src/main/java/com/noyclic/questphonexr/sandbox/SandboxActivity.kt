@@ -2010,7 +2010,14 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 }
             )
             append('\n')
-            val trackerMetrics = handTracker?.metricsSnapshot()
+            val trackerMetrics = if (serviceRunning) {
+                EndXrHandTrackingService.diagnosticMetrics()
+            } else {
+                handTracker?.metricsSnapshot() ?: latestSandboxTrackingMetrics
+            }
+            append("MediaPipe delegate: ").append(trackerMetrics?.delegateName ?: "ожидание")
+            append(" · выбор: ").append(handTrackingDelegatePreference.label)
+            append('\n')
             append("MediaPipe: ").append(handFpsText)
             append(" FPS · подготовка ").append(latestPreprocessingLatencyMs)
             append(" мс · pipeline ").append(latestHandPipelineLatencyMs)
