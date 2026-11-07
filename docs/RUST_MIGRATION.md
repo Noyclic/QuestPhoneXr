@@ -40,7 +40,7 @@ The lifecycle module covers:
 - frame deadline and late-frame accounting;
 - stop, loss, recovery and shutdown behavior.
 
-This is a shadow implementation. Neither module is linked into the Android app yet, and neither replaces the C++ implementation. Host-side C++ tests exercise the ABI, while CI also cross-compiles a separate Android `arm64-v8a` static archive and links it into a test-only shared library with the Android NDK C++ linker. The link smoke target checks C ABI struct layout and exported symbols under `--no-undefined`. It is not linked into an APK or called from JNI.
+This is a shadow implementation. Neither module is linked into the Android app yet, and neither replaces the C++ implementation. Host-side C++ tests exercise the ABI, while CI also cross-compiles a separate Android `arm64-v8a` static archive and links it into a test-only shared library with the Android NDK C++ linker. The link smoke target checks C ABI struct layout and exported symbols under `--no-undefined`. It is not linked into an APK or called from JNI. The smoke entry point is compile/link validated only; CI does not execute that Android shared library in an emulator or on a phone.
 
 ## Stage 2 — differential verification and Android cross-build
 
@@ -55,7 +55,7 @@ This is a shadow implementation. Neither module is linked into the Android app y
 - Exercise invalid transitions, timestamp overflow, frame token mismatch, loss/recovery and repeated start/stop cycles.
 - Keep C++ as the production path until parity is demonstrated.
 
-The cross-build and test-only shared-library link prove Android ARM64 compilation, static linking and the tested C ABI layouts. They do not prove APK packaging, Java/Kotlin JNI invocation, execution on the phone, or physical-device behavior.
+The cross-build and test-only shared-library link prove Android ARM64 compilation, static linking and compile-time C ABI layout checks. CI does not execute the generated Android shared library. These checks do not prove APK packaging, Java/Kotlin JNI invocation, runtime behavior on the phone, or physical-device compatibility.
 
 ## Stage 3 — opt-in JNI adapter
 
