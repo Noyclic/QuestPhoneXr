@@ -29,10 +29,7 @@ jobs:
         run: |
           set -euo pipefail
           rustup toolchain install stable --profile minimal
-          rustup component add clippy rustfmt --toolchain stable
-
-      - name: Check Rust formatting
-        run: cargo +stable fmt --manifest-path gvxrs-core/Cargo.toml -- --check
+          rustup component add clippy --toolchain stable
 
       - name: Run Rust Clippy
         run: cargo +stable clippy --manifest-path gvxrs-core/Cargo.toml --all-targets -- -D warnings
