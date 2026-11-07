@@ -152,6 +152,8 @@ internal object EndXrHandTrackingDiagnostics {
             append("service_camera_lens=").append(cameraLens).append('\n')
             append("service_camera_width_px=").append(cameraWidthPx).append('\n')
             append("service_camera_height_px=").append(cameraHeightPx).append('\n')
+            append("service_model_input_width_px=").append(latestFrame.inputWidthPx).append('\n')
+            append("service_model_input_height_px=").append(latestFrame.inputHeightPx).append('\n')
             append("service_camera_frames_received=").append(snapshot.receivedFrames).append('\n')
             append("service_mediapipe_frames_submitted=").append(snapshot.submittedFrames).append('\n')
             append("service_mediapipe_results_completed=").append(snapshot.completedFrames).append('\n')
