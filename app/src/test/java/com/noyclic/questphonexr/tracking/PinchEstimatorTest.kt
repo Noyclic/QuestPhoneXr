@@ -44,6 +44,52 @@ class PinchEstimatorTest {
         assertTrue(signal.isPinching)
     }
 
+    @Test
+    fun partialClosureCanActivateWithoutRequiringPerfectTipOverlap() {
+        val estimator = PinchEstimator(smoothing = 1f)
+        val points = points(pinching = false).toMutableList().also {
+            // Palm width is 0.20; tip distance is 0.07 (0.35 palm widths).
+            it[4] = HandPoint(0.465f, 0.5f, 0f)
+            it[8] = HandPoint(0.535f, 0.5f, 0f)
+        }
+
+        val signal = estimator.update(points, 1_000L)
+
+        assertTrue("a deliberate partial closure should cross the activation threshold", signal.isPinching)
+    }
+
+    @Test
+    fun relaxedThresholdDoesNotActivateOnAnOpenHand() {
+        val estimator = PinchEstimator(smoothing = 1f)
+        val points = points(pinching = false).toMutableList().also {
+            // Tip distance remains 0.55 palm widths: open, not a pinch.
+            it[4] = HandPoint(0.445f, 0.5f, 0f)
+            it[8] = HandPoint(0.555f, 0.5f, 0f)
+        }
+
+        val signal = estimator.update(points, 1_000L)
+
+        assertFalse(signal.isPinching)
+    }
+
+    @Test
+    fun pinchStrengthIsInvariantToUniformImageScale() {
+        val estimator = PinchEstimator(smoothing = 1f)
+        val small = points(pinching = false).toMutableList().also {
+            it[5] = HandPoint(0.6f, 0.4f, 0f)
+            it[17] = HandPoint(0.4f, 0.4f, 0f)
+            it[4] = HandPoint(0.465f, 0.5f, 0f)
+            it[8] = HandPoint(0.535f, 0.5f, 0f)
+        }
+        val large = small.map { HandPoint(it.x * 2f, it.y * 2f, it.z) }
+
+        val smallStrength = estimator.update(small, 1_000L).strength
+        estimator.reset()
+        val largeStrength = estimator.update(large, 1_000L).strength
+
+        assertTrue(kotlin.math.abs(smallStrength - largeStrength) < 0.0001f)
+    }
+
     private fun points(pinching: Boolean): List<HandPoint> {
         val result = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
         result[5] = HandPoint(0.6f, 0.4f, 0f)
