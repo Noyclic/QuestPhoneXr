@@ -110,6 +110,7 @@ internal class HandTrackManager(
                 points = filteredPoints,
                 pinchStrength = pinch.strength,
                 isPinching = pinch.isPinching,
+                pinchDistanceRatio = pinch.normalizedDistanceRatio,
                 side = side,
                 worldPoints = filteredWorldPoints,
                 trackingId = id
@@ -124,7 +125,11 @@ internal class HandTrackManager(
                 timestampMs - lastSeenTimestampMs >= pinchReleaseDelayMs
             ) {
                 pinchEstimator.reset()
-                output = output.copy(pinchStrength = 0f, isPinching = false)
+                output = output.copy(
+                    pinchStrength = 0f,
+                    isPinching = false,
+                    pinchDistanceRatio = Float.POSITIVE_INFINITY
+                )
                 pinchWasReleasedForLoss = true
             }
         }
