@@ -22,6 +22,7 @@ import org.junit.runner.RunWith
 import org.junit.runners.MethodSorters
 import org.junit.FixMethodOrder
 import java.io.File
+import java.util.regex.Pattern
 
 /**
  * End-to-end smoke test for the app entry flow.
@@ -311,11 +312,14 @@ class AppNavigationSmokeTest {
             missingProbeShown || externalProbeOpened
         )
         if (missingProbeShown) {
+            // AlertDialog buttons may be exposed in uppercase by the active Android theme.
+            // Match the visible close action case-insensitively instead of assuming title case.
+            val closeAction = By.text(Pattern.compile("(?i)^закрыть$"))
             assertTrue(
                 "Missing external probe dialog has no close action",
-                device.wait(Until.hasObject(By.text("Закрыть")), 2_000)
+                device.wait(Until.hasObject(closeAction), 2_000)
             )
-            device.findObject(By.text("Закрыть")).click()
+            device.findObject(closeAction).click()
         } else {
             device.pressBack()
             assertTrue(
