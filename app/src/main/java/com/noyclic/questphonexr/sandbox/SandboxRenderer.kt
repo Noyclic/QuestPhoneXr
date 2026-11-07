@@ -723,7 +723,7 @@ class SandboxRenderer : GLSurfaceView.Renderer {
         private const val HAND_LANDMARK_COUNT = 21
         private const val MAX_TRACKED_HANDS = 2
         // 1 palm + 5 palm links + 1 thumb web + 15 digit bones + 2 pinch accents.
-        private const val MAX_HAND_PRIMITIVES = 24
+        private const val MAX_HAND_PRIMITIVES = SandboxHandMeshGeometry.MAX_PRIMITIVES_PER_HAND
         private const val HAND_SPHERE_LATITUDE_SEGMENTS = 8
         private const val HAND_SPHERE_LONGITUDE_SEGMENTS = 12
         private const val MIN_BONE_LENGTH = 0.0001f
