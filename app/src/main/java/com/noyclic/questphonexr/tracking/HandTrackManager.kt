@@ -31,10 +31,16 @@ internal class HandTrackManager(
         // Keep the palm/knuckles quiet while all five fingertips receive a faster
         // articulation response. Pinch decisions still use fresh, unfiltered landmarks.
         private val imageFilter = OneEuroHandFilter(
+            minCutoffHz = IMAGE_MIN_CUTOFF_HZ,
+            beta = IMAGE_BETA,
+            derivativeCutoffHz = IMAGE_DERIVATIVE_CUTOFF_HZ,
             responsiveLandmarkA = THUMB_TIP_INDEX,
             responsiveLandmarkB = INDEX_TIP_INDEX,
+            responsiveLandmarkIndices = FINGER_TIP_INDICES,
             responsiveMinCutoffHz = RESPONSIVE_TIP_MIN_CUTOFF_HZ,
             responsiveBeta = RESPONSIVE_TIP_BETA,
+            derivativeDeadzone = IMAGE_DERIVATIVE_DEADZONE,
+            responsiveDerivativeDeadzone = RESPONSIVE_TIP_DERIVATIVE_DEADZONE,
             maxLandmarkSpeedPerSecond = IMAGE_LANDMARK_MAX_SPEED,
             responsiveMaxLandmarkSpeedPerSecond = FINGERTIP_MAX_SPEED
         )
@@ -44,10 +50,14 @@ internal class HandTrackManager(
         private val worldFilter = OneEuroHandFilter(
             minCutoffHz = WORLD_MIN_CUTOFF_HZ,
             beta = WORLD_BETA,
+            derivativeCutoffHz = WORLD_DERIVATIVE_CUTOFF_HZ,
             responsiveLandmarkA = THUMB_TIP_INDEX,
             responsiveLandmarkB = INDEX_TIP_INDEX,
+            responsiveLandmarkIndices = FINGER_TIP_INDICES,
             responsiveMinCutoffHz = WORLD_TIP_MIN_CUTOFF_HZ,
             responsiveBeta = WORLD_TIP_BETA,
+            derivativeDeadzone = WORLD_DERIVATIVE_DEADZONE,
+            responsiveDerivativeDeadzone = WORLD_TIP_DERIVATIVE_DEADZONE,
             maxLandmarkSpeedPerSecond = WORLD_LANDMARK_MAX_SPEED,
             responsiveMaxLandmarkSpeedPerSecond = WORLD_TIP_MAX_SPEED
         )
@@ -443,8 +453,14 @@ internal class HandTrackManager(
         const val LANDMARK_COUNT = 21
         const val THUMB_TIP_INDEX = 4
         const val INDEX_TIP_INDEX = 8
-        const val RESPONSIVE_TIP_MIN_CUTOFF_HZ = 3.2f
-        const val RESPONSIVE_TIP_BETA = 0.65f
+        const val IMAGE_MIN_CUTOFF_HZ = 1.65f
+        const val IMAGE_BETA = 0.28f
+        const val IMAGE_DERIVATIVE_CUTOFF_HZ = 0.80f
+        const val IMAGE_DERIVATIVE_DEADZONE = 0.18f
+        const val RESPONSIVE_TIP_MIN_CUTOFF_HZ = 3.0f
+        const val RESPONSIVE_TIP_BETA = 0.72f
+        const val RESPONSIVE_TIP_DERIVATIVE_DEADZONE = 0.10f
+        val FINGER_TIP_INDICES = intArrayOf(12, 16, 20)
         const val IMAGE_LANDMARK_MAX_SPEED = 18f
         const val FINGERTIP_MAX_SPEED = 28f
         const val MAX_TRACKS = 2
@@ -471,10 +487,13 @@ internal class HandTrackManager(
         const val SIDE_CORRECTION_FRAMES = 3
         const val SIDE_MATCH_BONUS = 0.10f
         const val SIDE_MISMATCH_PENALTY = 0.36f
-        const val WORLD_MIN_CUTOFF_HZ = 1.7f
-        const val WORLD_BETA = 0.18f
-        const val WORLD_TIP_MIN_CUTOFF_HZ = 2.8f
-        const val WORLD_TIP_BETA = 0.30f
+        const val WORLD_MIN_CUTOFF_HZ = 1.55f
+        const val WORLD_BETA = 0.20f
+        const val WORLD_DERIVATIVE_CUTOFF_HZ = 0.75f
+        const val WORLD_DERIVATIVE_DEADZONE = 0.012f
+        const val WORLD_TIP_MIN_CUTOFF_HZ = 2.6f
+        const val WORLD_TIP_BETA = 0.34f
+        const val WORLD_TIP_DERIVATIVE_DEADZONE = 0.006f
         const val WORLD_LANDMARK_MAX_SPEED = 2.4f
         const val WORLD_TIP_MAX_SPEED = 4.0f
     }
