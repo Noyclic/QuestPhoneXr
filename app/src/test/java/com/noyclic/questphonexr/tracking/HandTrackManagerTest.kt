@@ -97,6 +97,29 @@ class HandTrackManagerTest {
     }
 
     @Test
+    fun pinchUsesFreshTipsEvenWhileRenderedLandmarksAreStillFiltered() {
+        val manager = HandTrackManager()
+        manager.update(listOf(observation(HandSide.LEFT, 0.4f, pinching = false)), 1_000L)
+        manager.update(listOf(observation(HandSide.LEFT, 0.4f, pinching = false)), 1_016L)
+
+        manager.update(listOf(observation(HandSide.LEFT, 0.4f, pinching = true)), 1_032L)
+        val afterSecondPinchSample = manager.update(
+            listOf(observation(HandSide.LEFT, 0.4f, pinching = true)),
+            1_048L
+        ).single()
+
+        assertTrue("fresh pinch measurements should activate without waiting for the render filter",
+            afterSecondPinchSample.isPinching)
+        val renderedTipGap = kotlin.math.sqrt(
+            (afterSecondPinchSample.points[4].x - afterSecondPinchSample.points[8].x) *
+                (afterSecondPinchSample.points[4].x - afterSecondPinchSample.points[8].x) +
+                (afterSecondPinchSample.points[4].y - afterSecondPinchSample.points[8].y) *
+                (afterSecondPinchSample.points[4].y - afterSecondPinchSample.points[8].y)
+        )
+        assertTrue("the visible mesh should remain independently smoothed", renderedTipGap > 0.05f)
+    }
+
+    @Test
     fun briefSingleFrameGapHoldsLastPoseThenHidesItAndKeepsIdentity() {
         val manager = HandTrackManager()
         val first = manager.update(listOf(observation(HandSide.LEFT, 0.4f)), 1_000L).single()
