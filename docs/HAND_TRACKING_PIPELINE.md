@@ -53,3 +53,14 @@ The JVM suite covers:
 - stale-track expiration, invalid landmarks and non-monotonic timestamps.
 
 Physical-device checks are still required for latency, occlusion behavior, low-light recovery, sustained temperature and battery draw.
+
+## Sandbox render-time hand presentation
+
+The Sandbox keeps interaction input and rendered hand geometry on separate paths:
+
+- Pinch/grip state and the interaction cursor use the newest MediaPipe observation immediately.
+- The 21 displayed landmarks are interpolated between the previous and newest per-hand observation using callback-arrival uptime timestamps.
+- Presentation delay adapts to the observed sample interval (55% of the interval, clamped to 18–48 ms). Forward prediction is limited to 26 ms and 35% of the sample interval.
+- Interpolation is reset on tracking loss, calibration changes, or a hand identity change. Discrete gesture state is never interpolated.
+
+This stage is intentionally limited to Sandbox rendering. It does not change the MediaPipe filter, the OpenXR input snapshot, or the hand-tracking service output. Physical-device latency and perceived smoothness still need to be checked on the Redmi.
