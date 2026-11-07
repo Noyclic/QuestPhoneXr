@@ -506,8 +506,12 @@ class SandboxSimulation {
     ) {
         // The left Joy-Con is the locomotion stick. If only the right one is connected,
         // allow it to move the player too. Camera-tracked hands remain independent.
+        // Prefer the assigned left Joy-Con, then the assigned right one. If a
+        // controller is connected but has not yet been assigned in the UI, still let
+        // its main stick drive locomotion instead of silently disabling walking.
         val movement = controllers.firstOrNull { it.hand == HandSide.LEFT }
             ?: controllers.firstOrNull { it.hand == HandSide.RIGHT }
+            ?: controllers.firstOrNull()
             ?: return
         val x = if (kotlin.math.abs(movement.stickX) > PLAYER_STICK_DEADZONE) movement.stickX else 0f
         val y = if (kotlin.math.abs(movement.stickY) > PLAYER_STICK_DEADZONE) movement.stickY else 0f
