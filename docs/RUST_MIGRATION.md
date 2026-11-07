@@ -24,18 +24,26 @@ No Rust code is allowed to replace or wrap OpenXR entry points in the initial st
 
 ## Stage 1 — Rust parity core (current)
 
-The gvxrs-core crate mirrors only the platform-independent lifecycle/frame-clock logic from endxr_runtime_core.cpp:
+The gvxrs-core crate mirrors only platform-independent logic that is currently outside the loader-facing OpenXR engine:
+
+- the app-side lifecycle/frame-clock helper in `endxr_runtime_core.cpp` (this helper is called through JNI; it is not the OpenXR Loader runtime itself);
+- pure controller-axis sanitization and hand/head quaternion validation currently performed by input setter functions at the bottom of `endxr_openxr_runtime.cpp`.
+
+The tracking module is a shadow port only. The production OpenXR runtime continues to execute its original C++ implementation.
+
+The lifecycle module covers:
 - runtime state transitions;
 - configuration validation;
 - frame index and predicted display timing;
 - frame deadline and late-frame accounting;
 - stop, loss, recovery and shutdown behavior.
 
-This is a shadow implementation. It is not yet linked into the Android app and does not replace the C++ implementation. The Rust test suite must pass before any adapter is introduced.
+This is a shadow implementation. Neither module is linked into the Android app yet, and neither replaces the C++ implementation. The Rust test suite must pass before any adapter is introduced.
 
 ## Stage 2 — differential verification
 
 - Run the original C++ tests and Rust tests in CI.
+- Add explicit parity vectors for tracking sanitization and lifecycle edge cases before enabling any Rust-backed path.
 - Add deterministic parity vectors that feed identical inputs into both implementations and compare state, errors, timing and counters.
 - Exercise invalid transitions, timestamp overflow, frame token mismatch, loss/recovery and repeated start/stop cycles.
 - Keep C++ as the production path until parity is demonstrated.
