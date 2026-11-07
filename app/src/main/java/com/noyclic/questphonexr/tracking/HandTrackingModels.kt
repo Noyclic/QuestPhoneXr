@@ -220,7 +220,13 @@ data class TrackedHand(
     /** Latest raw thumb/index distance relative to palm width; infinity means unavailable. */
     val pinchDistanceRatio: Float = Float.POSITIVE_INFINITY,
     /** True when pinchDistanceRatio was derived from world-space landmarks. */
-    val pinchUsesWorldLandmarks: Boolean = false
+    val pinchUsesWorldLandmarks: Boolean = false,
+    /** Latest unsmoothed MediaPipe image landmarks, used by low-latency gestures. */
+    val rawPoints: List<HandPoint> = points,
+    /** Latest unsmoothed MediaPipe hand-local 3D landmarks. */
+    val rawWorldPoints: List<HandPoint> = worldPoints,
+    /** Source observation timestamp; -1 means use the enclosing frame timestamp. */
+    val rawTimestampMs: Long = -1L
 ) {
     val thumbTip: HandPoint? get() = points.getOrNull(4)
     val indexTip: HandPoint? get() = points.getOrNull(8)
