@@ -46,16 +46,16 @@ internal class OneEuroHandFilter(
         }
 
         val previousTime = previousTimestampMs
-        var state = axes
+        val state = axes
         if (previousTime == null || state == null || state.size != points.size * AXES_PER_POINT ||
             timestampMs <= previousTime || timestampMs - previousTime > resetAfterGapMs
         ) {
-            state = createInitialState(points)
-            axes = state
+            axes = createInitialState(points)
             previousTimestampMs = timestampMs
             return points
         }
 
+        val activeState = checkNotNull(state)
         val dtSeconds = ((timestampMs - previousTime).toFloat() / 1_000f)
             .coerceIn(MIN_DT_SECONDS, MAX_DT_SECONDS)
         val derivativeAlpha = smoothingAlpha(derivativeCutoffHz, dtSeconds)
@@ -64,9 +64,9 @@ internal class OneEuroHandFilter(
         for (index in points.indices) {
             val point = points[index]
             val offset = index * AXES_PER_POINT
-            val x = filterAxis(state[offset], point.x, dtSeconds, derivativeAlpha)
-            val y = filterAxis(state[offset + 1], point.y, dtSeconds, derivativeAlpha)
-            val z = filterAxis(state[offset + 2], point.z, dtSeconds, derivativeAlpha)
+            val x = filterAxis(activeState[offset], point.x, dtSeconds, derivativeAlpha)
+            val y = filterAxis(activeState[offset + 1], point.y, dtSeconds, derivativeAlpha)
+            val z = filterAxis(activeState[offset + 2], point.z, dtSeconds, derivativeAlpha)
             output.add(HandPoint(x, y, z))
         }
 
