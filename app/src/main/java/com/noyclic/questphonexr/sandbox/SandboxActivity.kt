@@ -2007,7 +2007,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 .onFailure { Log.w(TAG, "Initial Sandbox browser texture capture failed", it) }
             Toast.makeText(
                 this,
-                "Браузер открыт в 3D. Наведи палец и сведи большой с указательным для нажатия; удерживай pinch и двигай рукой для прокрутки.",
+                "Браузер открыт в 3D. Наведи палец и сведи большой с указательным для нажатия; удерживай pinch и двигай рукой для прокрутки. Крестик в правом верхнем углу подсветится, когда рука приблизится к панели.",
                 Toast.LENGTH_LONG
             ).show()
         } else {
