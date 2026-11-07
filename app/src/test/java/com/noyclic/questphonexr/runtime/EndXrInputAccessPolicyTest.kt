@@ -54,6 +54,36 @@ class EndXrInputAccessPolicyTest {
     }
 
     @Test
+    fun reconciliationPreservesConcurrentApprovalsAndRevocations() {
+        val previous = EndXrInputGrantRecord("com.example.vrgame", fingerprint)
+        val replacement = previous.copy(signingCertificateSha256 = "abcdef12".repeat(8))
+        val newApproval = EndXrInputGrantRecord("org.example.newgame", "fedcba98".repeat(8))
+
+        assertEquals(
+            listOf(replacement, newApproval),
+            EndXrInputGrantCodec.mergeAfterReconcile(
+                original = listOf(previous),
+                retained = listOf(previous),
+                latest = listOf(replacement, newApproval)
+            )
+        )
+        assertTrue(
+            EndXrInputGrantCodec.mergeAfterReconcile(
+                original = listOf(previous),
+                retained = listOf(previous),
+                latest = emptyList()
+            ).isEmpty()
+        )
+        assertTrue(
+            EndXrInputGrantCodec.mergeAfterReconcile(
+                original = listOf(previous),
+                retained = emptyList(),
+                latest = listOf(previous)
+            ).isEmpty()
+        )
+    }
+
+    @Test
     fun malformedStoredEntriesAreIgnored() {
         val decoded = EndXrInputGrantCodec.decode(
             setOf(
