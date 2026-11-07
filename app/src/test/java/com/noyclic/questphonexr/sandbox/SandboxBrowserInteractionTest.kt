@@ -45,6 +45,20 @@ class SandboxBrowserInteractionTest {
     }
 
     @Test
+    fun textureCenterMapsBackToTheWorldPanelCenter() {
+        val center = SandboxBrowserInteraction.toWorld(
+            SandboxBrowserInteraction.PixelPoint(
+                (SandboxBrowserInteraction.TEXTURE_WIDTH - 1) * 0.5f,
+                (SandboxBrowserInteraction.TEXTURE_HEIGHT - 1) * 0.5f
+            )
+        )
+
+        assertEquals(SandboxBrowserInteraction.PANEL_CENTER_X, center.x, 0.001f)
+        assertEquals(SandboxBrowserInteraction.PANEL_CENTER_Y, center.y, 0.001f)
+        assertTrue(center.z > SandboxBrowserInteraction.PANEL_CENTER_Z)
+    }
+
+    @Test
     fun rejectsCursorOutsidePanelAndAtUnreachableDepth() {
         val outside = SandboxVector3(2f, 0f, SandboxBrowserInteraction.PANEL_CENTER_Z)
         val tooFar = SandboxVector3(
