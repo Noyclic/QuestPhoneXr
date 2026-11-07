@@ -321,14 +321,18 @@ internal class SandboxBrowserPanelView @JvmOverloads constructor(
         if (activeSide != null) {
             val hand = if (activeSide == HandSide.LEFT) snapshot.leftHand else snapshot.rightHand
             if (!hand.cameraTracked || !hand.pinching) {
-                dispatchHandEvent(
-                    MotionEvent.ACTION_UP,
-                    lastPointer,
-                    activePointerDownTime,
-                    SystemClock.uptimeMillis()
-                )
+                // Clear ownership before dispatch: a toolbar click may close the
+                // browser synchronously and call releaseHandPointer() again.
+                val downTime = activePointerDownTime
+                val releasePoint = lastPointer
                 activePointerSide = null
                 lastPointerEventMs = 0L
+                dispatchHandEvent(
+                    MotionEvent.ACTION_UP,
+                    releasePoint,
+                    downTime,
+                    SystemClock.uptimeMillis()
+                )
                 return
             }
             val point = SandboxBrowserInteraction.map(hand.cursor, clampToPanel = true)
