@@ -29,6 +29,8 @@ The gvxrs-core crate mirrors only platform-independent logic that is currently o
 - the app-side lifecycle/frame-clock helper in `endxr_runtime_core.cpp` (this helper is called through JNI; it is not the OpenXR Loader runtime itself);
 - pure controller-axis sanitization and hand/head quaternion validation currently performed by input setter functions at the bottom of `endxr_openxr_runtime.cpp`.
 
+The crate also exposes a narrow C ABI through `gvxrs-core/include/gvxrs_core.h`. It uses integer handles and plain by-value C structs; no Rust pointers, strings, vectors or references cross the boundary. The C ABI is currently exercised by host-side C++ tests only.
+
 The tracking module is a shadow port only. The production OpenXR runtime continues to execute its original C++ implementation.
 
 The lifecycle module covers:
@@ -43,7 +45,9 @@ This is a shadow implementation. Neither module is linked into the Android app y
 ## Stage 2 — differential verification
 
 - Run the original C++ tests and Rust tests in CI.
-- Add explicit parity vectors for tracking sanitization and lifecycle edge cases before enabling any Rust-backed path.
+- Build the Rust static library for the CI host and test its C ABI from C++.
+- Compare the existing C++ lifecycle helper and the Rust lifecycle helper with identical operations, including frame deadlines, invalid transitions, timestamp overflow, loss and recovery.
+- Test tracking sanitization through the same C ABI used by future native integration.
 - Add deterministic parity vectors that feed identical inputs into both implementations and compare state, errors, timing and counters.
 - Exercise invalid transitions, timestamp overflow, frame token mismatch, loss/recovery and repeated start/stop cycles.
 - Keep C++ as the production path until parity is demonstrated.
@@ -76,3 +80,26 @@ Rust is not assumed to be faster by default. Benchmark the same workloads, compi
 ## Rollback
 
 Every migration step is isolated in its own commit. If a Rust build, test, JNI call or OpenXR probe regresses, disable the Rust adapter and return to the unchanged C++ implementation. Never remove the reference implementation in the same change that first enables Rust.
+
+
+## Current shadow-port inventory
+
+| Rust module | Existing C++ behavior mirrored | Runtime integration |
+| --- | --- | --- |
+| `src/lib.rs` | App-side lifecycle/frame-clock helper from `endxr_runtime_core.cpp` | Not linked into Android |
+| `src/tracking.rs` | Controller axis clamping; hand-pose validation/quaternion normalization; head quaternion normalization | Not linked into Android |
+| `src/core_ffi.rs` | Integer-handle C ABI for lifecycle operations | Host parity tests only |
+| `include/gvxrs_core.h` | C declarations and fixed-width POD structs | Not included by production CMake |
+
+The CI host builds the Rust static library, calls its C ABI from C++, and runs a differential harness against the original C++ lifecycle helper. A separate C++ test covers the tracking sanitizer ABI. These checks do not yet call the private input setters inside the OpenXR shared library, and they do not prove Android/ARM64 integration or faster execution.
+
+## Explicit non-migration
+
+The following remains C++ and is not linked against the Rust static library:
+- `endxr_openxr_runtime.cpp` and its OpenXR function table;
+- loader negotiation and the exported `xrNegotiateLoaderRuntimeInterface` symbol;
+- EGL/GLES context and swapchain ownership;
+- OpenXR handles, action/session registries and RuntimeBroker metadata;
+- the Android JNI bridge.
+
+Only a later PR, after parity CI passes, may add an opt-in Android arm64-v8a adapter. It must keep the original C++ path selectable and rerun the same in-process Sandbox probe plus the external Khronos-loader tests.
