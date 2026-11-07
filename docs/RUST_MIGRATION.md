@@ -29,7 +29,7 @@ The gvxrs-core crate mirrors only platform-independent logic that is currently o
 - the app-side lifecycle/frame-clock helper in `endxr_runtime_core.cpp` (this helper is called through JNI; it is not the OpenXR Loader runtime itself);
 - pure controller-axis sanitization and hand/head quaternion validation currently performed by input setter functions at the bottom of `endxr_openxr_runtime.cpp`.
 
-The crate also exposes a narrow C ABI through `gvxrs-core/include/gvxrs_core.h`. It uses integer handles and plain by-value C structs; no Rust pointers, strings, vectors or references cross the boundary. The C ABI is currently exercised by host-side C++ tests only.
+The crate also exposes a narrow C ABI through `gvxrs-core/include/gvxrs_core.h`. It uses integer handles and plain by-value C structs; no Rust pointers, strings, vectors or references cross the boundary.
 
 The tracking module is a shadow port only. The production OpenXR runtime continues to execute its original C++ implementation.
 
@@ -40,22 +40,26 @@ The lifecycle module covers:
 - frame deadline and late-frame accounting;
 - stop, loss, recovery and shutdown behavior.
 
-This is a shadow implementation. Neither module is linked into the Android app yet, and neither replaces the C++ implementation. The Rust test suite must pass before any adapter is introduced.
+This is a shadow implementation. Neither module is linked into the Android app yet, and neither replaces the C++ implementation. Host-side C++ tests exercise the ABI, while CI also cross-compiles a separate Android `arm64-v8a` static archive and checks its ELF architecture and exported C ABI symbols. This cross-build is a compile/packaging-preparation check only; it does not link the archive into an APK or call it from JNI.
 
-## Stage 2 — differential verification
+## Stage 2 — differential verification and Android cross-build
 
 - Run the original C++ tests and Rust tests in CI.
 - Build the Rust static library for the CI host and test its C ABI from C++.
 - Compare the existing C++ lifecycle helper and the Rust lifecycle helper with identical operations, including frame deadlines, invalid transitions, timestamp overflow, loss and recovery.
-- Test tracking sanitization through the same C ABI used by future native integration.
+- Test tracking sanitization through the same C ABI intended for future native integration.
+- Build the dependency-free crate for `aarch64-linux-android` using Android NDK 27.2.12479018 and API level 29, matching the app's current minimum SDK.
+- Inspect the resulting archive for AArch64 ELF objects and required exported C ABI symbols.
 - Add deterministic parity vectors that feed identical inputs into both implementations and compare state, errors, timing and counters.
 - Exercise invalid transitions, timestamp overflow, frame token mismatch, loss/recovery and repeated start/stop cycles.
 - Keep C++ as the production path until parity is demonstrated.
 
+The Android cross-build does not yet prove final NDK linking, APK packaging, JNI invocation, or physical-device behavior.
+
 ## Stage 3 — opt-in JNI adapter
 
 Only after Stage 2:
-- Build Rust as an Android arm64-v8a static library.
+- Link the verified Android arm64-v8a archive into a separate test-only native target.
 - Keep the existing JNI function names and Java/Kotlin signatures unchanged.
 - Add a narrow C ABI adapter around the Rust core.
 - Make the Rust-backed implementation opt-in for a test build first.
@@ -79,8 +83,7 @@ Rust is not assumed to be faster by default. Benchmark the same workloads, compi
 
 ## Rollback
 
-Every migration step is isolated in its own commit. If a Rust build, test, JNI call or OpenXR probe regresses, disable the Rust adapter and return to the unchanged C++ implementation. Never remove the reference implementation in the same change that first enables Rust.
-
+Every migration step is isolated in its own commit. If a Rust build, test, JNI call or OpenXR probe regresses, disable the Rust adapter and return to the unchanged C++ implementation. Never remove the reference implementation in the same change that first enables it.
 
 ## Current shadow-port inventory
 
@@ -88,10 +91,10 @@ Every migration step is isolated in its own commit. If a Rust build, test, JNI c
 | --- | --- | --- |
 | `src/lib.rs` | App-side lifecycle/frame-clock helper from `endxr_runtime_core.cpp` | Not linked into Android |
 | `src/tracking.rs` | Controller axis clamping; hand-pose validation/quaternion normalization; head quaternion normalization | Not linked into Android |
-| `src/core_ffi.rs` | Integer-handle C ABI for lifecycle operations | Host parity tests only |
+| `src/core_ffi.rs` | Integer-handle C ABI for lifecycle operations | Host parity tests and Android ARM64 archive symbol check only |
 | `include/gvxrs_core.h` | C declarations and fixed-width POD structs | Not included by production CMake |
 
-The CI host builds the Rust static library, calls its C ABI from C++, and runs a differential harness against the original C++ lifecycle helper. A separate C++ test covers the tracking sanitizer ABI. These checks do not yet call the private input setters inside the OpenXR shared library, and they do not prove Android/ARM64 integration or faster execution.
+The CI host builds the Rust static library, calls its C ABI from C++, and runs a differential harness against the original C++ lifecycle helper. A separate C++ test covers the tracking sanitizer ABI. CI now also cross-compiles an Android arm64-v8a archive and inspects its ELF objects and exported symbols. These checks do not yet perform final Android NDK linking, call the private input setters inside the OpenXR shared library, package Rust into the APK, invoke the Rust path through JNI, or prove faster execution.
 
 ## Explicit non-migration
 
