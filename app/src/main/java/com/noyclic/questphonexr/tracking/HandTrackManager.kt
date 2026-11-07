@@ -199,7 +199,7 @@ internal class HandTrackManager(
                 availableTracks.forEach { track ->
                     val cost = track.associationCost(observation, timestampMs)
                     if (cost <= MAX_ASSOCIATION_COST) {
-                        add(Association(observationIndex, track, cost))
+                        add(Association(observationIndex, track.id, cost))
                     }
                 }
             }
@@ -209,9 +209,10 @@ internal class HandTrackManager(
             if (candidate.observationIndex !in assignedObservations &&
                 candidate.track.id !in assignedTracks
             ) {
-                candidate.track.accept(validObservations[candidate.observationIndex], timestampMs)
+                val track = availableTracks.first { it.id == candidate.trackId }
+                track.accept(validObservations[candidate.observationIndex], timestampMs)
                 assignedObservations += candidate.observationIndex
-                assignedTracks += candidate.track.id
+                assignedTracks += track.id
             }
         }
 
@@ -254,7 +255,7 @@ internal class HandTrackManager(
 
     private data class Association(
         val observationIndex: Int,
-        val track: HandTrackManager.Track,
+        val trackId: Long,
         val cost: Float
     )
 
