@@ -430,7 +430,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                         cameraHeightPx + ", hands=" + maxHands +
                         ", lens=" + (if (useFrontCamera) "front (user enabled)" else "back") +
                         ", model=" + modelInputWidthPx + "x" + modelInputHeightPx +
-                        ", delegatePreference=" + if (preferGpuDelegate) "GPU" else "CPU" +
+                        ", delegatePreference=" + (if (preferGpuDelegate) "GPU" else "CPU") +
                         ", interval=" + minimumInferenceIntervalMs + "ms"
                 )
                 updateNotification("MediaPipe работает · руки передаются в EndXR")
