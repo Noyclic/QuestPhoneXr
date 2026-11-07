@@ -261,14 +261,17 @@ class MainActivity : ComponentActivity(), InputManager.InputDeviceListener {
                 val useFrontCamera = cameraSelection.isFrontCamera
 
                 if (handTracker == null) {
-                    handTracker = HandLandmarkerController(
-                        context = applicationContext,
-                        mirrorFrontCamera = useFrontCamera,
-                        onFrame = ::onHandFrame,
-                        onError = { message ->
-                            runOnUiThread { showStatus("MediaPipe: " + message) }
-                        }
-                    )
+                    handTracker = cameraExecutor.submit<HandLandmarkerController> {
+                        HandLandmarkerController(
+                            context = applicationContext,
+                            mirrorFrontCamera = useFrontCamera,
+                            onFrame = ::onHandFrame,
+                            onError = { message ->
+                                runOnUiThread { showStatus("MediaPipe: " + message) }
+                            },
+                            ownerExecutor = cameraExecutor
+                        )
+                    }.get()
                 }
 
                 val preview = Preview.Builder().build().also {
