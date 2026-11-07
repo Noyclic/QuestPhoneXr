@@ -80,12 +80,14 @@ internal class OneEuroHandFilter(
     }
 
     private fun createInitialState(points: List<HandPoint>): Array<AxisState> {
-        val result = Array(points.size * AXES_PER_POINT) { AxisState(0f, 0f, 0f) }
-        points.forEachIndexed { index, point ->
-            val offset = index * AXES_PER_POINT
-            result[offset] = AxisState(point.x, point.x, 0f)
-            result[offset + 1] = AxisState(point.y, point.y, 0f)
-            result[offset + 2] = AxisState(point.z, point.z, 0f)
+        val result = Array(points.size * AXES_PER_POINT) { axisIndex ->
+            val point = points[axisIndex / AXES_PER_POINT]
+            val raw = when (axisIndex % AXES_PER_POINT) {
+                0 -> point.x
+                1 -> point.y
+                else -> point.z
+            }
+            AxisState(raw, raw, 0f)
         }
         return result
     }
