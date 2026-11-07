@@ -413,9 +413,10 @@ class SandboxRenderer : GLSurfaceView.Renderer {
             axisXy = -directionZ / basisLength
             axisXz = directionY / basisLength
         }
-        val axisZx = directionY * axisXz - directionZ * axisXy
-        val axisZy = directionZ * axisXx - directionX * axisXz
-        val axisZz = directionX * axisXy - directionY * axisXx
+        // Local X × local Y must equal local Z; keep the basis right-handed.
+        val axisZx = axisXy * directionZ - axisXz * directionY
+        val axisZy = axisXz * directionX - axisXx * directionZ
+        val axisZz = axisXx * directionY - axisXy * directionX
 
         appendEllipsoid(
             mesh,
