@@ -239,8 +239,10 @@ data class SandboxHandState(
     val connected: Boolean,
     val cameraTracked: Boolean = false,
     val landmarks: List<SandboxVector3> = emptyList(),
-    /** A pinch is the Sandbox browser's click/drag gesture; power grip is not a click. */
-    val pinching: Boolean = false
+    /** A pinch is reserved for precision interactions; the browser uses fingertip contact. */
+    val pinching: Boolean = false,
+    /** Raw mapped index fingertip, independent of pinch/power-grip cursor selection. */
+    val touchPoint: SandboxVector3? = null
 )
 
 data class SandboxSceneSnapshot(
@@ -305,6 +307,8 @@ class SandboxSimulation {
     private var rightCameraTracked = false
     private var leftLandmarks: List<SandboxVector3> = emptyList()
     private var rightLandmarks: List<SandboxVector3> = emptyList()
+    private var leftTouchPoint: SandboxVector3? = null
+    private var rightTouchPoint: SandboxVector3? = null
     private var handCalibration = SandboxHandCalibration.DEFAULT
     private var nextObjectId = 1
     private var score = 0
@@ -334,6 +338,8 @@ class SandboxSimulation {
         rightCameraTracked = false
         leftLandmarks = emptyList()
         rightLandmarks = emptyList()
+        leftTouchPoint = null
+        rightTouchPoint = null
         leftCursorSmoother.reset()
         rightCursorSmoother.reset()
         leftPoseInterpolator.reset()
@@ -353,6 +359,8 @@ class SandboxSimulation {
         rightWorldPoseSmoother.reset()
         leftLandmarks = emptyList()
         rightLandmarks = emptyList()
+        leftTouchPoint = null
+        rightTouchPoint = null
     }
 
     @Synchronized
@@ -438,6 +446,8 @@ class SandboxSimulation {
         rightCameraTracked = right.cameraTracked
         leftLandmarks = leftWorld.landmarks
         rightLandmarks = rightWorld.landmarks
+        leftTouchPoint = leftWorld.contactLandmarks.getOrNull(INDEX_TIP_LANDMARK)
+        rightTouchPoint = rightWorld.contactLandmarks.getOrNull(INDEX_TIP_LANDMARK)
 
         updateGrab(HandSide.LEFT, left.grabbing, leftWorld.cursor, dt, left.trackingLost)
         updateGrab(HandSide.RIGHT, right.grabbing, rightWorld.cursor, dt, right.trackingLost)
@@ -460,7 +470,8 @@ class SandboxSimulation {
                 leftConnected,
                 leftCameraTracked,
                 leftLandmarks,
-                leftPinching
+                leftPinching,
+                leftTouchPoint
             ),
             rightHand = SandboxHandState(
                 HandSide.RIGHT,
@@ -469,7 +480,8 @@ class SandboxSimulation {
                 rightConnected,
                 rightCameraTracked,
                 rightLandmarks,
-                rightPinching
+                rightPinching,
+                rightTouchPoint
             ),
             grabbedObjectCount = objects.count { it.heldBy != null },
             score = score,
@@ -753,6 +765,7 @@ class SandboxSimulation {
         private const val CUBE_CONTACT_RADIUS = 0.30f
         private val PALM_MCP_INDICES = intArrayOf(5, 9, 13, 17)
         private val FINGERTIP_INDICES = intArrayOf(4, 8, 12, 16, 20)
+        private const val INDEX_TIP_LANDMARK = 8
         private const val MAX_THROW_SPEED = 4.5f
         private const val GRAVITY = 3.2f
         private const val FLOOR_Y = -1.18f
