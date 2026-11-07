@@ -34,7 +34,9 @@ internal class HandTrackManager(
             responsiveLandmarkA = THUMB_TIP_INDEX,
             responsiveLandmarkB = INDEX_TIP_INDEX,
             responsiveMinCutoffHz = RESPONSIVE_TIP_MIN_CUTOFF_HZ,
-            responsiveBeta = RESPONSIVE_TIP_BETA
+            responsiveBeta = RESPONSIVE_TIP_BETA,
+            maxLandmarkSpeedPerSecond = IMAGE_LANDMARK_MAX_SPEED,
+            responsiveMaxLandmarkSpeedPerSecond = FINGERTIP_MAX_SPEED
         )
         private val worldFilter = OneEuroHandFilter(
             minCutoffHz = WORLD_MIN_CUTOFF_HZ,
@@ -48,6 +50,7 @@ internal class HandTrackManager(
         private var sideCandidateCount = 0
         private var lastRawCenter = centerOf(observation.points)
         private var center = lastRawCenter
+        private var lastPalmWidth = palmWidthOf(observation.points)
         private var velocityX = 0f
         private var velocityY = 0f
         var lastSeenTimestampMs: Long = timestampMs
@@ -77,7 +80,21 @@ internal class HandTrackManager(
                 observation.observedSide == side -> -SIDE_MATCH_BONUS
                 else -> SIDE_MISMATCH_PENALTY
             }
-            return distance + sideAdjustment
+            // Palm scale is a weak shape cue, not a hard identity rule: a hand can
+            // approach the camera and change apparent size, so the penalty is bounded.
+            val observedPalmWidth = palmWidthOf(observation.points)
+            val scaleAdjustment = if (
+                lastPalmWidth > MIN_ASSOCIATION_PALM_WIDTH &&
+                observedPalmWidth > MIN_ASSOCIATION_PALM_WIDTH
+            ) {
+                val scaleRatio = maxOf(lastPalmWidth, observedPalmWidth) /
+                    minOf(lastPalmWidth, observedPalmWidth)
+                (kotlin.math.ln(scaleRatio.toDouble()).toFloat() * PALM_SCALE_COST_WEIGHT)
+                    .coerceIn(0f, MAX_PALM_SCALE_COST)
+            } else {
+                0f
+            }
+            return distance + sideAdjustment + scaleAdjustment
         }
 
         fun accept(observation: HandObservation, timestampMs: Long) {
@@ -97,6 +114,7 @@ internal class HandTrackManager(
 
             lastRawCenter = nextCenter
             center = nextCenter
+            lastPalmWidth = palmWidthOf(observation.points)
             lastMeasurementTimestampMs = timestampMs
             lastSeenTimestampMs = timestampMs
             pinchWasReleasedForLoss = false
@@ -129,8 +147,30 @@ internal class HandTrackManager(
             )
         }
 
-        fun visibleOutput(timestampMs: Long): TrackedHand? =
-            output.takeIf { timestampMs - lastSeenTimestampMs <= MAX_OUTPUT_HOLD_MS }
+        fun visibleOutput(timestampMs: Long): TrackedHand? {
+            val ageMs = timestampMs - lastSeenTimestampMs
+            if (ageMs > MAX_OUTPUT_HOLD_MS) return null
+            if (ageMs <= 0L || output.points.isEmpty()) return output
+
+            // Bridge a brief detector miss with a small, decelerating translation.
+            // The displacement is always measured from the last real pose (never
+            // accumulated), capped, and limited to image landmarks; hand-local world
+            // landmarks and discrete pinch state are not predicted.
+            val elapsedMs = ageMs.coerceAtMost(MAX_OCCLUSION_PREDICTION_MS).toFloat()
+            val effectivePredictionMs = elapsedMs -
+                elapsedMs * elapsedMs / (2f * MAX_OCCLUSION_PREDICTION_MS.toFloat())
+            val predictionSeconds = effectivePredictionMs / 1_000f
+            val dx = (velocityX * predictionSeconds)
+                .coerceIn(-MAX_OCCLUSION_SHIFT, MAX_OCCLUSION_SHIFT)
+            val dy = (velocityY * predictionSeconds)
+                .coerceIn(-MAX_OCCLUSION_SHIFT, MAX_OCCLUSION_SHIFT)
+            if (dx == 0f && dy == 0f) return output
+            return output.copy(
+                points = output.points.map { point ->
+                    point.copy(x = point.x + dx, y = point.y + dy)
+                }
+            )
+        }
 
         fun markMissing(timestampMs: Long) {
             if (!pinchWasReleasedForLoss &&
@@ -370,6 +410,14 @@ internal class HandTrackManager(
         return Center(sumX / PALM_CENTER_INDICES.size, sumY / PALM_CENTER_INDICES.size)
     }
 
+    private fun palmWidthOf(points: List<HandPoint>): Float {
+        val indexMcp = points[5]
+        val pinkyMcp = points[17]
+        val dx = indexMcp.x - pinkyMcp.x
+        val dy = indexMcp.y - pinkyMcp.y
+        return sqrt(dx * dx + dy * dy)
+    }
+
     private companion object {
         val PALM_CENTER_INDICES = intArrayOf(0, 5, 9, 13, 17)
         const val LANDMARK_COUNT = 21
@@ -377,10 +425,17 @@ internal class HandTrackManager(
         const val INDEX_TIP_INDEX = 8
         const val RESPONSIVE_TIP_MIN_CUTOFF_HZ = 3.2f
         const val RESPONSIVE_TIP_BETA = 0.65f
+        const val IMAGE_LANDMARK_MAX_SPEED = 18f
+        const val FINGERTIP_MAX_SPEED = 28f
         const val MAX_TRACKS = 2
         const val DEFAULT_RETENTION_MS = 350L
         const val DEFAULT_PINCH_RELEASE_DELAY_MS = 120L
         const val MAX_OUTPUT_HOLD_MS = 80L
+        const val MAX_OCCLUSION_PREDICTION_MS = 50L
+        const val MAX_OCCLUSION_SHIFT = 0.08f
+        const val MIN_ASSOCIATION_PALM_WIDTH = 0.015f
+        const val PALM_SCALE_COST_WEIGHT = 0.12f
+        const val MAX_PALM_SCALE_COST = 0.18f
         const val VELOCITY_RESET_GAP_MS = 120L
         const val REPLACE_STALE_TRACK_MS = 180L
         const val MAX_IMAGE_VELOCITY = 3.0f
