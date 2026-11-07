@@ -1204,6 +1204,27 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrEnumerateReferenceSpaces(
     return capacity < 2 ? XR_ERROR_SIZE_INSUFFICIENT : XR_SUCCESS;
 }
 
+XRAPI_ATTR XrResult XRAPI_CALL endxrGetReferenceSpaceBoundsRect(
+    XrSession session,
+    XrReferenceSpaceType referenceSpaceType,
+    XrExtent2Df* bounds
+) {
+    if (getSession(session) == nullptr) return XR_ERROR_HANDLE_INVALID;
+    if (bounds == nullptr) return XR_ERROR_VALIDATION_FAILURE;
+
+    // EndXR currently exposes VIEW and LOCAL spaces only. It has no room-scale
+    // guardian/floor-boundary source, so supported spaces report the standard
+    // XR_SPACE_BOUNDS_UNAVAILABLE success code with zero extents. STAGE remains
+    // unsupported rather than inventing a physical boundary for a 3DoF phone.
+    bounds->width = 0.0f;
+    bounds->height = 0.0f;
+    if (referenceSpaceType != XR_REFERENCE_SPACE_TYPE_VIEW &&
+        referenceSpaceType != XR_REFERENCE_SPACE_TYPE_LOCAL) {
+        return XR_ERROR_REFERENCE_SPACE_UNSUPPORTED;
+    }
+    return XR_SPACE_BOUNDS_UNAVAILABLE;
+}
+
 XRAPI_ATTR XrResult XRAPI_CALL endxrCreateReferenceSpace(
     XrSession session, const XrReferenceSpaceCreateInfo* createInfo, XrSpace* space
 ) {
@@ -2828,7 +2849,7 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrStopHapticFeedback(
 
 #define ENDXR_PROC(name, fn) {name, reinterpret_cast<PFN_xrVoidFunction>(fn)}
 struct ProcEntry { const char* name; PFN_xrVoidFunction function; };
-const std::array<ProcEntry, 54> kProcTable{{
+const std::array<ProcEntry, 55> kProcTable{{
     ENDXR_PROC("xrGetInstanceProcAddr", endxrGetInstanceProcAddr),
     ENDXR_PROC("xrEnumerateApiLayerProperties", endxrEnumerateApiLayerProperties),
     ENDXR_PROC("xrEnumerateInstanceExtensionProperties", endxrEnumerateInstanceExtensionProperties),
@@ -2854,6 +2875,7 @@ const std::array<ProcEntry, 54> kProcTable{{
     ENDXR_PROC("xrBeginFrame", endxrBeginFrame),
     ENDXR_PROC("xrEndFrame", endxrEndFrame),
     ENDXR_PROC("xrEnumerateReferenceSpaces", endxrEnumerateReferenceSpaces),
+    ENDXR_PROC("xrGetReferenceSpaceBoundsRect", endxrGetReferenceSpaceBoundsRect),
     ENDXR_PROC("xrCreateReferenceSpace", endxrCreateReferenceSpace),
     ENDXR_PROC("xrDestroySpace", endxrDestroySpace),
     ENDXR_PROC("xrLocateSpace", endxrLocateSpace),
