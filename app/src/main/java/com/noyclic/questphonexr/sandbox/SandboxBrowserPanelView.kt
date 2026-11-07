@@ -346,15 +346,19 @@ internal class SandboxBrowserPanelView @JvmOverloads constructor(
     }
 
     /**
-     * Convert a camera pinch into Android down/move/up events targeted at the
-     * WebView or virtual keyboard. Only one hand owns the pointer at a time.
+     * Convert direct index-fingertip contact into Android down/move/up events.
+     * Touching a page control presses it; sliding while contact is maintained
+     * drags/scrolls; pulling the finger away releases it. Pinch is not required.
      */
     fun updateHandInput(snapshot: SandboxSceneSnapshot) {
         updateCloseAffordance(snapshot)
         val activeSide = activePointerSide
         if (activeSide != null) {
             val hand = if (activeSide == HandSide.LEFT) snapshot.leftHand else snapshot.rightHand
-            if (!hand.cameraTracked || !hand.pinching) {
+            val fingertip = hand.touchPoint ?: hand.cursor
+            if (!hand.cameraTracked ||
+                !SandboxBrowserInteraction.isMaintainingPanelTouch(fingertip)
+            ) {
                 // Clear ownership before dispatch: a toolbar click may close the
                 // browser synchronously and call releaseHandPointer() again.
                 val downTime = activePointerDownTime
@@ -369,7 +373,7 @@ internal class SandboxBrowserPanelView @JvmOverloads constructor(
                 )
                 return
             }
-            val point = SandboxBrowserInteraction.map(hand.cursor, clampToPanel = true)
+            val point = SandboxBrowserInteraction.map(fingertip, clampToPanel = true)
                 ?: lastPointer
             val now = SystemClock.uptimeMillis()
             if (kotlin.math.abs(point.x - lastPointer.x) >= 1.5f ||
@@ -385,8 +389,11 @@ internal class SandboxBrowserPanelView @JvmOverloads constructor(
 
         val candidate = listOf(snapshot.leftHand, snapshot.rightHand)
             .firstNotNullOfOrNull { hand ->
-                if (!hand.cameraTracked || !hand.pinching) null
-                else SandboxBrowserInteraction.map(hand.cursor)?.let { hand.hand to it }
+                val fingertip = hand.touchPoint ?: hand.cursor
+                if (!hand.cameraTracked ||
+                    !SandboxBrowserInteraction.isTouchingPanel(fingertip)
+                ) null
+                else SandboxBrowserInteraction.map(fingertip)?.let { hand.hand to it }
             } ?: return
 
         activePointerSide = candidate.first
