@@ -337,6 +337,20 @@ class SandboxSimulationTest {
     }
 
     @Test
+    fun activeUnassignedJoyConCanMoveWhenAssignedLeftStickIsIdle() {
+        val simulation = SandboxSimulation()
+        val idleLeft = controller(hand = HandSide.LEFT)
+        val activeUnassignedRight = controller(
+            hand = HandSide.RIGHT,
+            stickX = 0.5f
+        ).copy(hand = null)
+
+        simulation.update(listOf(idleLeft, activeUnassignedRight), 0.05f)
+
+        assertEquals(0.06f, simulation.snapshot().playerPosition.x, 0.001f)
+    }
+
+    @Test
     fun rightJoyConCanMovePlayerWhenLeftControllerIsUnavailable() {
         val simulation = SandboxSimulation()
         simulation.update(
