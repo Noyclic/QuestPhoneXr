@@ -14,7 +14,12 @@ internal class OneEuroHandFilter(
     private val minCutoffHz: Float = DEFAULT_MIN_CUTOFF_HZ,
     private val beta: Float = DEFAULT_BETA,
     private val derivativeCutoffHz: Float = DEFAULT_DERIVATIVE_CUTOFF_HZ,
-    private val resetAfterGapMs: Long = DEFAULT_RESET_AFTER_GAP_MS
+    private val resetAfterGapMs: Long = DEFAULT_RESET_AFTER_GAP_MS,
+    /** Optional landmark indices that should react faster in the visible hand mesh. */
+    private val responsiveLandmarkA: Int = -1,
+    private val responsiveLandmarkB: Int = -1,
+    private val responsiveMinCutoffHz: Float = minCutoffHz * RESPONSIVE_CUTOFF_MULTIPLIER,
+    private val responsiveBeta: Float = beta * RESPONSIVE_BETA_MULTIPLIER
 ) {
     private data class AxisState(
         var previousRaw: Float,
@@ -30,6 +35,9 @@ internal class OneEuroHandFilter(
         require(beta >= 0f && beta.isFinite())
         require(derivativeCutoffHz > 0f && derivativeCutoffHz.isFinite())
         require(resetAfterGapMs > 0L)
+        require(responsiveLandmarkA >= -1 && responsiveLandmarkB >= -1)
+        require(responsiveMinCutoffHz > 0f && responsiveMinCutoffHz.isFinite())
+        require(responsiveBeta >= 0f && responsiveBeta.isFinite())
     }
 
     fun update(points: List<HandPoint>, timestampMs: Long): List<HandPoint> {
@@ -64,9 +72,21 @@ internal class OneEuroHandFilter(
         for (index in points.indices) {
             val point = points[index]
             val offset = index * AXES_PER_POINT
-            val x = filterAxis(activeState[offset], point.x, dtSeconds, derivativeAlpha)
-            val y = filterAxis(activeState[offset + 1], point.y, dtSeconds, derivativeAlpha)
-            val z = filterAxis(activeState[offset + 2], point.z, dtSeconds, derivativeAlpha)
+            val responsive = index == responsiveLandmarkA || index == responsiveLandmarkB
+            val activeMinCutoff = if (responsive) responsiveMinCutoffHz else minCutoffHz
+            val activeBeta = if (responsive) responsiveBeta else beta
+            val x = filterAxis(
+                activeState[offset], point.x, dtSeconds, derivativeAlpha,
+                activeMinCutoff, activeBeta
+            )
+            val y = filterAxis(
+                activeState[offset + 1], point.y, dtSeconds, derivativeAlpha,
+                activeMinCutoff, activeBeta
+            )
+            val z = filterAxis(
+                activeState[offset + 2], point.z, dtSeconds, derivativeAlpha,
+                activeMinCutoff, activeBeta
+            )
             output.add(HandPoint(x, y, z))
         }
 
@@ -95,13 +115,15 @@ internal class OneEuroHandFilter(
         state: AxisState,
         rawValue: Float,
         dtSeconds: Float,
-        derivativeAlpha: Float
+        derivativeAlpha: Float,
+        activeMinCutoffHz: Float,
+        activeBeta: Float
     ): Float {
         val rawDerivative = (rawValue - state.previousRaw) / dtSeconds
         state.filteredDerivative += derivativeAlpha *
             (rawDerivative - state.filteredDerivative)
 
-        val adaptiveCutoff = minCutoffHz + beta * abs(state.filteredDerivative)
+        val adaptiveCutoff = activeMinCutoffHz + activeBeta * abs(state.filteredDerivative)
         val valueAlpha = smoothingAlpha(adaptiveCutoff, dtSeconds)
         state.filtered += valueAlpha * (rawValue - state.filtered)
         state.previousRaw = rawValue
@@ -121,6 +143,8 @@ internal class OneEuroHandFilter(
         const val DEFAULT_BETA = 0.25f
         const val DEFAULT_DERIVATIVE_CUTOFF_HZ = 1.0f
         const val DEFAULT_RESET_AFTER_GAP_MS = 250L
+        const val RESPONSIVE_CUTOFF_MULTIPLIER = 1.75f
+        const val RESPONSIVE_BETA_MULTIPLIER = 2.4f
         const val MIN_DT_SECONDS = 0.001f
         const val MAX_DT_SECONDS = 0.1f
     }
