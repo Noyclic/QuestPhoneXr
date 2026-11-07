@@ -56,7 +56,8 @@ internal class NaturalGestureClassifier {
         val middle: FingerState,
         val ring: FingerState,
         val little: FingerState,
-        val usedWorldLandmarks: Boolean
+        val usedWorldLandmarks: Boolean,
+        val thumbPointsUp: Boolean
     )
 
     private data class Candidate(
@@ -178,7 +179,25 @@ internal class NaturalGestureClassifier {
         val ring = measureFinger(points, wrist, 13, 14, 15, 16, depth) ?: FingerState.UNKNOWN
         val little = measureFinger(points, wrist, 17, 18, 19, 20, depth) ?: FingerState.UNKNOWN
 
-        return Measurement(thumb, index, middle, ring, little, useWorld)
+        // Screen-space vertical direction distinguishes a true thumbs-up from a
+        // merely extended thumb pointing sideways or down. Camera Y grows downward.
+        val imagePoints = hand.rawPoints
+        val thumbBase = imagePoints.getOrNull(1)
+        val thumbTip = imagePoints.getOrNull(4)
+        val imagePalmWidth = if (imagePoints.size >= LANDMARK_COUNT &&
+            thumbBase != null && thumbTip != null &&
+            isFinite(thumbBase) && isFinite(thumbTip) &&
+            isFinite(imagePoints[5]) && isFinite(imagePoints[17])
+        ) {
+            distance(imagePoints[5], imagePoints[17], useDepth = false)
+        } else {
+            0f
+        }
+        val thumbPointsUp = imagePalmWidth > 0f &&
+            thumbBase != null && thumbTip != null &&
+            thumbBase.y - thumbTip.y >= imagePalmWidth * THUMB_UP_MIN_PALM_RATIO
+
+        return Measurement(thumb, index, middle, ring, little, useWorld, thumbPointsUp)
     }
 
     private fun measureFinger(
@@ -259,7 +278,8 @@ internal class NaturalGestureClassifier {
                 isPose(ring, FingerPose.CURLED) &&
                 isPose(little, FingerPose.CURLED) -> NaturalHandGesture.POINT
 
-            isPose(thumb, FingerPose.EXTENDED) &&
+            measured.thumbPointsUp &&
+                isPose(thumb, FingerPose.EXTENDED) &&
                 isPose(index, FingerPose.CURLED) &&
                 isPose(middle, FingerPose.CURLED) &&
                 isPose(ring, FingerPose.CURLED) &&
@@ -305,6 +325,7 @@ internal class NaturalGestureClassifier {
         const val CURLED_THRESHOLD = 0.40f
         const val MIN_CANDIDATE_CONFIDENCE = 0.42f
         const val IMAGE_FALLBACK_CONFIDENCE = 0.84f
+        const val THUMB_UP_MIN_PALM_RATIO = 0.35f
         const val REQUIRED_CONFIRMATION_FRAMES = 2
         const val MAX_SAMPLE_GAP_MS = 250L
     }
