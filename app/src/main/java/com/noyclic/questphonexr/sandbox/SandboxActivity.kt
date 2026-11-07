@@ -2148,7 +2148,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             append(" · захвачено: ").append(scene.grabbedObjectCount)
             append(" · очки: ").append(scene.score)
             append('\n')
-            append("Щипок пальцами или кнопки Joy-Con захватывают предметы")
+            append("Обхват ладонью / щипок или кнопки Joy-Con захватывают предметы · касание пальцем нажимает браузер")
         }
     }
 
