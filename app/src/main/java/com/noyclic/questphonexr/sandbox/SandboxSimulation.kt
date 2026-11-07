@@ -29,6 +29,58 @@ internal fun isSandboxHandFrameStale(
 
 
 /**
+ * Small jitter-aware presentation buffer. Stable inference cadence uses a shorter delay;
+ * irregular callback spacing grows the buffer temporarily so interpolation has a usable
+ * pair of samples. This affects rendered landmarks only, never pinch/grip input.
+ */
+internal class HandPresentationDelayEstimator {
+    private var previousIntervalMs = 0f
+    private var smoothedIntervalMs = 0f
+    private var smoothedJitterMs = 0f
+    private var hasSample = false
+
+    fun observe(intervalMs: Long) {
+        val interval = intervalMs.toFloat().coerceIn(MIN_INTERVAL_MS, MAX_INTERVAL_MS)
+        if (!hasSample) {
+            previousIntervalMs = interval
+            smoothedIntervalMs = interval
+            smoothedJitterMs = 0f
+            hasSample = true
+            return
+        }
+        val deviation = kotlin.math.abs(interval - previousIntervalMs)
+        smoothedJitterMs += JITTER_ALPHA * (deviation - smoothedJitterMs)
+        smoothedIntervalMs += INTERVAL_ALPHA * (interval - smoothedIntervalMs)
+        previousIntervalMs = interval
+    }
+
+    fun delayMs(fallbackIntervalMs: Long): Long {
+        val interval = if (hasSample) smoothedIntervalMs else
+            fallbackIntervalMs.toFloat().coerceIn(MIN_INTERVAL_MS, MAX_INTERVAL_MS)
+        val target = interval * BASE_DELAY_RATIO + smoothedJitterMs * JITTER_MULTIPLIER
+        return target.toLong().coerceIn(MIN_DELAY_MS, MAX_DELAY_MS)
+    }
+
+    fun reset() {
+        previousIntervalMs = 0f
+        smoothedIntervalMs = 0f
+        smoothedJitterMs = 0f
+        hasSample = false
+    }
+
+    private companion object {
+        const val MIN_INTERVAL_MS = 16f
+        const val MAX_INTERVAL_MS = 220f
+        const val INTERVAL_ALPHA = 0.20f
+        const val JITTER_ALPHA = 0.25f
+        const val BASE_DELAY_RATIO = 0.30f
+        const val JITTER_MULTIPLIER = 1.25f
+        const val MIN_DELAY_MS = 18L
+        const val MAX_DELAY_MS = 64L
+    }
+}
+
+/**
  * Produces a render-time hand pose between MediaPipe observations.
  *
  * Gesture state is copied from the newest observation and is never interpolated.
@@ -38,6 +90,7 @@ internal fun isSandboxHandFrameStale(
 internal class SandboxHandPoseInterpolator {
     private data class Sample(val timestampMs: Long, val hand: TrackedHand)
 
+    private val presentationDelay = HandPresentationDelayEstimator()
     private var previous: Sample? = null
     private var current: Sample? = null
     private var lastFrameTimestampMs = Long.MIN_VALUE
@@ -53,6 +106,7 @@ internal class SandboxHandPoseInterpolator {
             if (hand == null) {
                 previous = null
                 current = null
+                presentationDelay.reset()
                 return null
             }
 
@@ -66,8 +120,10 @@ internal class SandboxHandPoseInterpolator {
                 oldCurrent.hand.points.size == hand.points.size
             ) {
                 previous = oldCurrent
+                presentationDelay.observe(sampleTime - oldCurrent.timestampMs)
             } else {
                 previous = null
+                presentationDelay.reset()
             }
             current = Sample(sampleTime, hand)
         }
@@ -75,9 +131,7 @@ internal class SandboxHandPoseInterpolator {
         val newest = current ?: return null
         val older = previous ?: return newest.hand
         val sampleDurationMs = (newest.timestampMs - older.timestampMs).coerceAtLeast(1L)
-        val presentationDelayMs = (sampleDurationMs * PRESENTATION_DELAY_RATIO)
-            .toLong()
-            .coerceIn(MIN_PRESENTATION_DELAY_MS, MAX_PRESENTATION_DELAY_MS)
+        val presentationDelayMs = presentationDelay.delayMs(sampleDurationMs)
         val presentationTimeMs = renderTimeMs - presentationDelayMs
 
         val interpolationAmount = if (presentationTimeMs <= newest.timestampMs) {
@@ -98,6 +152,7 @@ internal class SandboxHandPoseInterpolator {
     fun reset() {
         previous = null
         current = null
+        presentationDelay.reset()
         lastFrameTimestampMs = Long.MIN_VALUE
     }
 
@@ -139,10 +194,7 @@ internal class SandboxHandPoseInterpolator {
 
     private companion object {
         const val MAX_SAMPLE_GAP_MS = 220L
-        const val MIN_PRESENTATION_DELAY_MS = 18L
-        const val MAX_PRESENTATION_DELAY_MS = 48L
         const val MAX_PREDICTION_MS = 26L
-        const val PRESENTATION_DELAY_RATIO = 0.55f
         const val MAX_PREDICTION_RATIO = 0.35f
     }
 }
