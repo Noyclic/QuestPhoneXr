@@ -24,6 +24,17 @@ class HandTrackingPresetTest {
     }
 
     @Test
+    fun turboProfileKeepsHighResolutionCameraButUsesSmallerModelInput() {
+        val preset = HandTrackingPreset.SINGLE_HAND_TURBO
+        assertEquals(1, preset.maxTrackedHands)
+        assertEquals(640, preset.cameraWidthPx)
+        assertEquals(480, preset.cameraHeightPx)
+        assertEquals(0L, preset.minimumInferenceIntervalMs)
+        assertEquals(320, preset.modelInputWidthPx)
+        assertEquals(240, preset.modelInputHeightPx)
+    }
+
+    @Test
     fun balancedAndResponsivePreserveTwoHandTracking() {
         assertEquals(2, HandTrackingPreset.BALANCED.maxTrackedHands)
         assertEquals(2, HandTrackingPreset.RESPONSIVE.maxTrackedHands)
