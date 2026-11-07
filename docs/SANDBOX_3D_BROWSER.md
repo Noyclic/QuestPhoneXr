@@ -9,7 +9,7 @@ The Sandbox browser is an Android WebView hosted inside `SandboxActivity`, captu
 3. Use the virtual QWERTY keyboard to enter a URL or search phrase. **123** switches to symbols/numbers, **⇧** toggles uppercase, **⌫** deletes, **пробел** inserts a space, and **↵ / GO** navigates.
 4. On a web page, pinch a text field and type with the same keyboard. Input is sent to the focused DOM element; the normal Android soft keyboard is suppressed.
 5. Aim at a link or button and pinch/release to click. Hold the pinch and move the hand to drag/scroll. The colored dot is the hand's hover point on the browser panel.
-6. Use **×** in the browser toolbar to close the panel. The Sandbox object-grab interaction is restored after closing.
+6. Use the **×** in the top-right corner to close the panel. It stays subtly visible at rest, brightens when either tracked hand approaches the browser, and turns red when the fingertip cursor hovers over it. Pinch/release on the corner to close; no extra on-screen button is needed. The Sandbox object-grab interaction is restored after closing.
 
 Only one hand owns a browser pointer at a time. Pinch is the browser click/drag gesture; natural power grip is not converted into a browser click. While the browser is open, Sandbox cube grabbing and fingertip physics contacts are temporarily paused so the same pinch cannot accidentally grab scene objects.
 
