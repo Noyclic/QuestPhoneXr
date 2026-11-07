@@ -13,7 +13,9 @@ enum class HandTrackingPreset(
     val maxTrackedHands: Int,
     val cameraWidthPx: Int,
     val cameraHeightPx: Int,
-    val minimumInferenceIntervalMs: Long
+    val minimumInferenceIntervalMs: Long,
+    val modelInputWidthPx: Int = 480,
+    val modelInputHeightPx: Int = 360
 ) {
     SUPER_ECONOMY(
         label = "Суперэкономия",
@@ -38,6 +40,16 @@ enum class HandTrackingPreset(
         cameraWidthPx = 640,
         cameraHeightPx = 480,
         minimumInferenceIntervalMs = 0L
+    ),
+    SINGLE_HAND_TURBO(
+        label = "Турбо · 1 рука",
+        description = "640×480 камера → модель 320×240 · без искусственного интервала",
+        maxTrackedHands = 1,
+        cameraWidthPx = 640,
+        cameraHeightPx = 480,
+        minimumInferenceIntervalMs = 0L,
+        modelInputWidthPx = 320,
+        modelInputHeightPx = 240
     ),
     BALANCED(
         label = "Баланс",
