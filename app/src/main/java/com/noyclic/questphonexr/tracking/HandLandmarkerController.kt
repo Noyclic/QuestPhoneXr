@@ -276,27 +276,36 @@ class HandLandmarkerController(
             sourceBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             sourceWidth = width
             sourceHeight = height
-            packedPixels = ByteBuffer.allocateDirect(requiredBytes)
-            rowScratch = ByteArray(rowBytes)
-        } else if (packedPixels == null || packedPixels?.capacity() != requiredBytes) {
-            packedPixels = ByteBuffer.allocateDirect(requiredBytes)
-            rowScratch = ByteArray(rowBytes)
+            packedPixels = null
+            rowScratch = null
         }
-
-        val packed = checkNotNull(packedPixels)
-        val scratch = checkNotNull(rowScratch)
-        val input = plane.buffer.duplicate()
-        val initialPosition = input.position()
-        packed.clear()
-        for (row in 0 until height) {
-            input.position(initialPosition + row * plane.rowStride)
-            input.get(scratch, 0, rowBytes)
-            packed.put(scratch, 0, rowBytes)
-        }
-        packed.flip()
 
         val bitmap = checkNotNull(sourceBitmap)
-        bitmap.copyPixelsFromBuffer(packed)
+        val input = plane.buffer.duplicate()
+        val initialPosition = input.position()
+        if (plane.rowStride == rowBytes && input.remaining() >= requiredBytes) {
+            // CameraX's common tightly packed RGBA path needs no intermediate row
+            // buffer or direct-buffer repack. The duplicate keeps ImageProxy's buffer
+            // position untouched while Bitmap copies the exact pixel payload.
+            input.limit(initialPosition + requiredBytes)
+            bitmap.copyPixelsFromBuffer(input)
+        } else {
+            // Preserve support for padded camera rows on devices with unusual strides.
+            if (packedPixels == null || packedPixels?.capacity() != requiredBytes) {
+                packedPixels = ByteBuffer.allocateDirect(requiredBytes)
+                rowScratch = ByteArray(rowBytes)
+            }
+            val packed = checkNotNull(packedPixels)
+            val scratch = checkNotNull(rowScratch)
+            packed.clear()
+            for (row in 0 until height) {
+                input.position(initialPosition + row * plane.rowStride)
+                input.get(scratch, 0, rowBytes)
+                packed.put(scratch, 0, rowBytes)
+            }
+            packed.flip()
+            bitmap.copyPixelsFromBuffer(packed)
+        }
         updateFrameSignalMetrics(bitmap)
         return bitmap
     }
