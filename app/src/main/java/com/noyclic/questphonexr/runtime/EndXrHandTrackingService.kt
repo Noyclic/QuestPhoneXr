@@ -229,6 +229,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
     private var cameraHeightPx = DEFAULT_HEIGHT_PX
     private var maxHands = DEFAULT_MAX_HANDS
     private var minimumInferenceIntervalMs = DEFAULT_INFERENCE_INTERVAL_MS
+    private var preferGpuDelegate = true
     private var modelInputWidthPx = minOf(DEFAULT_WIDTH_PX, MAX_MODEL_INPUT_WIDTH_PX)
     private var modelInputHeightPx = minOf(DEFAULT_HEIGHT_PX, MAX_MODEL_INPUT_HEIGHT_PX)
 
@@ -305,6 +306,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
             EXTRA_INTERVAL_MS,
             DEFAULT_INFERENCE_INTERVAL_MS
         )
+        val savedPreferGpuDelegate = servicePreferences.getBoolean(EXTRA_PREFER_GPU, true)
         val savedModelInputWidth = servicePreferences.getInt(
             EXTRA_MODEL_INPUT_WIDTH,
             minOf(savedWidth, MAX_MODEL_INPUT_WIDTH_PX)
@@ -322,6 +324,8 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
             ?: savedMaxHands).coerceIn(1, 2)
         minimumInferenceIntervalMs = (intent?.getLongExtra(EXTRA_INTERVAL_MS, savedInterval)
             ?: savedInterval).coerceIn(0L, 1_000L)
+        preferGpuDelegate = intent?.getBooleanExtra(EXTRA_PREFER_GPU, savedPreferGpuDelegate)
+            ?: savedPreferGpuDelegate
         modelInputWidthPx = (intent?.getIntExtra(EXTRA_MODEL_INPUT_WIDTH, savedModelInputWidth)
             ?: savedModelInputWidth).coerceIn(1, MAX_MODEL_INPUT_WIDTH_PX)
             .coerceAtMost(cameraWidthPx)
@@ -334,6 +338,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
             .putInt(EXTRA_HEIGHT, cameraHeightPx)
             .putInt(EXTRA_MAX_HANDS, maxHands)
             .putLong(EXTRA_INTERVAL_MS, minimumInferenceIntervalMs)
+            .putBoolean(EXTRA_PREFER_GPU, preferGpuDelegate)
             .putInt(EXTRA_MODEL_INPUT_WIDTH, modelInputWidthPx)
             .putInt(EXTRA_MODEL_INPUT_HEIGHT, modelInputHeightPx)
             .apply()
@@ -393,7 +398,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                         outputWidthPx = modelInputWidthPx,
                         outputHeightPx = modelInputHeightPx,
                         onMetrics = EndXrHandTrackingDiagnostics::updateMetrics,
-                        preferredDelegate = Delegate.GPU,
+                        preferredDelegate = if (preferGpuDelegate) Delegate.GPU else Delegate.CPU,
                         ownerExecutor = cameraExecutor
                     )
                 }.get()
@@ -425,6 +430,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                         cameraHeightPx + ", hands=" + maxHands +
                         ", lens=" + (if (useFrontCamera) "front (user enabled)" else "back") +
                         ", model=" + modelInputWidthPx + "x" + modelInputHeightPx +
+                        ", delegatePreference=" + if (preferGpuDelegate) "GPU" else "CPU" +
                         ", interval=" + minimumInferenceIntervalMs + "ms"
                 )
                 updateNotification("MediaPipe работает · руки передаются в EndXR")
@@ -550,6 +556,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
         private const val EXTRA_HEIGHT = "endxr.camera.height"
         private const val EXTRA_MAX_HANDS = "endxr.camera.max_hands"
         private const val EXTRA_INTERVAL_MS = "endxr.camera.interval_ms"
+        private const val EXTRA_PREFER_GPU = "endxr.mediapipe.prefer_gpu"
         private const val EXTRA_MODEL_INPUT_WIDTH = "endxr.model.input_width"
         private const val EXTRA_MODEL_INPUT_HEIGHT = "endxr.model.input_height"
 
@@ -598,7 +605,8 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
             maxHands: Int,
             minimumInferenceIntervalMs: Long,
             modelInputWidthPx: Int = minOf(widthPx, MAX_MODEL_INPUT_WIDTH_PX),
-            modelInputHeightPx: Int = minOf(heightPx, MAX_MODEL_INPUT_HEIGHT_PX)
+            modelInputHeightPx: Int = minOf(heightPx, MAX_MODEL_INPUT_HEIGHT_PX),
+            preferGpuDelegate: Boolean = true
         ): Intent {
             activeOrPending = true
             return Intent(context, EndXrHandTrackingService::class.java).apply {
@@ -606,6 +614,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                 putExtra(EXTRA_HEIGHT, heightPx)
                 putExtra(EXTRA_MAX_HANDS, maxHands)
                 putExtra(EXTRA_INTERVAL_MS, minimumInferenceIntervalMs)
+                putExtra(EXTRA_PREFER_GPU, preferGpuDelegate)
                 putExtra(
                     EXTRA_MODEL_INPUT_WIDTH,
                     modelInputWidthPx.coerceIn(1, MAX_MODEL_INPUT_WIDTH_PX).coerceAtMost(widthPx)
