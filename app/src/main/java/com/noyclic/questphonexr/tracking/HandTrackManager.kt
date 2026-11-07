@@ -173,7 +173,10 @@ internal class HandTrackManager(
                 pinchUsesWorldLandmarks = pinch.usedWorldLandmarks,
                 side = side,
                 worldPoints = filteredWorldPoints,
-                trackingId = id
+                trackingId = id,
+                rawPoints = observation.points,
+                rawWorldPoints = observation.worldPoints,
+                rawTimestampMs = timestampMs
             )
         }
 
