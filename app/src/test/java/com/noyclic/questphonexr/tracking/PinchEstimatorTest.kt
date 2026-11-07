@@ -93,6 +93,26 @@ class PinchEstimatorTest {
         assertTrue(kotlin.math.abs(smallStrength - largeStrength) < 0.0001f)
     }
 
+    @Test
+    fun overflowingFiniteLandmarksCannotCreateFalsePinchOrPoisonNextSample() {
+        val estimator = PinchEstimator(smoothing = 1f)
+        val overflowing = points(pinching = true).toMutableList().also {
+            it[5] = HandPoint(Float.MAX_VALUE, 0.4f, 0f)
+            it[17] = HandPoint(-Float.MAX_VALUE, 0.4f, 0f)
+        }
+
+        repeat(3) { index ->
+            val signal = estimator.update(overflowing, 1_000L + index * 16L)
+            assertFalse(signal.isPinching)
+            assertTrue(signal.strength == 0f)
+            assertTrue(signal.normalizedDistanceRatio.isInfinite())
+        }
+
+        val recovered = estimator.update(points(pinching = true), 1_064L)
+        assertTrue(recovered.isPinching)
+        assertTrue(recovered.normalizedDistanceRatio.isFinite())
+    }
+
     private fun points(pinching: Boolean): List<HandPoint> {
         val result = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
         result[5] = HandPoint(0.6f, 0.4f, 0f)
