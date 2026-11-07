@@ -298,6 +298,7 @@ class SandboxSimulation {
     private var rightGrabbing = false
     private var leftPinching = false
     private var rightPinching = false
+    private var browserInteractionMode = false
     private var leftConnected = false
     private var rightConnected = false
     private var leftCameraTracked = false
@@ -352,6 +353,11 @@ class SandboxSimulation {
         rightWorldPoseSmoother.reset()
         leftLandmarks = emptyList()
         rightLandmarks = emptyList()
+    }
+
+    @Synchronized
+    fun setBrowserInteractionMode(enabled: Boolean) {
+        browserInteractionMode = enabled
     }
 
     @Synchronized
@@ -435,8 +441,10 @@ class SandboxSimulation {
 
         updateGrab(HandSide.LEFT, left.grabbing, leftWorld.cursor, dt, left.trackingLost)
         updateGrab(HandSide.RIGHT, right.grabbing, rightWorld.cursor, dt, right.trackingLost)
-        applyFingerContacts(leftWorld, dt)
-        applyFingerContacts(rightWorld, dt)
+        if (!browserInteractionMode) {
+            applyFingerContacts(leftWorld, dt)
+            applyFingerContacts(rightWorld, dt)
+        }
         updatePhysics(dt)
     }
 
@@ -587,7 +595,8 @@ class SandboxSimulation {
         } ?: false
         // A closed three-or-more-finger power grip is a natural grab fallback.
         // Pinch remains supported as a precision grip, and physical controllers remain available.
-        val grabbing = pinching || powerGripping || digitalGrab || analogGrab
+        val grabbing = !browserInteractionMode &&
+            (pinching || powerGripping || digitalGrab || analogGrab)
         return ControllerState(
             cursor = cursor,
             grabbing = grabbing,
