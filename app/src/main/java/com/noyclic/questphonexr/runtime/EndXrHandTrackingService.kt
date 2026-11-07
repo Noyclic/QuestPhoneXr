@@ -76,6 +76,9 @@ internal object EndXrHandTrackingDiagnostics {
             lastResultProcessingMs = 0L,
             averageResultProcessingMs = 0f,
             delegateName = "CPU",
+            delegateInitThreadId = 0L,
+            lastAnalyzeThreadId = 0L,
+            delegateThreadMatchesAnalyzer = true,
             lastFrameWidthPx = 0,
             lastFrameHeightPx = 0,
             lastFrameFormat = 0,
@@ -169,6 +172,9 @@ internal object EndXrHandTrackingDiagnostics {
             append("service_last_result_hands=").append(lastResultHands).append('\n')
             append("service_last_result_age_ms=").append(resultAgeMs).append('\n')
             appendLine("service_mediapipe_delegate=${snapshot.delegateName}")
+            appendLine("service_mediapipe_delegate_init_thread_id=${snapshot.delegateInitThreadId}")
+            appendLine("service_mediapipe_analyzer_thread_id=${snapshot.lastAnalyzeThreadId}")
+            appendLine("service_mediapipe_delegate_thread_matches_analyzer=${snapshot.delegateThreadMatchesAnalyzer}")
             append("service_last_preprocessing_ms=").append(snapshot.lastPreprocessingMs).append('\n')
             appendLine("service_last_inference_ms=${snapshot.lastInferenceMs}")
             appendLine("service_average_inference_ms=${snapshot.averageInferenceMs}")
