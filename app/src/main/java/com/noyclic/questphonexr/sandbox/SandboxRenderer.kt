@@ -337,8 +337,8 @@ class SandboxRenderer : GLSurfaceView.Renderer {
         // bridge from thumb MCP to index MCP gives the palm a continuous silhouette.
         appendBone(
             handMesh,
-            points[2],
-            points[5],
+            points[SandboxHandMeshGeometry.THUMB_WEB[0]],
+            points[SandboxHandMeshGeometry.THUMB_WEB[1]],
             (palmLinkRadius * 0.82f).coerceAtLeast(0.012f)
         )
 
