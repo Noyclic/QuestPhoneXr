@@ -126,6 +126,60 @@ class PinchEstimatorTest {
         assertTrue(recovered.normalizedDistanceRatio.isFinite())
     }
 
+    @Test
+    fun worldSpacePalmGeometryPreservesPinchWhenHandTurnsEdgeOn() {
+        val estimator = PinchEstimator(smoothing = 1f)
+        val imagePoints = points(pinching = false).toMutableList().also {
+            // Edge-on projection: apparent palm width collapses relative to tip gap.
+            it[5] = HandPoint(0.51f, 0.50f, 0f)
+            it[17] = HandPoint(0.49f, 0.50f, 0f)
+            it[4] = HandPoint(0.491f, 0.50f, 0f)
+            it[8] = HandPoint(0.509f, 0.50f, 0f)
+        }
+        val worldPoints = List(21) { HandPoint(0f, 0f, 0f) }.toMutableList().also {
+            it[5] = HandPoint(0.04f, 0f, 0f)
+            it[17] = HandPoint(-0.04f, 0f, 0f)
+            it[4] = HandPoint(-0.008f, 0f, 0f)
+            it[8] = HandPoint(0.008f, 0f, 0f)
+        }
+
+        val signal = estimator.update(imagePoints, 1_000L, worldPoints)
+
+        assertTrue("3D palm width should avoid the edge-on 2D normalization failure", signal.isPinching)
+        assertTrue(signal.usedWorldLandmarks)
+        assertTrue(signal.normalizedDistanceRatio < 0.25f)
+    }
+
+    @Test
+    fun implausibleWorldPalmWidthFallsBackToImageLandmarks() {
+        val estimator = PinchEstimator(smoothing = 1f)
+        val worldPoints = List(21) { HandPoint(0f, 0f, 0f) }.toMutableList().also {
+            it[5] = HandPoint(0.001f, 0f, 0f)
+            it[17] = HandPoint(-0.001f, 0f, 0f)
+            it[4] = HandPoint(0f, 0f, 0f)
+            it[8] = HandPoint(0f, 0f, 0f)
+        }
+
+        val signal = estimator.update(points(pinching = true), 1_000L, worldPoints)
+
+        assertTrue(signal.isPinching)
+        assertFalse("unrealistically narrow world palm should not be trusted", signal.usedWorldLandmarks)
+        assertEquals(0f, signal.normalizedDistanceRatio, 0f)
+    }
+
+    @Test
+    fun incompleteWorldLandmarksUseSafeImageSpaceFallback() {
+        val estimator = PinchEstimator(smoothing = 1f)
+        val signal = estimator.update(
+            points(pinching = true),
+            1_000L,
+            worldPoints = List(9) { HandPoint(0f, 0f, 0f) }
+        )
+
+        assertTrue(signal.isPinching)
+        assertFalse(signal.usedWorldLandmarks)
+    }
+
     private fun points(pinching: Boolean): List<HandPoint> {
         val result = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
         result[5] = HandPoint(0.6f, 0.4f, 0f)
