@@ -38,7 +38,8 @@ import kotlin.math.max
  */
 internal class SandboxBrowserPanelView @JvmOverloads constructor(
     context: Context,
-    attrs: AttributeSet? = null
+    attrs: AttributeSet? = null,
+    private val onCloseRequested: () -> Unit = {}
 ) : LinearLayout(context, attrs) {
 
     private val addressField = EditText(context)
@@ -111,6 +112,10 @@ internal class SandboxBrowserPanelView @JvmOverloads constructor(
         toolbar.addView(
             toolbarButton("GO") { navigate() },
             LayoutParams(82, LayoutParams.MATCH_PARENT)
+        )
+        toolbar.addView(
+            toolbarButton("×") { onCloseRequested() },
+            LayoutParams(54, LayoutParams.MATCH_PARENT)
         )
         addView(toolbar, LayoutParams(LayoutParams.MATCH_PARENT, 60))
     }
@@ -382,6 +387,12 @@ internal class SandboxBrowserPanelView @JvmOverloads constructor(
         )
         dispatchTouchEvent(event)
         event.recycle()
+    }
+
+    fun focusAddressBar() {
+        webView.url?.takeIf { it.isNotBlank() }?.let { addressField.setText(it) }
+        addressField.requestFocus()
+        addressField.setSelection(addressField.text.length)
     }
 
     fun onResumeBrowser() {
