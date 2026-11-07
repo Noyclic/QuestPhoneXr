@@ -443,7 +443,7 @@ class SandboxSimulation {
             SandboxHandPoseMapper.map(
                 points = tracked.points,
                 calibration = handCalibration,
-                estimatedDistanceMeters = estimatedDistance ?: DEFAULT_HAND_DISTANCE_METERS,
+                estimatedDistanceMeters = checkNotNull(estimatedDistance),
                 worldPoints = tracked.worldPoints,
                 cameraToWorldRotation = cameraToWorldRotation
             )
@@ -455,7 +455,7 @@ class SandboxSimulation {
                 SandboxHandPoseMapper.map(
                     points = display.points,
                     calibration = handCalibration,
-                    estimatedDistanceMeters = estimatedDistance ?: DEFAULT_HAND_DISTANCE_METERS,
+                    estimatedDistanceMeters = checkNotNull(estimatedDistance),
                     worldPoints = display.worldPoints,
                     cameraToWorldRotation = cameraToWorldRotation
                 )
