@@ -222,6 +222,15 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
             stopSelf(startId)
             return START_NOT_STICKY
         }
+        if (intent?.action == ACTION_UPDATE_INTERVAL) {
+            val updatedInterval = intent.getLongExtra(EXTRA_INTERVAL_MS, minimumInferenceIntervalMs)
+                .coerceIn(0L, 1_000L)
+            minimumInferenceIntervalMs = updatedInterval
+            servicePreferences.edit().putLong(EXTRA_INTERVAL_MS, updatedInterval).apply()
+            handTracker?.updateMinimumInferenceIntervalMs(updatedInterval)
+            Log.i(TAG, "Updated live inference interval to ${updatedInterval}ms")
+            return START_STICKY
+        }
 
         readConfiguration(intent)
         EndXrHandTrackingDiagnostics.begin(cameraWidthPx, cameraHeightPx)
@@ -488,6 +497,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
         private const val PREFERENCES_NAME = "endxr_hand_tracking_service"
 
         private const val ACTION_STOP = "com.noyclic.questphonexr.action.STOP_ENDXR_HANDS"
+        private const val ACTION_UPDATE_INTERVAL = "com.noyclic.questphonexr.action.UPDATE_ENDXR_INTERVAL"
         private const val EXTRA_WIDTH = "endxr.camera.width"
         private const val EXTRA_HEIGHT = "endxr.camera.height"
         private const val EXTRA_MAX_HANDS = "endxr.camera.max_hands"
@@ -545,6 +555,14 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                 putExtra(EXTRA_MAX_HANDS, maxHands)
                 putExtra(EXTRA_INTERVAL_MS, minimumInferenceIntervalMs)
             }
+        }
+
+        fun updateInferenceInterval(context: Context, intervalMs: Long) {
+            val intent = Intent(context, EndXrHandTrackingService::class.java)
+                .setAction(ACTION_UPDATE_INTERVAL)
+                .putExtra(EXTRA_INTERVAL_MS, intervalMs.coerceIn(0L, 1_000L))
+            runCatching { context.startService(intent) }
+                .onFailure { Log.w(TAG, "Could not update live tracking interval", it) }
         }
 
         fun createStopIntent(context: Context): Intent =
