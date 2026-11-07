@@ -13,7 +13,7 @@ import kotlin.math.exp
  */
 internal class OneEuroHandFilter(
     private val minCutoffHz: Float = 1.2f,
-    private val beta: Float = 0.025f,
+    private val beta: Float = 0.25f,
     private val derivativeCutoffHz: Float = 1.0f,
     private val resetAfterGapMs: Long = 250L
 ) {
