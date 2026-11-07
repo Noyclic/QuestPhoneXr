@@ -41,6 +41,8 @@ internal object EndXrHandTrackingDiagnostics {
     @Volatile private var cameraLens = "unknown"
     @Volatile private var cameraWidthPx = 0
     @Volatile private var cameraHeightPx = 0
+    @Volatile private var configuredMaxHands = 2
+    @Volatile private var configuredInferenceIntervalMs = 100L
     @Volatile private var metrics = HandTrackingMetricsSnapshot(
         receivedFrames = 0L,
         submittedFrames = 0L,
@@ -58,11 +60,13 @@ internal object EndXrHandTrackingDiagnostics {
     @Volatile private var latestFrame = HandTrackingFrame(0L, emptyList())
     @Volatile private var latestFrameReceivedAtMs = 0L
 
-    fun begin(widthPx: Int, heightPx: Int) {
+    fun begin(widthPx: Int, heightPx: Int, maxHands: Int, inferenceIntervalMs: Long) {
         cameraState = "starting"
         cameraLens = "unknown"
         cameraWidthPx = widthPx
         cameraHeightPx = heightPx
+        configuredMaxHands = maxHands
+        configuredInferenceIntervalMs = inferenceIntervalMs
         metrics = metrics.copy(
             receivedFrames = 0L,
             submittedFrames = 0L,
@@ -78,7 +82,7 @@ internal object EndXrHandTrackingDiagnostics {
             delegateName = "CPU",
             delegateInitThreadId = 0L,
             lastAnalyzeThreadId = 0L,
-            delegateThreadMatchesAnalyzer = true,
+            delegateThreadMatchesAnalyzer = false,
             lastFrameWidthPx = 0,
             lastFrameHeightPx = 0,
             lastFrameFormat = 0,
@@ -95,6 +99,10 @@ internal object EndXrHandTrackingDiagnostics {
         lastError = ""
         latestFrame = HandTrackingFrame(0L, emptyList())
         latestFrameReceivedAtMs = 0L
+    }
+
+    fun updateInferenceInterval(intervalMs: Long) {
+        configuredInferenceIntervalMs = intervalMs
     }
 
     fun cameraSelected(frontCamera: Boolean) {
@@ -160,6 +168,8 @@ internal object EndXrHandTrackingDiagnostics {
             append("service_camera_lens=").append(cameraLens).append('\n')
             append("service_camera_width_px=").append(cameraWidthPx).append('\n')
             append("service_camera_height_px=").append(cameraHeightPx).append('\n')
+            appendLine("service_configured_max_hands=${configuredMaxHands}")
+            appendLine("service_minimum_inference_interval_ms=${configuredInferenceIntervalMs}")
             append("service_model_input_width_px=").append(latestFrame.inputWidthPx).append('\n')
             append("service_model_input_height_px=").append(latestFrame.inputHeightPx).append('\n')
             append("service_camera_frames_received=").append(snapshot.receivedFrames).append('\n')
@@ -241,12 +251,15 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
             minimumInferenceIntervalMs = updatedInterval
             servicePreferences.edit().putLong(EXTRA_INTERVAL_MS, updatedInterval).apply()
             handTracker?.updateMinimumInferenceIntervalMs(updatedInterval)
+            EndXrHandTrackingDiagnostics.updateInferenceInterval(updatedInterval)
             Log.i(TAG, "Updated live inference interval to ${updatedInterval}ms")
             return START_STICKY
         }
 
         readConfiguration(intent)
-        EndXrHandTrackingDiagnostics.begin(cameraWidthPx, cameraHeightPx)
+        EndXrHandTrackingDiagnostics.begin(
+            cameraWidthPx, cameraHeightPx, maxHands, minimumInferenceIntervalMs
+        )
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
