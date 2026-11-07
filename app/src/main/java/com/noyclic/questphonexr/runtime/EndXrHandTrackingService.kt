@@ -332,8 +332,10 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                     },
                     maxHands = maxHands,
                     minimumInferenceIntervalMs = minimumInferenceIntervalMs,
-                    outputWidthPx = cameraWidthPx,
-                    outputHeightPx = cameraHeightPx,
+                    // Keep camera capture resolution high enough for hand detail, but cap
+                    // the bitmap sent to MediaPipe to reduce per-frame model work.
+                    outputWidthPx = minOf(cameraWidthPx, MAX_MODEL_INPUT_WIDTH_PX),
+                    outputHeightPx = minOf(cameraHeightPx, MAX_MODEL_INPUT_HEIGHT_PX),
                     onMetrics = EndXrHandTrackingDiagnostics::updateMetrics
                 )
 
@@ -496,6 +498,8 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
         private const val MAX_WIDTH_PX = 1280
         private const val MIN_HEIGHT_PX = 120
         private const val MAX_HEIGHT_PX = 960
+        private const val MAX_MODEL_INPUT_WIDTH_PX = 320
+        private const val MAX_MODEL_INPUT_HEIGHT_PX = 240
 
         @Volatile private var activeOrPending = false
 
