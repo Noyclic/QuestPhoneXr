@@ -159,7 +159,7 @@ class HandLandmarkerController(
             delegateName = selectedDelegateName,
             delegateInitThreadId = taskCreationThreadId,
             lastAnalyzeThreadId = lastAnalyzeThreadId.get(),
-            delegateThreadMatchesAnalyzer = lastAnalyzeThreadId.get() == 0L ||
+            delegateThreadMatchesAnalyzer = lastAnalyzeThreadId.get() > 0L &&
                 lastAnalyzeThreadId.get() == taskCreationThreadId,
             lastInferenceMs = lastInferenceMs.get(),
             averageInferenceMs = if (inferenceSamples.get() == 0L) 0f else
