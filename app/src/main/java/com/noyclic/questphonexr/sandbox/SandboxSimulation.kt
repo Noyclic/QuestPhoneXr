@@ -509,8 +509,19 @@ class SandboxSimulation {
         // Prefer the assigned left Joy-Con, then the assigned right one. If a
         // controller is connected but has not yet been assigned in the UI, still let
         // its main stick drive locomotion instead of silently disabling walking.
-        val movement = controllers.firstOrNull { it.hand == HandSide.LEFT }
-            ?: controllers.firstOrNull { it.hand == HandSide.RIGHT }
+        val left = controllers.firstOrNull { it.hand == HandSide.LEFT }
+        val right = controllers.firstOrNull { it.hand == HandSide.RIGHT }
+        fun isDeflected(controller: PhysicalControllerSnapshot?): Boolean =
+            controller != null &&
+                (kotlin.math.abs(controller.stickX) > PLAYER_STICK_DEADZONE ||
+                    kotlin.math.abs(controller.stickY) > PLAYER_STICK_DEADZONE)
+        // Prefer the left stick, but if it is idle let an active right/unassigned Joy-Con
+        // take over. This makes either single Joy-Con useful for locomotion.
+        val movement = left?.takeIf(::isDeflected)
+            ?: right?.takeIf(::isDeflected)
+            ?: controllers.firstOrNull(::isDeflected)
+            ?: left
+            ?: right
             ?: controllers.firstOrNull()
             ?: return
         val x = if (kotlin.math.abs(movement.stickX) > PLAYER_STICK_DEADZONE) movement.stickX else 0f
