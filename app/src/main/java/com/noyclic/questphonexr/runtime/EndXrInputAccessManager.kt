@@ -56,10 +56,7 @@ class EndXrInputAccessManager(context: Context) {
             .toList()
 
     fun isAuthorized(client: EndXrInputClient): Boolean =
-        readRecords().any {
-            it.packageName == client.packageName &&
-                it.signingCertificateSha256 == client.signingCertificateSha256
-        }
+        readRecords().any { EndXrInputGrantCodec.matches(it, client) }
 
     /**
      * Re-applies approved temporary URI grants after the app is opened.
@@ -72,7 +69,7 @@ class EndXrInputAccessManager(context: Context) {
 
         readRecords().forEach { record ->
             val client = installed[record.packageName]
-            if (client == null || client.signingCertificateSha256 != record.signingCertificateSha256) {
+            if (client == null || !EndXrInputGrantCodec.matches(record, client)) {
                 revokeQuietly(record.packageName)
                 return@forEach
             }
@@ -211,6 +208,11 @@ internal object EndXrInputGrantCodec {
 
     fun isValidPackageName(value: String): Boolean = packageNamePattern.matches(value)
     fun isValidFingerprint(value: String): Boolean = fingerprintPattern.matches(value)
+
+    /** An approval belongs to one exact package identity and signing certificate. */
+    fun matches(record: EndXrInputGrantRecord, client: EndXrInputClient): Boolean =
+        record.packageName == client.packageName &&
+            record.signingCertificateSha256 == client.signingCertificateSha256
 
     fun encode(records: Collection<EndXrInputGrantRecord>): Set<String> =
         records.asSequence()
