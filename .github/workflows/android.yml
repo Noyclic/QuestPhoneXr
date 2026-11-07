@@ -2,7 +2,7 @@ name: Android CI — build, unit tests and emulator smoke test
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/endvr-android-mjpeg-client-ev0]
   pull_request:
     branches: [main]
   workflow_dispatch:
