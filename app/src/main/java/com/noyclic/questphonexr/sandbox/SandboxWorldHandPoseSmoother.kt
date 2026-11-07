@@ -2,7 +2,6 @@ package com.noyclic.questphonexr.sandbox
 
 import com.noyclic.questphonexr.tracking.HandSide
 import kotlin.math.exp
-import kotlin.math.sqrt
 
 /**
  * Render-only, critically damped 3D landmark smoother.
