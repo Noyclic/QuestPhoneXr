@@ -3077,9 +3077,32 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrLocateHandJointsEXT(
         locations == nullptr || locations->type != XR_TYPE_HAND_JOINT_LOCATIONS_EXT) {
         return XR_ERROR_VALIDATION_FAILURE;
     }
-    if (locateInfo->next != nullptr || locations->next != nullptr) {
-        return XR_ERROR_VALIDATION_FAILURE;
+    // XR_HAND_JOINT_VELOCITIES_EXT is an optional output structure chained
+    // from XrHandJointLocationsEXT. We expose the structure but deliberately
+    // leave velocity flags unset until temporal joint-velocity estimation exists.
+    XrHandJointVelocitiesEXT* velocityOutput = nullptr;
+    auto* outputChain = static_cast<BaseInStructure*>(locations->next);
+    while (outputChain != nullptr) {
+        if (outputChain->type == XR_TYPE_HAND_JOINT_VELOCITIES_EXT) {
+            if (velocityOutput != nullptr) return XR_ERROR_VALIDATION_FAILURE;
+            velocityOutput = reinterpret_cast<XrHandJointVelocitiesEXT*>(outputChain);
+        }
+        outputChain = const_cast<BaseInStructure*>(
+            static_cast<const BaseInStructure*>(outputChain->next));
     }
+    if (velocityOutput != nullptr) {
+        if (velocityOutput->jointCount != XR_HAND_JOINT_COUNT_EXT ||
+            velocityOutput->jointVelocities == nullptr) {
+            return XR_ERROR_VALIDATION_FAILURE;
+        }
+        for (std::uint32_t index = 0; index < XR_HAND_JOINT_COUNT_EXT; ++index) {
+            auto& velocity = velocityOutput->jointVelocities[index];
+            velocity.velocityFlags = 0;
+            velocity.linearVelocity = {0.0f, 0.0f, 0.0f};
+            velocity.angularVelocity = {0.0f, 0.0f, 0.0f};
+        }
+    }
+    if (locateInfo->next != nullptr) return XR_ERROR_VALIDATION_FAILURE;
     if (locateInfo->time <= 0) return XR_ERROR_TIME_INVALID;
     if (locations->jointCount != XR_HAND_JOINT_COUNT_EXT ||
         locations->jointLocations == nullptr) {

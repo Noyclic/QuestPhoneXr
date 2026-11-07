@@ -527,7 +527,7 @@ class SandboxSimulation {
         }.orEmpty()
         if (trackedHand == null) depthEstimator.reset()
         val pinching = trackedHand?.isPinching == true
-        val powerGripping = trackedHand?.let { isPowerGrip(it.points) } == true
+        val powerGripping = trackedHand?.let(::isPowerGrip) == true
         val cameraCursor = interactionCursor(cameraLandmarks, pinching, powerGripping)
         // A deflected Joy-Con stick takes temporary control of the virtual hand.
         // Releasing the stick returns control to MediaPipe (or the default hand pose).
@@ -588,9 +588,18 @@ class SandboxSimulation {
         )
     }
 
-    private fun isPowerGrip(points: List<HandPoint>): Boolean {
-        if (points.size < 21) return false
+    private fun isPowerGrip(hand: TrackedHand): Boolean {
+        // MediaPipe world landmarks are preferred for rotation/scale robustness.
+        // Fall back to normalized image landmarks if the 3D chain is incomplete.
+        val worldGrip = curledFingerCount(hand.worldPoints)
+        val curledFingers = worldGrip ?: curledFingerCount(hand.points) ?: return false
+        return curledFingers >= POWER_GRIP_MIN_FINGERS
+    }
+
+    private fun curledFingerCount(points: List<HandPoint>): Int? {
+        if (points.size < 21) return null
         val wrist = points[0]
+        var completeFingers = 0
         var curledFingers = 0
         for (mcpIndex in FINGER_MCP_INDICES) {
             val mcp = points[mcpIndex]
@@ -598,27 +607,27 @@ class SandboxSimulation {
             val dip = points[mcpIndex + 2]
             val tip = points[mcpIndex + 3]
             val palmLength = distance(wrist, mcp)
-            val firstSegment = distance(mcp, pip)
-            val middleSegment = distance(pip, dip)
-            val lastSegment = distance(dip, tip)
-            val foldedLength = distance(mcp, tip)
-            if (!palmLength.isFinite() || palmLength < MIN_PALM_FINGER_LENGTH ||
-                !firstSegment.isFinite() || firstSegment < MIN_FINGER_SEGMENT_LENGTH ||
-                !middleSegment.isFinite() || middleSegment < MIN_FINGER_SEGMENT_LENGTH ||
-                !lastSegment.isFinite() || lastSegment < MIN_FINGER_SEGMENT_LENGTH ||
-                !foldedLength.isFinite()
-            ) continue
+            if (!palmLength.isFinite() || palmLength < MIN_PALM_FINGER_LENGTH) continue
 
-            // Ignore incomplete landmark chains (common during brief occlusion).
-            // A closed fingertip sits close to its MCP; three complete curled
-            // finger chains are required to avoid treating missing data as a fist.
-            if (foldedLength / palmLength < POWER_GRIP_FOLD_RATIO) {
-                curledFingers++
+            val segments = floatArrayOf(
+                distance(mcp, pip),
+                distance(pip, dip),
+                distance(dip, tip)
+            )
+            // Scale all validity checks to that hand's palm so distant hands
+            // are not rejected by a fixed pixel/world-unit threshold.
+            if (segments.any { !it.isFinite() || it / palmLength < MIN_FINGER_SEGMENT_RATIO }) {
+                continue
             }
+            completeFingers++
+            val foldedLength = distance(mcp, tip)
+            if (foldedLength.isFinite() &&
+                foldedLength / palmLength < POWER_GRIP_FOLD_RATIO
+            ) curledFingers++
         }
-        return curledFingers >= POWER_GRIP_MIN_FINGERS
+        // Too few complete chains is not sufficient evidence of a fist.
+        return curledFingers.takeIf { completeFingers >= POWER_GRIP_MIN_FINGERS }
     }
-
     private fun distance(a: HandPoint, b: HandPoint): Float {
         val dx = a.x - b.x
         val dy = a.y - b.y
@@ -757,7 +766,7 @@ class SandboxSimulation {
         private const val GRAB_THRESHOLD = 0.45f
         private const val MAX_GRAB_DISTANCE = 1.2f
         private const val MIN_PALM_FINGER_LENGTH = 0.025f
-        private const val MIN_FINGER_SEGMENT_LENGTH = 0.012f
+        private const val MIN_FINGER_SEGMENT_RATIO = 0.055f
         private const val POWER_GRIP_FOLD_RATIO = 0.92f
         private const val POWER_GRIP_MIN_FINGERS = 3
         private const val FINGER_CONTACT_ACCELERATION = 5.5f

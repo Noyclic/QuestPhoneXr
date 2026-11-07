@@ -146,7 +146,7 @@ class SandboxSimulationTest {
             points[mcpIndex] = mcp
             points[mcpIndex + 1] = HandPoint(mcp.x, mcp.y - 0.025f, 0f)
             points[mcpIndex + 2] = HandPoint(mcp.x + 0.01f, mcp.y - 0.01f, 0f)
-            points[mcpIndex + 3] = HandPoint(mcp.x + 0.01f, mcp.y, 0f)
+            points[mcpIndex + 3] = HandPoint(mcp.x + 0.015f, mcp.y, 0f)
         }
         val hand = TrackedHand(
             points = points,

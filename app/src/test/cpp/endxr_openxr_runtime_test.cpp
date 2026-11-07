@@ -424,8 +424,14 @@ void testGlesSessionSwapchainAndFrameLifecycle() {
     endxrSetHandJointData(0, 1, nativeJointSamples.data(),
         static_cast<std::uint32_t>(nativeJointSamples.size()));
     XrHandJointLocationEXT jointLocations[XR_HAND_JOINT_COUNT_EXT]{};
+    XrHandJointVelocityEXT jointVelocities[XR_HAND_JOINT_COUNT_EXT]{};
+    XrHandJointVelocitiesEXT velocityOutput{};
+    velocityOutput.type = XR_TYPE_HAND_JOINT_VELOCITIES_EXT;
+    velocityOutput.jointCount = XR_HAND_JOINT_COUNT_EXT;
+    velocityOutput.jointVelocities = jointVelocities;
     XrHandJointLocationsEXT jointOutput{};
     jointOutput.type = XR_TYPE_HAND_JOINT_LOCATIONS_EXT;
+    jointOutput.next = &velocityOutput;
     jointOutput.jointCount = XR_HAND_JOINT_COUNT_EXT;
     jointOutput.jointLocations = jointLocations;
     XrHandJointsLocateInfoEXT jointLocateInfo{};
@@ -440,8 +446,11 @@ void testGlesSessionSwapchainAndFrameLifecycle() {
                (jointLocations[0].locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0 &&
                (jointLocations[0].locationFlags & XR_SPACE_LOCATION_POSITION_TRACKED_BIT) == 0 &&
                std::abs(jointLocations[0].pose.position.x - 0.25f) < 0.001f &&
-               std::abs(jointLocations[25].pose.position.x - 0.275f) < 0.001f,
-           "compose valid estimated joint positions without claiming metric tracking");
+               std::abs(jointLocations[25].pose.position.x - 0.275f) < 0.001f &&
+               jointVelocities[0].velocityFlags == 0 &&
+               jointVelocities[0].linearVelocity.x == 0.0f &&
+               jointVelocities[25].angularVelocity.z == 0.0f,
+           "compose estimated joint poses and mark unsupported velocity estimates invalid");
     endxrClearHandPoses();
     expect(locateHandJoints(leftHandTracker, &jointLocateInfo, &jointOutput) == XR_SUCCESS &&
                jointOutput.isActive == XR_FALSE &&
