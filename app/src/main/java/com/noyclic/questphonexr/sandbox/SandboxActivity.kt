@@ -18,9 +18,11 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
+import androidx.core.app.NotificationManagerCompat
 import android.opengl.GLSurfaceView
 import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.os.Handler
 import android.os.Looper
@@ -150,6 +152,19 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             showCameraPermissionSettingsDialog()
         }
         openPcBridgeDialogIfRequested()
+    }
+
+    private val notificationPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted && NotificationManagerCompat.from(this).areNotificationsEnabled()) {
+            startPersistentHandTrackingService()
+        } else {
+            cameraStatusMessage =
+                "Уведомления EndXR отключены · разреши их в настройках Android"
+            updateStatus()
+            showNotificationPermissionSettingsDialog()
+        }
     }
 
     private val frameCallback = object : Choreographer.FrameCallback {
@@ -1163,6 +1178,30 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             return
         }
 
+        // Android 13+ requires a runtime grant before the ongoing tracking notification
+        // can be shown in the notification drawer. Older versions can still have
+        // app/channel notifications disabled manually, so check that as well.
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) {
+            cameraStatusMessage =
+                "Уведомления EndXR отключены · включи их в настройках Android"
+            updateStatus()
+            showNotificationPermissionSettingsDialog()
+            return
+        }
+
+        startPersistentHandTrackingService()
+    }
+
+    private fun startPersistentHandTrackingService() {
+        if (EndXrHandTrackingService.isRunning()) return
+
         // Transfer CameraX ownership while the Activity is still visible.
         cameraProvider?.unbindAll()
         handTracker?.close()
@@ -1180,7 +1219,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         runCatching {
             ContextCompat.startForegroundService(this, serviceIntent)
             cameraStatusMessage =
-                "EndXR: запускаем фоновую камеру рук. Оставь уведомление активным перед запуском игры."
+                "EndXR: фоновая камера рук запущена · уведомление должно оставаться активным"
         }.onFailure { error ->
             EndXrHandTrackingService.markStartFailed(
                 error.message ?: error.javaClass.simpleName
@@ -1190,6 +1229,31 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             startHandTracking()
         }
         updateStatus()
+    }
+
+    private fun showNotificationPermissionSettingsDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Разреши уведомления EndXR")
+            .setMessage(
+                "Android скрывает уведомление фонового отслеживания, пока уведомления " +
+                    "для QuestPhoneXR запрещены. Открой настройки приложения и включи " +
+                    "«Разрешить уведомления», затем снова запусти фоновую камеру рук."
+            )
+            .setPositiveButton("Открыть настройки") { _, _ ->
+                val settingsIntent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                    putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                }
+                runCatching { startActivity(settingsIntent) }.onFailure {
+                    startActivity(
+                        Intent(
+                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            android.net.Uri.parse("package:$packageName")
+                        )
+                    )
+                }
+            }
+            .setNegativeButton("Позже", null)
+            .show()
     }
 
     // Keep enough source detail for reliable palm/landmark detection. The phone
