@@ -284,6 +284,9 @@ class SandboxSimulation {
     private val rightDepthEstimator = MonocularHandDepthEstimator()
     private val leftPoseInterpolator = SandboxHandPoseInterpolator()
     private val rightPoseInterpolator = SandboxHandPoseInterpolator()
+    // These smooth only the mapped 3D display landmarks. Interaction cursors remain raw.
+    private val leftWorldPoseSmoother = SandboxWorldHandPoseSmoother()
+    private val rightWorldPoseSmoother = SandboxWorldHandPoseSmoother()
     private var leftCursor = DEFAULT_LEFT_CURSOR
     private var rightCursor = DEFAULT_RIGHT_CURSOR
     private var leftGrabbing = false
@@ -327,6 +330,8 @@ class SandboxSimulation {
         rightCursorSmoother.reset()
         leftPoseInterpolator.reset()
         rightPoseInterpolator.reset()
+        leftWorldPoseSmoother.reset()
+        rightWorldPoseSmoother.reset()
     }
 
     @Synchronized
@@ -336,6 +341,8 @@ class SandboxSimulation {
         rightCursorSmoother.reset()
         leftPoseInterpolator.reset()
         rightPoseInterpolator.reset()
+        leftWorldPoseSmoother.reset()
+        rightWorldPoseSmoother.reset()
         leftLandmarks = emptyList()
         rightLandmarks = emptyList()
     }
@@ -382,10 +389,10 @@ class SandboxSimulation {
             rightTrackedHand, handFrame.timestampMs, handFrameReceivedAtMs, renderTimeMs
         )
         val leftRaw = controllerFor(
-            HandSide.LEFT, controllers, leftTrackedHand, leftDisplayHand, cameraToWorldRotation
+            HandSide.LEFT, controllers, leftTrackedHand, leftDisplayHand, cameraToWorldRotation, dt
         )
         val rightRaw = controllerFor(
-            HandSide.RIGHT, controllers, rightTrackedHand, rightDisplayHand, cameraToWorldRotation
+            HandSide.RIGHT, controllers, rightTrackedHand, rightDisplayHand, cameraToWorldRotation, dt
         )
         val leftTrackingLost = leftCameraTracked && !leftRaw.cameraTracked &&
             leftGrabbing && !leftRaw.grabbing
@@ -486,7 +493,8 @@ class SandboxSimulation {
         controllers: List<PhysicalControllerSnapshot>,
         trackedHand: TrackedHand?,
         displayHand: TrackedHand?,
-        cameraToWorldRotation: FloatArray?
+        cameraToWorldRotation: FloatArray?,
+        renderDeltaSeconds: Float
     ): ControllerState {
         val physical = controllers.firstOrNull { it.hand == hand }
         val depthEstimator = if (hand == HandSide.LEFT) leftDepthEstimator else rightDepthEstimator
@@ -531,7 +539,27 @@ class SandboxSimulation {
         val cursor = cameraCursor ?: gamepadCursor ?: fallbackCursor
         // Locomotion must never translate a camera-tracked hand. The gamepad cursor
         // remains available only as a fallback when MediaPipe is not tracking this hand.
-        val renderedLandmarks = displayLandmarks
+        // Smooth after mapping into the actual Sandbox world. This stabilizes the 3D
+        // hand's depth/position as well as its silhouette, without delaying the cursor,
+        // pinch/grab state, or the controller pose sent to EndXR.
+        val worldPoseSmoother = if (hand == HandSide.LEFT) {
+            leftWorldPoseSmoother
+        } else {
+            rightWorldPoseSmoother
+        }
+        val renderedLandmarks = if (trackedHand != null && displayHand != null &&
+            displayLandmarks.isNotEmpty()
+        ) {
+            worldPoseSmoother.update(
+                target = displayLandmarks,
+                deltaSeconds = renderDeltaSeconds,
+                hand = hand,
+                trackingId = displayHand.trackingId
+            )
+        } else {
+            worldPoseSmoother.reset()
+            emptyList()
+        }
         val digitalGrab = physical?.pressedKeyCodes?.any {
             it == GamepadButtonCodes.BUTTON_L1 ||
                 it == GamepadButtonCodes.BUTTON_R1 ||
