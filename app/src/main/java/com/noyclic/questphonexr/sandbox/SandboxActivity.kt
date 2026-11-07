@@ -803,6 +803,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         // Keep the real WebView attached to the Activity, underneath the GLES
         // SurfaceView. Its view tree is captured into the in-world stereo texture.
         browserPanel = SandboxBrowserPanelView(this)
+        browserPanel.visibility = View.INVISIBLE
         root.addView(
             browserPanel,
             FrameLayout.LayoutParams(
@@ -1988,6 +1989,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private fun toggleSandboxBrowser() {
         sandboxBrowserVisible = !sandboxBrowserVisible
         renderer.setBrowserVisible(sandboxBrowserVisible)
+        simulation.setBrowserInteractionMode(sandboxBrowserVisible)
         if (sandboxBrowserVisible) {
             browserPanel.onResumeBrowser()
             lastBrowserTextureUpdateMs = 0L
