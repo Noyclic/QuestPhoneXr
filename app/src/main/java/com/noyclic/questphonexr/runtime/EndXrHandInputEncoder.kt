@@ -3,6 +3,7 @@ package com.noyclic.questphonexr.runtime
 import com.noyclic.questphonexr.sandbox.MonocularHandDepthEstimator
 import com.noyclic.questphonexr.tracking.HandPoint
 import com.noyclic.questphonexr.tracking.HandGestureEstimator
+import com.noyclic.questphonexr.tracking.HandKinematicReconstructor
 import com.noyclic.questphonexr.tracking.HandSide
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.TrackedHand
@@ -43,6 +44,8 @@ internal object EndXrHandInputEncoder {
 
     private val leftDepthEstimator = MonocularHandDepthEstimator()
     private val rightDepthEstimator = MonocularHandDepthEstimator()
+    private val leftSkeletonReconstructor = HandKinematicReconstructor()
+    private val rightSkeletonReconstructor = HandKinematicReconstructor()
 
     @Synchronized
     fun encode(frame: HandTrackingFrame): EndXrEncodedHandInput {
@@ -56,10 +59,16 @@ internal object EndXrHandInputEncoder {
             }
         }
 
-        val leftEncoded = encodeHand(left, leftDepthEstimator)
-        val rightEncoded = encodeHand(right, rightDepthEstimator)
-        if (left == null) leftDepthEstimator.reset()
-        if (right == null) rightDepthEstimator.reset()
+        val leftEncoded = encodeHand(left, leftDepthEstimator, leftSkeletonReconstructor, frame.timestampMs)
+        val rightEncoded = encodeHand(right, rightDepthEstimator, rightSkeletonReconstructor, frame.timestampMs)
+        if (left == null) {
+            leftDepthEstimator.reset()
+            leftSkeletonReconstructor.reset()
+        }
+        if (right == null) {
+            rightDepthEstimator.reset()
+            rightSkeletonReconstructor.reset()
+        }
 
         return EndXrEncodedHandInput(
             leftRow = encodeControllerRow(left),
@@ -88,7 +97,9 @@ internal object EndXrHandInputEncoder {
 
     private fun encodeHand(
         hand: TrackedHand?,
-        depthEstimator: MonocularHandDepthEstimator
+        depthEstimator: MonocularHandDepthEstimator,
+        skeletonReconstructor: HandKinematicReconstructor,
+        timestampMs: Long
     ): EncodedHand {
         if (hand == null || hand.points.size < LANDMARK_COUNT ||
             hand.worldPoints.size < LANDMARK_COUNT
@@ -117,7 +128,10 @@ internal object EndXrHandInputEncoder {
         )
         if (!pose.active) return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
 
-        val joints = encodeJoints(hand, pose)
+        val reconstructedJoints = skeletonReconstructor.reconstruct(
+            hand.worldPoints, hand.trackingId, timestampMs
+        ) ?: return EncodedHand(pose, EndXrHandJointSample.EMPTY)
+        val joints = encodeJoints(reconstructedJoints, pose)
         return EncodedHand(pose, joints)
     }
 
@@ -128,27 +142,14 @@ internal object EndXrHandInputEncoder {
      * so the native runtime composes them with the monocular palm pose once.
      */
     private fun encodeJoints(
-        hand: TrackedHand,
+        reconstructed: List<HandPoint>,
         palmPose: EndXrHandPoseSample
     ): EndXrHandJointSample {
-        val world = Array(LANDMARK_COUNT) { index ->
-            hand.worldPoints.getOrNull(index)?.toVec3()
+        if (reconstructed.size != EndXrHandJointSample.JOINT_COUNT) {
+            return EndXrHandJointSample.EMPTY
         }
-        if (world.any { it == null }) return EndXrHandJointSample.EMPTY
-        val points = world.map { checkNotNull(it) }
-
-        fun interpolate(a: Int, b: Int, amount: Float): Vec3 =
-            points[a] + (points[b] - points[a]) * amount
-
-        val palm = (points[5] + points[9] + points[13] + points[17]) * 0.25f
-        val jointPoints = arrayOf(
-            palm, points[0],
-            points[1], points[2], points[3], points[4],
-            interpolate(0, 5, 0.58f), points[5], points[6], points[7], points[8],
-            interpolate(0, 9, 0.58f), points[9], points[10], points[11], points[12],
-            interpolate(0, 13, 0.58f), points[13], points[14], points[15], points[16],
-            interpolate(0, 17, 0.58f), points[17], points[18], points[19], points[20]
-        )
+        val jointPoints = reconstructed.map { it.toVec3() ?: return EndXrHandJointSample.EMPTY }
+        val palm = jointPoints[0]
         if (jointPoints.size != EndXrHandJointSample.JOINT_COUNT) {
             return EndXrHandJointSample.EMPTY
         }
