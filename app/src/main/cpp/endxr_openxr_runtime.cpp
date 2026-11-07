@@ -2891,16 +2891,29 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrGetInstanceProcAddr(
 ) {
     if (function == nullptr || name == nullptr) return XR_ERROR_VALIDATION_FAILURE;
     *function = nullptr;
+    // OpenXR permits XR_NULL_HANDLE only for the three global entry points.
+    // Returning core/extension commands here makes clients believe those
+    // commands can be called before an instance exists and violates the
+    // loader-facing dispatch contract.
+    const bool isGlobalCommand =
+        std::strcmp(name, "xrEnumerateInstanceExtensionProperties") == 0 ||
+        std::strcmp(name, "xrEnumerateApiLayerProperties") == 0 ||
+        std::strcmp(name, "xrCreateInstance") == 0;
     XrInstance_T* owner = nullptr;
-    if (instance != XR_NULL_HANDLE) {
+    if (instance == XR_NULL_HANDLE) {
+        if (!isGlobalCommand) return XR_ERROR_HANDLE_INVALID;
+    } else {
         owner = getInstance(instance);
         if (owner == nullptr) return XR_ERROR_HANDLE_INVALID;
     }
+
     for (const auto& entry : kProcTable) {
         if (std::strcmp(name, entry.name) == 0) {
             if (std::strcmp(name, "xrGetOpenGLESGraphicsRequirementsKHR") == 0 &&
-                owner != nullptr && !owner->glesExtensionEnabled) {
-                return XR_ERROR_FUNCTION_UNSUPPORTED;
+                (owner == nullptr || !owner->glesExtensionEnabled)) {
+                return owner == nullptr
+                    ? XR_ERROR_HANDLE_INVALID
+                    : XR_ERROR_FUNCTION_UNSUPPORTED;
             }
             *function = entry.function;
             return XR_SUCCESS;
