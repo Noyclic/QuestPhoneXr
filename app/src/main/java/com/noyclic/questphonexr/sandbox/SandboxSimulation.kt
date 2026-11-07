@@ -284,7 +284,9 @@ class SandboxSimulation {
         val landmarks: List<SandboxVector3> = emptyList(),
         val contactLandmarks: List<SandboxVector3> = emptyList(),
         val pinching: Boolean = false,
-        val naturalGripping: Boolean = false
+        val naturalGripping: Boolean = false,
+        /** Stable palm anchor used for full-hand object grasping. */
+        val graspCursor: SandboxVector3? = null
     )
 
     private val objects = mutableListOf<MutableObject>()
@@ -453,11 +455,11 @@ class SandboxSimulation {
         rightTouchPoint = rightWorld.contactLandmarks.getOrNull(INDEX_TIP_LANDMARK)
 
         updateGrab(
-            HandSide.LEFT, left.grabbing, leftWorld.cursor, dt, left.trackingLost,
+            HandSide.LEFT, left.grabbing, left.graspCursor ?: leftWorld.cursor, dt, left.trackingLost,
             if (left.naturalGripping || left.pinching) PRECISION_GRAB_DISTANCE else MAX_GRAB_DISTANCE
         )
         updateGrab(
-            HandSide.RIGHT, right.grabbing, rightWorld.cursor, dt, right.trackingLost,
+            HandSide.RIGHT, right.grabbing, right.graspCursor ?: rightWorld.cursor, dt, right.trackingLost,
             if (right.naturalGripping || right.pinching) PRECISION_GRAB_DISTANCE else MAX_GRAB_DISTANCE
         )
         if (!browserInteractionMode) {
@@ -626,7 +628,8 @@ class SandboxSimulation {
             landmarks = renderedLandmarks,
             contactLandmarks = cameraLandmarks,
             pinching = pinching,
-            naturalGripping = powerGripping
+            naturalGripping = powerGripping,
+            graspCursor = if (pinching) cameraCursor else palmAnchor(cameraLandmarks)
         )
     }
 
@@ -649,16 +652,15 @@ class SandboxSimulation {
             val thumbTip = landmarks.getOrNull(4) ?: return indexTip
             return (thumbTip + indexTip) * 0.5f
         }
-        // Use a stable palm anchor for normal reach and natural fist-grabbing. This avoids
-        // the cursor jumping from the index fingertip to the palm exactly when the fist closes.
+        return indexTip
+    }
+
+    private fun palmAnchor(landmarks: List<SandboxVector3>): SandboxVector3? {
         val palmIndices = intArrayOf(0, 5, 9, 13, 17)
         val palmPoints = palmIndices.mapNotNull { landmarks.getOrNull(it) }
-        return if (palmPoints.isNotEmpty()) {
-            palmPoints.reduce { total, point -> total + point } *
-                (1f / palmPoints.size.toFloat())
-        } else if (isPowerGripping) {
-            indexTip
-        } else indexTip
+        if (palmPoints.isEmpty()) return null
+        return palmPoints.reduce { total, point -> total + point } *
+            (1f / palmPoints.size.toFloat())
     }
 
     private fun applyFingerContacts(hand: ControllerState, deltaSeconds: Float) {
