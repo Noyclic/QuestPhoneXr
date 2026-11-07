@@ -268,3 +268,130 @@ mod tests {
         }).is_none());
     }
 }
+
+
+/// Stable C ABI representation used by host-side parity tests and a future
+/// narrow JNI/native adapter. These types contain no pointers or Rust-owned
+/// allocations and can be returned by value across the C boundary.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GvxrsControllerInput {
+    pub active: u32,
+    pub trigger: f32,
+    pub grip: f32,
+    pub stick_x: f32,
+    pub stick_y: f32,
+    pub buttons: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GvxrsQuaternion {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub w: f32,
+}
+
+impl From<Quaternion> for GvxrsQuaternion {
+    fn from(value: Quaternion) -> Self {
+        Self { x: value.x, y: value.y, z: value.z, w: value.w }
+    }
+}
+
+impl From<GvxrsQuaternion> for Quaternion {
+    fn from(value: GvxrsQuaternion) -> Self {
+        Self { x: value.x, y: value.y, z: value.z, w: value.w }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GvxrsVector3 {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+impl From<GvxrsVector3> for Vector3 {
+    fn from(value: GvxrsVector3) -> Self {
+        Self { x: value.x, y: value.y, z: value.z }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GvxrsPoseInput {
+    pub active: u32,
+    pub orientation: GvxrsQuaternion,
+    pub position: GvxrsVector3,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GvxrsHeadOrientation {
+    pub active: u32,
+    pub orientation: GvxrsQuaternion,
+}
+
+/// C ABI wrapper around controller input sanitization.
+///
+/// The function is intentionally stateless and safe to call from C/C++.
+/// It does not publish input into the OpenXR runtime.
+#[no_mangle]
+pub extern "C" fn gvxrs_sanitize_controller_input(
+    active: u32,
+    trigger: f32,
+    grip: f32,
+    stick_x: f32,
+    stick_y: f32,
+    buttons: u32,
+) -> GvxrsControllerInput {
+    let value = sanitize_controller_input(
+        active != 0, trigger, grip, stick_x, stick_y, buttons,
+    );
+    GvxrsControllerInput {
+        active: u32::from(value.active),
+        trigger: value.trigger,
+        grip: value.grip,
+        stick_x: value.stick_x,
+        stick_y: value.stick_y,
+        buttons: value.buttons,
+    }
+}
+
+/// C ABI wrapper around estimated hand-pose validation and normalization.
+#[no_mangle]
+pub extern "C" fn gvxrs_sanitize_hand_pose(
+    active: u32,
+    position: GvxrsVector3,
+    orientation: GvxrsQuaternion,
+) -> GvxrsPoseInput {
+    let value = sanitize_hand_pose(active != 0, position.into(), orientation.into());
+    GvxrsPoseInput {
+        active: u32::from(value.active),
+        orientation: value.pose.orientation.into(),
+        position: GvxrsVector3 {
+            x: value.pose.position.x,
+            y: value.pose.position.y,
+            z: value.pose.position.z,
+        },
+    }
+}
+
+/// C ABI wrapper around phone head-orientation normalization.
+#[no_mangle]
+pub extern "C" fn gvxrs_sanitize_head_orientation(
+    orientation: GvxrsQuaternion,
+) -> GvxrsHeadOrientation {
+    match sanitize_head_orientation(orientation.into()) {
+        Some(value) => GvxrsHeadOrientation {
+            active: 1,
+            orientation: value.into(),
+        },
+        None => GvxrsHeadOrientation {
+            active: 0,
+            orientation: Quaternion::IDENTITY.into(),
+        },
+    }
+}
