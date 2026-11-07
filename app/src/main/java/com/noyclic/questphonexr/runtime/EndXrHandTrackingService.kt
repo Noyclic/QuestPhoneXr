@@ -43,6 +43,7 @@ internal object EndXrHandTrackingDiagnostics {
     @Volatile private var cameraHeightPx = 0
     @Volatile private var configuredMaxHands = 2
     @Volatile private var configuredInferenceIntervalMs = 100L
+    @Volatile private var configuredPreferGpuDelegate = true
     @Volatile private var metrics = HandTrackingMetricsSnapshot(
         receivedFrames = 0L,
         submittedFrames = 0L,
@@ -60,13 +61,20 @@ internal object EndXrHandTrackingDiagnostics {
     @Volatile private var latestFrame = HandTrackingFrame(0L, emptyList())
     @Volatile private var latestFrameReceivedAtMs = 0L
 
-    fun begin(widthPx: Int, heightPx: Int, maxHands: Int, inferenceIntervalMs: Long) {
+    fun begin(
+        widthPx: Int,
+        heightPx: Int,
+        maxHands: Int,
+        inferenceIntervalMs: Long,
+        preferGpuDelegate: Boolean = true
+    ) {
         cameraState = "starting"
         cameraLens = "unknown"
         cameraWidthPx = widthPx
         cameraHeightPx = heightPx
         configuredMaxHands = maxHands
         configuredInferenceIntervalMs = inferenceIntervalMs
+        configuredPreferGpuDelegate = preferGpuDelegate
         metrics = metrics.copy(
             receivedFrames = 0L,
             submittedFrames = 0L,
@@ -170,6 +178,8 @@ internal object EndXrHandTrackingDiagnostics {
             append("service_camera_height_px=").append(cameraHeightPx).append('\n')
             appendLine("service_configured_max_hands=${configuredMaxHands}")
             appendLine("service_minimum_inference_interval_ms=${configuredInferenceIntervalMs}")
+            appendLine("service_preferred_delegate=${if (configuredPreferGpuDelegate) "GPU" else "CPU"}")
+            appendLine("service_actual_delegate=${snapshot.delegateName}")
             append("service_model_input_width_px=").append(latestFrame.inputWidthPx).append('\n')
             append("service_model_input_height_px=").append(latestFrame.inputHeightPx).append('\n')
             append("service_camera_frames_received=").append(snapshot.receivedFrames).append('\n')
@@ -261,7 +271,11 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
 
         readConfiguration(intent)
         EndXrHandTrackingDiagnostics.begin(
-            cameraWidthPx, cameraHeightPx, maxHands, minimumInferenceIntervalMs
+            cameraWidthPx,
+            cameraHeightPx,
+            maxHands,
+            minimumInferenceIntervalMs,
+            preferGpuDelegate
         )
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
