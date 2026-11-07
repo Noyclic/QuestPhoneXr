@@ -55,15 +55,18 @@ class SandboxSimulationTest {
         val grabbed = simulation.snapshot()
         assertEquals(1, grabbed.grabbedObjectCount)
         val held = grabbed.objects.single { it.heldBy == HandSide.LEFT }
-        assertEquals(-0.65f, held.position.x, 0.001f)
-        assertEquals(-0.1f, held.position.y, 0.001f)
+        // Picking up preserves the cube's position relative to the palm instead of
+        // snapping its center directly onto the controller cursor.
+        assertEquals(-0.9f, held.position.x, 0.001f)
+        assertEquals(-0.25f, held.position.y, 0.001f)
+        assertEquals(-3.0f, held.position.z, 0.001f)
 
         simulation.update(
             listOf(left.copy(stickX = 0.5f)),
             1f / 30f
         )
         val moved = simulation.snapshot().objects.single { it.heldBy == HandSide.LEFT }
-        assertEquals(1.54f, moved.position.x, 0.001f)
+        assertEquals(1.29f, moved.position.x, 0.001f)
     }
 
     @Test
