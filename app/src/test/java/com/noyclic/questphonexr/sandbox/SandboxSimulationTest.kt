@@ -191,6 +191,36 @@ class SandboxSimulationTest {
     }
 
     @Test
+    fun openFingertipCanPushBallWithoutGrabbingIt() {
+        val simulation = SandboxSimulation()
+        val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+        points[0] = HandPoint(0.5f, 0.55f, 0f)
+        points[5] = HandPoint(0.57f, 0.46f, 0f)
+        points[17] = HandPoint(0.43f, 0.46f, 0f)
+        // The index fingertip maps close to the starter ball at (0, 0.25, -3.15).
+        points[8] = HandPoint(0.5f, 0.4576f, 0f)
+        val openHand = TrackedHand(
+            points = points,
+            pinchStrength = 0.1f,
+            isPinching = false,
+            side = HandSide.LEFT
+        )
+
+        simulation.update(
+            emptyList(),
+            HandTrackingFrame(175L, listOf(openHand)),
+            1f / 30f
+        )
+
+        val snapshot = simulation.snapshot()
+        val ball = snapshot.objects.single { it.type == SandboxObjectType.BALL }
+        assertTrue(snapshot.leftHand.cameraTracked)
+        assertFalse(snapshot.leftHand.grabbing)
+        assertEquals(0, snapshot.grabbedObjectCount)
+        assertTrue("fingertip contact should push the free ball", ball.position.z > -3.15f)
+    }
+
+    @Test
     fun cameraTrackedInteractionCursorStaysImmediateWhileRenderPoseInterpolates() {
         val simulation = SandboxSimulation()
         fun trackedHand(indexX: Float): TrackedHand {
