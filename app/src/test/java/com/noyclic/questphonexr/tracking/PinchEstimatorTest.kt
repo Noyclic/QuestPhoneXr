@@ -1,5 +1,6 @@
 package com.noyclic.questphonexr.tracking
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -26,12 +27,29 @@ class PinchEstimatorTest {
     }
 
     @Test
-    fun pinchReleasesWithSeparateOffThreshold() {
+    fun pinchReleaseNeedsAShortContinuousOpenInterval() {
         val estimator = PinchEstimator()
         estimator.update(points(pinching = true), 1_000L)
         assertTrue(estimator.update(points(pinching = true), 1_016L).isPinching)
 
-        assertFalse(estimator.update(points(pinching = false), 1_032L).isPinching)
+        assertTrue("one open sample should not release a held object",
+            estimator.update(points(pinching = false), 1_032L).isPinching)
+        assertTrue("release is still debounced before 24 ms",
+            estimator.update(points(pinching = false), 1_048L).isPinching)
+        assertFalse("sustained open hand should release after the confirmation interval",
+            estimator.update(points(pinching = false), 1_064L).isPinching)
+    }
+
+    @Test
+    fun renewedPinchCancelsPendingReleaseImmediately() {
+        val estimator = PinchEstimator()
+        estimator.update(points(pinching = true), 1_000L)
+        assertTrue(estimator.update(points(pinching = true), 1_016L).isPinching)
+        assertTrue(estimator.update(points(pinching = false), 1_032L).isPinching)
+
+        val recovered = estimator.update(points(pinching = true), 1_048L)
+
+        assertTrue("reclosing the fingers should cancel the pending release", recovered.isPinching)
     }
 
     @Test
