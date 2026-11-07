@@ -28,6 +28,7 @@ import com.noyclic.questphonexr.tracking.HandLandmarkerController
 import com.noyclic.questphonexr.tracking.HandCameraPreference
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.HandTrackingMetricsSnapshot
+import com.google.mediapipe.tasks.core.Delegate
 import java.util.concurrent.Executors
 
 
@@ -160,6 +161,7 @@ internal object EndXrHandTrackingDiagnostics {
             append("service_hand_result_fps=").append(resultFps).append('\n')
             append("service_last_result_hands=").append(lastResultHands).append('\n')
             append("service_last_result_age_ms=").append(resultAgeMs).append('\n')
+            appendLine("service_mediapipe_delegate=${snapshot.delegateName}")
             append("service_last_preprocessing_ms=").append(snapshot.lastPreprocessingMs).append('\n')
             appendLine("service_last_inference_ms=${snapshot.lastInferenceMs}")
             appendLine("service_average_inference_ms=${snapshot.averageInferenceMs}")
@@ -336,7 +338,8 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                     // the bitmap sent to MediaPipe to reduce per-frame model work.
                     outputWidthPx = minOf(cameraWidthPx, MAX_MODEL_INPUT_WIDTH_PX),
                     outputHeightPx = minOf(cameraHeightPx, MAX_MODEL_INPUT_HEIGHT_PX),
-                    onMetrics = EndXrHandTrackingDiagnostics::updateMetrics
+                    onMetrics = EndXrHandTrackingDiagnostics::updateMetrics,
+                    preferredDelegate = Delegate.GPU
                 )
 
                 val analysis = ImageAnalysis.Builder()
