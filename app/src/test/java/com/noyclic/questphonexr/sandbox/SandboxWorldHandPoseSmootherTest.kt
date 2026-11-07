@@ -52,7 +52,7 @@ class SandboxWorldHandPoseSmootherTest {
         smoother.update(first, 1f / 30f, HandSide.LEFT, 2L)
         val target = first.mapIndexed { index, point ->
             point.copy(
-                x = point.x + 0.3f,
+                x = point.x + 0.3f + index * 0.002f,
                 y = point.y + index * 0.003f,
                 z = point.z - 0.2f
             )
