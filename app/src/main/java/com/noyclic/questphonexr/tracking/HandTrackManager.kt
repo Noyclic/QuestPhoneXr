@@ -360,7 +360,7 @@ internal class HandTrackManager(
         const val SIDE_CORRECTION_FRAMES = 3
         const val SIDE_MATCH_BONUS = 0.10f
         const val SIDE_MISMATCH_PENALTY = 0.36f
-        const val WORLD_MIN_CUTOFF_HZ = 2.2f
-        const val WORLD_BETA = 0.35f
+        const val WORLD_MIN_CUTOFF_HZ = 1.7f
+        const val WORLD_BETA = 0.18f
     }
 }
