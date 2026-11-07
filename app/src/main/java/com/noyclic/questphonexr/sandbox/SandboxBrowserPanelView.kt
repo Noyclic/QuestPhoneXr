@@ -15,6 +15,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -41,19 +42,8 @@ internal class SandboxBrowserPanelView @JvmOverloads constructor(
 ) : LinearLayout(context, attrs) {
 
     private val addressField = EditText(context)
-    private val webView = WebView(context)
-    private val keyboard = SandboxVirtualKeyboardView(context) { key ->
-        when (key) {
-            SandboxVirtualKeyboardView.KEY_BACKSPACE -> {
-                val text = addressField.text
-                val end = addressField.selectionEnd.coerceAtLeast(0)
-                if (end > 0 && text.isNotEmpty()) text.delete(end - 1, end)
-            }
-            SandboxVirtualKeyboardView.KEY_SPACE -> addressField.append(" ")
-            SandboxVirtualKeyboardView.KEY_ENTER -> navigate()
-            else -> addressField.append(key)
-        }
-    }
+    private val webView = KeyboardControlledWebView(context)
+    private val keyboard = SandboxVirtualKeyboardView(context, ::dispatchVirtualKey)
 
     private var activePointerSide: HandSide? = null
     private var activePointerDownTime = 0L
@@ -172,6 +162,111 @@ internal class SandboxBrowserPanelView @JvmOverloads constructor(
             }
         }
         webView.loadUrl(DEFAULT_HOME)
+    }
+
+    private fun dispatchVirtualKey(key: String) {
+        if (addressField.hasFocus()) {
+            when (key) {
+                SandboxVirtualKeyboardView.KEY_BACKSPACE -> {
+                    val text = addressField.text
+                    val start = addressField.selectionStart.coerceAtLeast(0)
+                    val end = addressField.selectionEnd.coerceAtLeast(0)
+                    val deleteStart = if (start == end) (start - 1).coerceAtLeast(0) else minOf(start, end)
+                    val deleteEnd = maxOf(start, end)
+                    if (deleteEnd > deleteStart) text.delete(deleteStart, deleteEnd)
+                }
+                SandboxVirtualKeyboardView.KEY_SPACE -> addressField.text.insert(
+                    addressField.selectionStart.coerceAtLeast(0), " "
+                )
+                SandboxVirtualKeyboardView.KEY_ENTER -> navigate()
+                else -> addressField.text.insert(
+                    addressField.selectionStart.coerceAtLeast(0), key
+                )
+            }
+            return
+        }
+
+        val command = when (key) {
+            SandboxVirtualKeyboardView.KEY_BACKSPACE -> "backspace"
+            SandboxVirtualKeyboardView.KEY_ENTER -> "enter"
+            else -> "insert"
+        }
+        val value = when (key) {
+            SandboxVirtualKeyboardView.KEY_BACKSPACE,
+            SandboxVirtualKeyboardView.KEY_ENTER -> ""
+            SandboxVirtualKeyboardView.KEY_SPACE -> " "
+            else -> key
+        }
+        val script = """
+            (function(command, value) {
+              var element = document.activeElement;
+              if (!element) return false;
+              var tag = (element.tagName || '').toUpperCase();
+              var editable = element.isContentEditable ||
+                tag === 'TEXTAREA' ||
+                (tag === 'INPUT' && !/^(button|checkbox|radio|submit|reset|file|image|color|range)$/i.test(element.type || 'text'));
+              if (!editable) return false;
+
+              if (command === 'enter') {
+                element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+                if (element.form && typeof element.form.requestSubmit === 'function') {
+                  element.form.requestSubmit();
+                } else {
+                  element.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true }));
+                }
+                return true;
+              }
+
+              if (element.isContentEditable) {
+                var inserted = command === 'backspace'
+                  ? document.execCommand('delete', false)
+                  : document.execCommand('insertText', false, value);
+                if (inserted) return true;
+              }
+
+              if (typeof element.setRangeText !== 'function') return false;
+              var start = 0;
+              var end = 0;
+              try {
+                start = element.selectionStart;
+                end = element.selectionEnd;
+              } catch (ignored) {
+                return false;
+              }
+              if (start == null || end == null) return false;
+              if (command === 'backspace' && start === end) start = Math.max(0, start - 1);
+              var insertedText = command === 'backspace' ? '' : value;
+              var changed = end > start || insertedText.length > 0;
+              if (!changed) return true;
+              element.setRangeText(insertedText, start, end, 'end');
+              element.dispatchEvent(new InputEvent('input', {
+                bubbles: true,
+                inputType: command === 'backspace' ? 'deleteContentBackward' : 'insertText',
+                data: command === 'backspace' ? null : value
+              }));
+              return true;
+            })(${org.json.JSONObject.quote(command)}, ${org.json.JSONObject.quote(value)})
+        """.trimIndent()
+        webView.evaluateJavascript(script) { result ->
+            if (result != "true" && !isDestroyed && !isFinishing) {
+                addressField.requestFocus()
+                if (key == SandboxVirtualKeyboardView.KEY_ENTER) {
+                    navigate()
+                } else {
+                    val text = when (key) {
+                        SandboxVirtualKeyboardView.KEY_BACKSPACE -> ""
+                        SandboxVirtualKeyboardView.KEY_SPACE -> " "
+                        else -> key
+                    }
+                    if (key == SandboxVirtualKeyboardView.KEY_BACKSPACE) {
+                        val end = addressField.selectionEnd.coerceAtLeast(0)
+                        if (end > 0) addressField.text.delete(end - 1, end)
+                    } else {
+                        addressField.text.insert(addressField.selectionStart.coerceAtLeast(0), text)
+                    }
+                }
+            }
+        }
     }
 
     private fun navigate() {
@@ -300,6 +395,14 @@ internal class SandboxBrowserPanelView @JvmOverloads constructor(
         const val DEFAULT_HOME = "https://www.google.com"
         const val POINTER_KEEPALIVE_MS = 80L
     }
+}
+
+private class KeyboardControlledWebView(context: Context) : WebView(context) {
+    // Web text fields remain focusable to the page, but Android's phone IME stays
+    // suppressed. Characters are inserted by the in-world keyboard through DOM.
+    override fun onCheckIsTextEditor(): Boolean = false
+
+    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? = null
 }
 
 internal class SandboxVirtualKeyboardView(
