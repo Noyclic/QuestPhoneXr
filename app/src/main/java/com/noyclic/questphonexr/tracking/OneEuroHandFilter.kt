@@ -105,12 +105,13 @@ internal class OneEuroHandFilter(
                 val dy = rawY - previousY
                 val distance = sqrt(dx * dx + dy * dy)
                 val maximumStep = speedLimit * dtSeconds
-                if (!distance.isFinite() || distance > maximumStep) {
-                    val scale = if (distance.isFinite() && distance > 0f) {
-                        maximumStep / distance
-                    } else {
-                        0f
-                    }
+                if (!distance.isFinite()) {
+                    // Finite coordinates can still overflow when subtracted/squared.
+                    // Hold the last raw XY sample rather than producing NaN via Inf * 0.
+                    rawX = previousX
+                    rawY = previousY
+                } else if (distance > maximumStep) {
+                    val scale = maximumStep / distance
                     rawX = previousX + dx * scale
                     rawY = previousY + dy * scale
                 }
