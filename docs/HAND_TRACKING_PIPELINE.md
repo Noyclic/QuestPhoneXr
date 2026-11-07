@@ -70,7 +70,7 @@ This stage is intentionally limited to Sandbox rendering. It does not change the
 
 The persistent service now keeps the selected CameraX capture size separate from the MediaPipe input bitmap. The source can remain at 640×480 while the model bitmap is capped at 480×360, preserving the camera detail needed for distant hands without feeding the full RGBA frame into the model.
 
-The service prefers the MediaPipe GPU delegate by default and falls back to CPU if GPU delegate creation fails. Sandbox also exposes a persisted GPU-preferred / CPU-only choice so both paths can be compared on the same phone. Diagnostics report the delegate actually created; successful GPU initialization does not prove faster inference, so the Redmi must be measured on-device.
+The service prefers the MediaPipe GPU delegate by default and falls back to CPU if GPU delegate creation fails. Sandbox also exposes a persisted GPU-preferred / CPU-only choice so both paths can be compared on the same phone. Diagnostics report both the requested delegate and the delegate actually created; successful GPU initialization does not prove faster inference, so the Redmi must be measured on-device.
 
 The RGBA conversion path copies tightly packed rows directly into the reusable source bitmap. Devices that return padded rows continue to use the safe row-by-row repack path.
 
@@ -82,21 +82,4 @@ A new **Быстро · 1 рука** preset uses one-hand inference and no addit
 
 A separate **Турбо · 1 рука** preset keeps CameraX capture at 640×480 but scales the model bitmap to 320×240. This reduces model-input pixels to one quarter of the 640×480 source size while retaining the higher-resolution camera image for preprocessing. It is a speed/detail tradeoff, not a prediction of a fourfold inference speedup. The selected model dimensions are preserved when tracking moves into the foreground service.
 
-Diagnostics now split preprocessing, approximate inference, and result-processing time. Compare these values alongside result FPS, dropped-busy frames, dropped-interval frames, and result age. If inference dominates, test GPU versus CPU and one-hand mode. If preprocessing dominates, inspect CameraX stride/format and source dimensions. Do not claim a performance gain until the same scene and lighting are measured on the physical Redmi Note 13 4G.
-
-
-## Redmi Note 13 performance work
-
-The persistent service now keeps the selected CameraX capture size separate from the MediaPipe input bitmap. The source can remain at 640×480 while the model bitmap is capped at 480×360, preserving camera detail without feeding the full RGBA frame into the model.
-
-The service prefers the MediaPipe GPU delegate by default and falls back to CPU if GPU delegate creation fails. Sandbox also exposes a persisted GPU-preferred / CPU-only choice so both paths can be compared on the same phone. Diagnostics report the delegate actually created; successful GPU initialization does not prove faster inference, so the Redmi must be measured on-device.
-
-The RGBA conversion path copies tightly packed rows directly into the reusable source bitmap. Devices that return padded rows continue to use the safe row-by-row repack path.
-
-The controller publication path scans the maximum two hand sides directly and computes grip from the four required fingertip landmarks without temporary per-frame filter/map/list collections. The EndXR pose encoder similarly computes palm centers with bounded indexed loops. This reduces allocation churn while preserving the existing left/right selection and invalid-landmark behavior.
-
-The persistent service accepts live inference-interval updates without restarting CameraX or recreating the model. The Sandbox adaptive governor can adjust the running service while it is visible.
-
-A new **Быстро · 1 рука** preset uses one-hand inference and no additional frame interval. It is an optional low-latency workload; two-hand presets remain available. Preset descriptions are workload guidance, not guaranteed FPS.
-
-Diagnostics now split preprocessing, approximate inference, and result-processing time. Compare these values alongside result FPS, dropped-busy frames, dropped-interval frames, and result age. If inference dominates, test GPU versus CPU and one-hand mode. If preprocessing dominates, inspect CameraX stride/format and source dimensions. Do not claim a performance gain until the same scene and lighting are measured on the physical Redmi Note 13 4G.
+Diagnostics now split preprocessing, approximate inference, and result-processing time. Compare these values alongside result FPS, dropped-busy frames, dropped-interval frames, and result age. If inference dominates, test GPU versus CPU and one-hand mode. If preprocessing dominates, inspect CameraX stride/format and source dimensions. Do not claim a performance gain until the same scene and lighting are measured on the physical Redmi Note 13 4G. The diagnostic callback snapshots are throttled to 4 Hz, and the optional frame-luma sample runs at 1 Hz; error events still force an immediate metrics publish. A 0 ms inference interval means no added software throttle, not a guaranteed 1000 FPS target; the adaptive governor only adds delay after measured overload.
