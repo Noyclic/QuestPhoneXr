@@ -54,6 +54,12 @@ jobs:
         with:
           gradle-version: "8.13"
 
+      - name: Run isolated GVXRS Rust core tests
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          cargo +stable test --manifest-path gvxrs-core/Cargo.toml --all-targets
+
       - name: Run native EndXR core tests
         run: |
           set -euo pipefail
