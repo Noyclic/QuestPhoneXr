@@ -15,6 +15,17 @@ class NaturalGestureClassifierTest {
     }
 
     @Test
+    fun thumbsUpRequiresTheThumbToPointAboveThePalm() {
+        val thumbsDown = hand(emptySet(), thumbExtended = true)
+        val imagePoints = thumbsDown.rawPoints.toMutableList().also {
+            it[4] = it[1].copy(y = it[1].y + 0.20f)
+        }
+        val sample = thumbsDown.copy(rawPoints = imagePoints)
+
+        assertEquals(NaturalHandGesture.NONE, stableResult(sample).gesture)
+    }
+
+    @Test
     fun usesWorldLandmarksFirstAndFallsBackToImageCoordinates() {
         val world = hand(setOf(0), thumbExtended = false)
         val worldResult = stableResult(world)
