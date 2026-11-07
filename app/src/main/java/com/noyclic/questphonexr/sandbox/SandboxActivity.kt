@@ -228,7 +228,16 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 publishOpenXrInput(hands, snapshot)
                 val cameraToWorldRotation = renderer.cameraToWorldRotation()
                 glView.queueEvent {
-                    simulation.update(snapshot, hands, deltaSeconds, cameraToWorldRotation)
+                    // Use GL-thread time for presentation so interpolation follows actual rendering.
+                    val renderTimeMs = SystemClock.uptimeMillis()
+                    simulation.update(
+                        snapshot,
+                        hands,
+                        deltaSeconds,
+                        cameraToWorldRotation,
+                        receivedAtMs,
+                        renderTimeMs
+                    )
                     renderer.updateScene(simulation.snapshot())
                     glView.requestRender()
                 }
