@@ -17,6 +17,13 @@ data class HandTrackingMetricsSnapshot(
     val lastFramePixelStride: Int = 0,
     val lastFrameLumaMean: Float = 0f,
     val lastFrameLumaStdDev: Float = 0f,
+    /** Async MediaPipe callback accounting, including late/unmatched callbacks. */
+    val callbackCount: Long = 0L,
+    val matchedCallbackCount: Long = 0L,
+    val unmatchedCallbackCount: Long = 0L,
+    val lastSubmittedTimestampMs: Long = 0L,
+    val lastCallbackTimestampMs: Long = 0L,
+    val lastCallbackImageWasSeparateWrapper: Boolean = false,
     /** Approximate MediaPipe inference time, excluding conversion and result mapping. */
     val lastInferenceMs: Long = 0L,
     val averageInferenceMs: Float = 0f,

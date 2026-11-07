@@ -12,19 +12,26 @@ import java.util.concurrent.atomic.AtomicReference
 internal class InFlightFrameGate<T : Any> {
     internal data class Ticket<T : Any>(
         val sequence: Long,
-        val frame: T
+        val frame: T,
+        val timestampMs: Long
     )
 
     private val nextSequence = AtomicLong(0L)
     private val active = AtomicReference<Ticket<T>?>(null)
 
-    fun begin(frame: T): Ticket<T>? {
-        val ticket = Ticket(nextSequence.incrementAndGet(), frame)
+    /**
+     * LIVE_STREAM result callbacks are correlated by the timestamp, not MPImage identity.
+     * MediaPipe 1.1.1 creates a new MPImage wrapper from its IMAGE:image_out packet before
+     * invoking the Java ResultListener, so the callback image is not the object submitted
+     * to detectAsync().
+     */
+    fun begin(frame: T, timestampMs: Long): Ticket<T>? {
+        val ticket = Ticket(nextSequence.incrementAndGet(), frame, timestampMs)
         return if (active.compareAndSet(null, ticket)) ticket else null
     }
 
-    fun currentFor(frame: T): Ticket<T>? {
-        return active.get()?.takeIf { it.frame === frame }
+    fun currentForTimestamp(timestampMs: Long): Ticket<T>? {
+        return active.get()?.takeIf { it.timestampMs == timestampMs }
     }
 
     fun isCurrent(ticket: Ticket<T>): Boolean = active.get() === ticket

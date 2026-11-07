@@ -63,6 +63,11 @@ class HandLandmarkerController(
     private val receivedFrames = AtomicLong(0L)
     private val submittedFrames = AtomicLong(0L)
     private val completedFrames = AtomicLong(0L)
+    private val callbackCount = AtomicLong(0L)
+    private val matchedCallbackCount = AtomicLong(0L)
+    private val unmatchedCallbackCount = AtomicLong(0L)
+    private val lastCallbackTimestampMs = AtomicLong(0L)
+    private val lastCallbackImageWasSeparateWrapper = AtomicBoolean(false)
     private val droppedBusyFrames = AtomicLong(0L)
     private val droppedIntervalFrames = AtomicLong(0L)
     private val preprocessingSamples = AtomicLong(0L)
@@ -182,7 +187,13 @@ class HandLandmarkerController(
             lastFrameRowStride = lastFrameRowStride,
             lastFramePixelStride = lastFramePixelStride,
             lastFrameLumaMean = lastFrameLumaMean,
-            lastFrameLumaStdDev = lastFrameLumaStdDev
+            lastFrameLumaStdDev = lastFrameLumaStdDev,
+            callbackCount = callbackCount.get(),
+            matchedCallbackCount = matchedCallbackCount.get(),
+            unmatchedCallbackCount = unmatchedCallbackCount.get(),
+            lastSubmittedTimestampMs = lastSubmittedTimestampMs.get(),
+            lastCallbackTimestampMs = lastCallbackTimestampMs.get(),
+            lastCallbackImageWasSeparateWrapper = lastCallbackImageWasSeparateWrapper.get()
         )
     }
 
@@ -253,7 +264,8 @@ class HandLandmarkerController(
 
             val requestImage = BitmapImageBuilder(checkNotNull(modelBitmap)).build()
             mpImage = requestImage
-            requestTicket = requestGate.begin(requestImage)
+            val timestampMs = nextMonotonicTimestamp()
+            requestTicket = requestGate.begin(requestImage, timestampMs)
             check(requestTicket != null) { "A previous MediaPipe frame is still active." }
 
             val preprocessingNanos =
@@ -264,20 +276,19 @@ class HandLandmarkerController(
             totalPreprocessingNanos.addAndGet(preprocessingNanos)
             preprocessingSamples.incrementAndGet()
 
-            val timestampMs = nextMonotonicTimestamp()
             submittedFrames.incrementAndGet()
             publishMetrics()
-            landmarker.detectAsync(mpImage, timestampMs)
+            landmarker.detectAsync(requestImage, timestampMs)
         } catch (error: Exception) {
             val ticket = requestTicket
             if (ticket != null) {
                 // A callback may already have completed the request while detectAsync returns.
                 // Only its owner is allowed to release the shared processing state.
                 if (requestGate.finish(ticket)) {
+                    // The callback owns normal completion; this branch owns a synchronous
+                    // detectAsync() failure before a callback took responsibility.
                     mpImage?.let { runCatching { it.close() } }
                     resetInFlightState()
-                } else {
-                    mpImage?.let { runCatching { it.close() } }
                 }
             } else {
                 // Preprocessing failed before this frame acquired a request ticket.
@@ -469,12 +480,20 @@ class HandLandmarkerController(
     }
 
     private fun onResult(result: HandLandmarkerResult, input: MPImage) {
-        val ticket = requestGate.currentFor(input) ?: run {
-            // A cancelled/late result must never touch the metadata or processing gate
-            // belonging to a newer camera frame.
+        callbackCount.incrementAndGet()
+        val callbackTimestampMs = result.timestampMs()
+        lastCallbackTimestampMs.set(callbackTimestampMs)
+        val ticket = requestGate.currentForTimestamp(callbackTimestampMs) ?: run {
+            // A cancelled/late callback must never touch metadata or the processing gate
+            // belonging to a newer frame. Always release the callback's MPImage wrapper.
+            unmatchedCallbackCount.incrementAndGet()
+            publishMetrics(force = true)
             runCatching { input.close() }
+            Log.w(TAG, "Ignoring unmatched MediaPipe callback timestamp=$callbackTimestampMs")
             return
         }
+        matchedCallbackCount.incrementAndGet()
+        lastCallbackImageWasSeparateWrapper.set(ticket.frame !== input)
         val callbackStartedNanos = SystemClock.elapsedRealtimeNanos()
         try {
             if (closed.get() || taskFailed.get() || !requestGate.isCurrent(ticket)) return
@@ -514,7 +533,7 @@ class HandLandmarkerController(
             // Association happens before filtering, so result-list reordering cannot exchange
             // the two hands' filter history, stable IDs or pinch state.
             val hands = synchronized(handTrackManager) {
-                handTrackManager.update(observations, result.timestampMs())
+                handTrackManager.update(observations, callbackTimestampMs)
             }
             val resultProcessingNanos =
                 (SystemClock.elapsedRealtimeNanos() - callbackStartedNanos).coerceAtLeast(0L)
@@ -547,7 +566,7 @@ class HandLandmarkerController(
             publishMetrics()
             onFrame(
                 HandTrackingFrame(
-                    timestampMs = result.timestampMs(),
+                    timestampMs = callbackTimestampMs,
                     hands = hands,
                     pipelineLatencyMs = latencyMs,
                     sourceWidthPx = sourceWidth,
@@ -561,10 +580,17 @@ class HandLandmarkerController(
             Log.e(TAG, "Could not convert MediaPipe landmarks", error)
             onError(error.message ?: "Could not read hand landmarks.")
         } finally {
+            // MediaPipe 1.1.1 returns a distinct MPImage wrapper for IMAGE:image_out.
+            // Close both wrappers, but only release the submitted image if this callback
+            // still owns the timestamp ticket (a concurrent cancellation owns it otherwise).
             runCatching { input.close() }
-            // Compare-and-release is the key invariant: a late callback can only finish
-            // the exact request it started, never a newer request.
-            if (requestGate.finish(ticket)) resetInFlightState()
+            if (requestGate.finish(ticket)) {
+                if (ticket.frame !== input) {
+                    runCatching { ticket.frame.close() }
+                }
+                resetInFlightState()
+                publishMetrics(force = true)
+            }
         }
     }
 
