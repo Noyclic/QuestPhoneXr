@@ -24,7 +24,7 @@ internal object SandboxHandPoseMapper {
         val distance = (estimatedDistanceMeters ?: -CURSOR_DEPTH).coerceIn(0.5f, 6.0f)
         val horizontalReach = distance * HORIZONTAL_FOV_SCALE
         val verticalReach = distance * VERTICAL_FOV_SCALE
-        val rotation = cameraToWorldRotation.takeIf(::isValidRotation)
+        val rotation = if (isValidRotation(cameraToWorldRotation)) cameraToWorldRotation else null
         val count = minOf(points.size, HAND_LANDMARK_COUNT)
         val mapped = ArrayList<SandboxVector3>(count)
 
