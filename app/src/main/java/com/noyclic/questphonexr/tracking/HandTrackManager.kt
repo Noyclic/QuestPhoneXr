@@ -38,9 +38,18 @@ internal class HandTrackManager(
             maxLandmarkSpeedPerSecond = IMAGE_LANDMARK_MAX_SPEED,
             responsiveMaxLandmarkSpeedPerSecond = FINGERTIP_MAX_SPEED
         )
+        // World landmarks are used for displayed pose mapping, not for gesture decisions.
+        // A bounded metric-space filter contains occasional world-pose jumps while leaving
+        // raw world samples available to PinchEstimator below.
         private val worldFilter = OneEuroHandFilter(
             minCutoffHz = WORLD_MIN_CUTOFF_HZ,
-            beta = WORLD_BETA
+            beta = WORLD_BETA,
+            responsiveLandmarkA = THUMB_TIP_INDEX,
+            responsiveLandmarkB = INDEX_TIP_INDEX,
+            responsiveMinCutoffHz = WORLD_TIP_MIN_CUTOFF_HZ,
+            responsiveBeta = WORLD_TIP_BETA,
+            maxLandmarkSpeedPerSecond = WORLD_LANDMARK_MAX_SPEED,
+            responsiveMaxLandmarkSpeedPerSecond = WORLD_TIP_MAX_SPEED
         )
         private val pinchEstimator = PinchEstimator()
 
@@ -110,7 +119,12 @@ internal class HandTrackManager(
                 velocityX += (measuredVelocityX - velocityX) * VELOCITY_RESPONSE
                 velocityY += (measuredVelocityY - velocityY) * VELOCITY_RESPONSE
             } else if (elapsedMs > VELOCITY_RESET_GAP_MS) {
-                resetMotionAndGesture()
+                // The motion estimate and discrete gesture are no longer trustworthy
+                // after a longer dropout, but keep the visual filters warm. Their own
+                // 250 ms gap policy decides when a full cold-start is actually needed.
+                velocityX = 0f
+                velocityY = 0f
+                pinchEstimator.reset()
             }
 
             lastRawCenter = nextCenter
@@ -451,5 +465,9 @@ internal class HandTrackManager(
         const val SIDE_MISMATCH_PENALTY = 0.36f
         const val WORLD_MIN_CUTOFF_HZ = 1.7f
         const val WORLD_BETA = 0.18f
+        const val WORLD_TIP_MIN_CUTOFF_HZ = 2.8f
+        const val WORLD_TIP_BETA = 0.30f
+        const val WORLD_LANDMARK_MAX_SPEED = 2.4f
+        const val WORLD_TIP_MAX_SPEED = 4.0f
     }
 }
