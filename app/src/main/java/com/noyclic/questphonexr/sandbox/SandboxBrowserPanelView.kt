@@ -295,7 +295,15 @@ internal class SandboxBrowserPanelView @JvmOverloads constructor(
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         canvas.drawColor(Color.rgb(12, 19, 29))
-        draw(canvas)
+        // The host view is INVISIBLE to phone UI, but is temporarily made visible
+        // for this explicit off-screen draw so WebView and keyboard remain paintable.
+        val previousVisibility = visibility
+        visibility = View.VISIBLE
+        try {
+            draw(canvas)
+        } finally {
+            visibility = previousVisibility
+        }
         return bitmap
     }
 
