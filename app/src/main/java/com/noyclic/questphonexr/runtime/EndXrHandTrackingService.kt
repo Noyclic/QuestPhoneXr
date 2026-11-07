@@ -15,7 +15,10 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -60,6 +63,10 @@ internal object EndXrHandTrackingDiagnostics {
     @Volatile private var lastError = ""
     @Volatile private var latestFrame = HandTrackingFrame(0L, emptyList())
     @Volatile private var latestFrameReceivedAtMs = 0L
+    @Volatile private var recoveryAttempt = 0
+    @Volatile private var recoveryLimit = 3
+    @Volatile private var lastRecoveryReason = ""
+    @Volatile private var lastRecoveryAtMs = 0L
 
     fun begin(
         widthPx: Int,
@@ -107,6 +114,10 @@ internal object EndXrHandTrackingDiagnostics {
         lastError = ""
         latestFrame = HandTrackingFrame(0L, emptyList())
         latestFrameReceivedAtMs = 0L
+        recoveryAttempt = 0
+        recoveryLimit = 3
+        lastRecoveryReason = ""
+        lastRecoveryAtMs = 0L
     }
 
     fun updateInferenceInterval(intervalMs: Long) {
@@ -116,6 +127,18 @@ internal object EndXrHandTrackingDiagnostics {
     fun cameraSelected(frontCamera: Boolean) {
         cameraLens = if (frontCamera) "front" else "back"
         cameraState = "binding"
+    }
+
+    fun markStarting() {
+        cameraState = "starting"
+    }
+
+    fun markRecovering(reason: String, attempt: Int, maxAttempts: Int) {
+        cameraState = "recovering"
+        recoveryAttempt = attempt
+        recoveryLimit = maxAttempts
+        lastRecoveryReason = reason.replace('\n', ' ').replace('\r', ' ')
+        lastRecoveryAtMs = android.os.SystemClock.uptimeMillis()
     }
 
     fun markRunning() {
@@ -173,6 +196,10 @@ internal object EndXrHandTrackingDiagnostics {
         }
         return buildString {
             append("service_hand_tracking_state=").append(cameraState).append('\n')
+            append("service_recovery_attempt=").append(recoveryAttempt).append('\n')
+            append("service_recovery_limit=").append(recoveryLimit).append('\n')
+            append("service_last_recovery_reason=").append(lastRecoveryReason).append('\n')
+            append("service_last_recovery_at_ms=").append(lastRecoveryAtMs).append('\n')
             append("service_camera_lens=").append(cameraLens).append('\n')
             append("service_camera_width_px=").append(cameraWidthPx).append('\n')
             append("service_camera_height_px=").append(cameraHeightPx).append('\n')
@@ -222,6 +249,17 @@ internal object EndXrHandTrackingDiagnostics {
 class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener {
     private val lifecycleRegistry = LifecycleRegistry(this)
     private val cameraExecutor = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val recoveryPolicy = TrackingRecoveryPolicy()
+    private var cameraStartAttemptAtMs = 0L
+    private var recoveryInProgress = false
+    private val trackingWatchdog = object : Runnable {
+        override fun run() {
+            if (!activeOrPending) return
+            checkTrackingHealth()
+            mainHandler.postDelayed(this, WATCHDOG_POLL_INTERVAL_MS)
+        }
+    }
     private val servicePreferences by lazy {
         getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
     }
@@ -234,7 +272,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
     @Volatile private var handTracker: HandLandmarkerController? = null
     private var cameraProvider: ProcessCameraProvider? = null
     private var analysisUseCase: ImageAnalysis? = null
-    private var cameraGeneration = 0L
+    @Volatile private var cameraGeneration = 0L
     private var cameraWidthPx = DEFAULT_WIDTH_PX
     private var cameraHeightPx = DEFAULT_HEIGHT_PX
     private var maxHands = DEFAULT_MAX_HANDS
@@ -304,6 +342,8 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
         }
         startHeadOrientationTracking()
         startCamera()
+        mainHandler.removeCallbacks(trackingWatchdog)
+        mainHandler.postDelayed(trackingWatchdog, WATCHDOG_POLL_INTERVAL_MS)
         // This camera service is explicitly enabled by the user and should recover
         // if Android reclaims the app process under memory pressure. A null restart
         // intent restores the last user-selected camera configuration below.
@@ -359,6 +399,9 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
     }
 
     private fun startCamera() {
+        recoveryInProgress = false
+        cameraStartAttemptAtMs = SystemClock.uptimeMillis()
+        EndXrHandTrackingDiagnostics.markStarting()
         val generation = ++cameraGeneration
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) !=
             PackageManager.PERMISSION_GRANTED
@@ -397,25 +440,39 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                         context = applicationContext,
                         mirrorFrontCamera = useFrontCamera,
                         onFrame = { frame ->
-                            EndXrHandTrackingDiagnostics.onFrame(frame)
-                            val encoded = EndXrHandInputEncoder.encode(frame)
-                            EndXrInputSnapshotStore.publish(encoded.leftRow, encoded.rightRow)
-                            EndXrInputSnapshotStore.publishHandPoses(encoded.leftPose, encoded.rightPose)
+                            if (activeOrPending && generation == cameraGeneration) {
+                                EndXrHandTrackingDiagnostics.onFrame(frame)
+                                val encoded = EndXrHandInputEncoder.encode(frame)
+                                EndXrInputSnapshotStore.publish(encoded.leftRow, encoded.rightRow)
+                                EndXrInputSnapshotStore.publishHandPoses(encoded.leftPose, encoded.rightPose)
+                            }
                         },
                         onError = { message ->
-                            EndXrHandTrackingDiagnostics.markError(message)
-                            Log.e(TAG, "MediaPipe foreground tracking error: $message")
-                            EndXrInputSnapshotStore.clear()
+                            if (activeOrPending && generation == cameraGeneration) {
+                                Log.e(TAG, "MediaPipe foreground tracking error: $message")
+                                EndXrInputSnapshotStore.clear()
+                                mainHandler.post {
+                                    if (activeOrPending && generation == cameraGeneration) {
+                                        EndXrHandTrackingDiagnostics.markError(message)
+                                        requestCameraRecovery("MediaPipe task error: $message")
+                                    }
+                                }
+                            }
                         },
                         maxHands = maxHands,
                         minimumInferenceIntervalMs = minimumInferenceIntervalMs,
                         outputWidthPx = modelInputWidthPx,
                         outputHeightPx = modelInputHeightPx,
-                        onMetrics = EndXrHandTrackingDiagnostics::updateMetrics,
+                        onMetrics = { snapshot ->
+                            if (activeOrPending && generation == cameraGeneration) {
+                                EndXrHandTrackingDiagnostics.updateMetrics(snapshot)
+                            }
+                        },
                         preferredDelegate = if (preferGpuDelegate) Delegate.GPU else Delegate.CPU,
                         ownerExecutor = cameraExecutor
                     )
                 }.get()
+                val trackerForAnalyzer = checkNotNull(newTracker)
 
                 val analysis = ImageAnalysis.Builder()
                     .setTargetResolution(android.util.Size(cameraWidthPx, cameraHeightPx))
@@ -424,7 +481,11 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                     .build()
                     .also { useCase ->
                         useCase.setAnalyzer(cameraExecutor) { frame ->
-                            handTracker?.analyze(frame) ?: frame.close()
+                            if (activeOrPending && generation == cameraGeneration) {
+                                trackerForAnalyzer.analyze(frame)
+                            } else {
+                                frame.close()
+                            }
                         }
                     }
 
@@ -454,16 +515,94 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                 handTracker = null
                 analysisUseCase?.clearAnalyzer()
                 analysisUseCase = null
-                EndXrHandTrackingDiagnostics.markError(error.message ?: "Could not bind CameraX.")
-                Log.e(TAG, "Could not bind CameraX to EndXR foreground service", error)
-                activeOrPending = false
-                EndXrInputSnapshotStore.clear()
-                // Do not leave a foreground notification and a dead camera service
-                // running after CameraX could not attach to this LifecycleOwner.
-                stopSelf()
-                updateNotification("Камера недоступна · проверь разрешение и устройство")
+                if (generation == cameraGeneration && activeOrPending) {
+                    val message = error.message ?: "Could not bind CameraX."
+                    EndXrHandTrackingDiagnostics.markError(message)
+                    Log.e(TAG, "Could not bind CameraX to EndXR foreground service", error)
+                    EndXrInputSnapshotStore.clear()
+                    requestCameraRecovery("CameraX start failed: $message")
+                }
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    /**
+     * Checks whether the camera pipeline is still producing MediaPipe results.
+     * An empty hand list is still a healthy result: this watchdog measures callback
+     * progress, not whether the user happens to keep a hand in view.
+     */
+    private fun checkTrackingHealth() {
+        if (!activeOrPending || recoveryInProgress) return
+        val nowMs = SystemClock.uptimeMillis()
+        val state = EndXrHandTrackingDiagnostics.currentState()
+        when (state) {
+            "running" -> {
+                val latestResultAtMs = maxOf(
+                    cameraStartAttemptAtMs,
+                    EndXrHandTrackingDiagnostics.latestHandFrameReceivedAtMs()
+                )
+                if (nowMs - latestResultAtMs >= INFERENCE_STALL_TIMEOUT_MS) {
+                    requestCameraRecovery(
+                        "No MediaPipe result for ${nowMs - latestResultAtMs}ms"
+                    )
+                } else {
+                    recoveryPolicy.observeHealthy(nowMs)
+                }
+            }
+            "starting", "binding" -> {
+                if (nowMs - cameraStartAttemptAtMs >= CAMERA_START_TIMEOUT_MS) {
+                    requestCameraRecovery(
+                        "Camera pipeline did not reach running state within ${CAMERA_START_TIMEOUT_MS}ms"
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Retires the current camera generation before retrying. Every callback and analyzer
+     * from the old generation is ignored, so stale results cannot overwrite recovered input.
+     */
+    private fun requestCameraRecovery(reason: String) {
+        if (!activeOrPending || recoveryInProgress) return
+        val nowMs = SystemClock.uptimeMillis()
+        val retry = recoveryPolicy.nextRetry(nowMs)
+        if (retry == null) {
+            val message = "Hand tracking recovery exhausted after ${recoveryPolicy.maxAttempts} attempts: $reason"
+            EndXrHandTrackingDiagnostics.markError(message)
+            Log.e(TAG, message)
+            EndXrInputSnapshotStore.clear()
+            activeOrPending = false
+            recoveryInProgress = false
+            mainHandler.removeCallbacks(trackingWatchdog)
+            updateNotification("Трекинг остановлен · не удалось восстановить камеру")
+            stopSelf()
+            return
+        }
+
+        recoveryInProgress = true
+        // Invalidate callbacks immediately, before the delayed rebind begins.
+        cameraGeneration += 1L
+        EndXrHandTrackingDiagnostics.markRecovering(
+            reason = reason,
+            attempt = retry.attempt,
+            maxAttempts = recoveryPolicy.maxAttempts
+        )
+        EndXrInputSnapshotStore.clear()
+        Log.w(
+            TAG,
+            "Restarting camera/MediaPipe pipeline (attempt ${retry.attempt}/${recoveryPolicy.maxAttempts}) in ${retry.delayMs}ms: $reason"
+        )
+        updateNotification("Восстанавливаем трекинг · попытка ${retry.attempt}/${recoveryPolicy.maxAttempts}")
+
+        mainHandler.postDelayed({
+            if (!activeOrPending) {
+                recoveryInProgress = false
+                return@postDelayed
+            }
+            recoveryInProgress = false
+            startCamera()
+        }, retry.delayMs)
     }
 
     private fun startHeadOrientationTracking() {
@@ -537,6 +676,8 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
 
     override fun onDestroy() {
         activeOrPending = false
+        mainHandler.removeCallbacks(trackingWatchdog)
+        recoveryInProgress = false
         EndXrHandTrackingDiagnostics.markStopped()
         sensorManager.unregisterListener(this)
         cameraGeneration += 1L
@@ -584,6 +725,9 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
         private const val MAX_HEIGHT_PX = 960
         private const val MAX_MODEL_INPUT_WIDTH_PX = 480
         private const val MAX_MODEL_INPUT_HEIGHT_PX = 360
+        private const val WATCHDOG_POLL_INTERVAL_MS = 1_000L
+        private const val INFERENCE_STALL_TIMEOUT_MS = 2_500L
+        private const val CAMERA_START_TIMEOUT_MS = 8_000L
 
         @Volatile private var activeOrPending = false
 

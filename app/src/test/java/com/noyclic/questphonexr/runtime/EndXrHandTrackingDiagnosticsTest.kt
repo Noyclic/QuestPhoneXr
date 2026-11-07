@@ -43,6 +43,23 @@ class EndXrHandTrackingDiagnosticsTest {
     }
 
     @Test
+    fun recoveryStateIsExposedInDiagnosticReport() {
+        EndXrHandTrackingDiagnostics.begin(320, 240, maxHands = 1, inferenceIntervalMs = 100L)
+        EndXrHandTrackingDiagnostics.markRecovering(
+            reason = "No MediaPipe result",
+            attempt = 2,
+            maxAttempts = 3
+        )
+
+        val report = EndXrHandTrackingDiagnostics.report()
+
+        assertEquals("recovering", EndXrHandTrackingDiagnostics.currentState())
+        assertTrue(report.contains("service_recovery_attempt=2"))
+        assertTrue(report.contains("service_recovery_limit=3"))
+        assertTrue(report.contains("service_last_recovery_reason=No MediaPipe result"))
+    }
+
+    @Test
     fun normalStopChangesRunningServiceToStopped() {
         EndXrHandTrackingDiagnostics.begin(640, 480, maxHands = 2, inferenceIntervalMs = 100L)
         EndXrHandTrackingDiagnostics.markRunning()
