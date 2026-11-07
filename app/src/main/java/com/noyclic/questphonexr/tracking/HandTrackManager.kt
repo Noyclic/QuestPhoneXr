@@ -205,14 +205,44 @@ internal class HandTrackManager(
             }
         }.sortedBy { it.cost }
 
-        candidates.forEach { candidate ->
-            if (candidate.observationIndex !in assignedObservations &&
-                candidate.trackId !in assignedTracks
-            ) {
+        // With two hands, compare both complete assignments before accepting a greedy pair.
+        // This avoids consuming the best track for one detection when the other detection has
+        // no viable alternative (a common failure around partial occlusion).
+        val completeAssignments = if (validObservations.size == 2 && availableTracks.size == 2) {
+            val direct = listOf(
+                candidateFor(0, 0, validObservations, availableTracks, timestampMs),
+                candidateFor(1, 1, validObservations, availableTracks, timestampMs)
+            )
+            val crossed = listOf(
+                candidateFor(0, 1, validObservations, availableTracks, timestampMs),
+                candidateFor(1, 0, validObservations, availableTracks, timestampMs)
+            )
+            listOf(direct, crossed).filter { assignment -> assignment.all { it != null } }
+                .map { assignment -> assignment.filterNotNull() }
+        } else {
+            emptyList()
+        }
+
+        val selectedCompleteAssignment = completeAssignments.minByOrNull { assignment ->
+            assignment.sumOf { it.cost.toDouble() }
+        }
+        if (selectedCompleteAssignment != null) {
+            selectedCompleteAssignment.forEach { candidate ->
                 val track = availableTracks.first { it.id == candidate.trackId }
                 track.accept(validObservations[candidate.observationIndex], timestampMs)
                 assignedObservations += candidate.observationIndex
                 assignedTracks += track.id
+            }
+        } else {
+            candidates.forEach { candidate ->
+                if (candidate.observationIndex !in assignedObservations &&
+                    candidate.trackId !in assignedTracks
+                ) {
+                    val track = availableTracks.first { it.id == candidate.trackId }
+                    track.accept(validObservations[candidate.observationIndex], timestampMs)
+                    assignedObservations += candidate.observationIndex
+                    assignedTracks += track.id
+                }
             }
         }
 
@@ -258,6 +288,18 @@ internal class HandTrackManager(
         val trackId: Long,
         val cost: Float
     )
+
+    private fun candidateFor(
+        observationIndex: Int,
+        trackIndex: Int,
+        observations: List<HandObservation>,
+        availableTracks: List<Track>,
+        timestampMs: Long
+    ): Association? {
+        val track = availableTracks[trackIndex]
+        val cost = track.associationCost(observations[observationIndex], timestampMs)
+        return if (cost <= MAX_ASSOCIATION_COST) Association(observationIndex, track.id, cost) else null
+    }
 
     private fun isUsable(observation: HandObservation): Boolean =
         observation.points.size == LANDMARK_COUNT &&
