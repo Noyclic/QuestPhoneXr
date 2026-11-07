@@ -2,6 +2,7 @@ package com.noyclic.questphonexr.tracking
 
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 /**
  * Allocation-light One Euro filter for a fixed MediaPipe landmark set.
@@ -19,7 +20,11 @@ internal class OneEuroHandFilter(
     private val responsiveLandmarkA: Int = -1,
     private val responsiveLandmarkB: Int = -1,
     private val responsiveMinCutoffHz: Float = minCutoffHz * RESPONSIVE_CUTOFF_MULTIPLIER,
-    private val responsiveBeta: Float = beta * RESPONSIVE_BETA_MULTIPLIER
+    private val responsiveBeta: Float = beta * RESPONSIVE_BETA_MULTIPLIER,
+    /** Optional image-space XY speed limit; infinity preserves the original raw samples. */
+    private val maxLandmarkSpeedPerSecond: Float = Float.POSITIVE_INFINITY,
+    /** Higher limit for fast-moving fingertip landmarks. */
+    private val responsiveMaxLandmarkSpeedPerSecond: Float = maxLandmarkSpeedPerSecond
 ) {
     private data class AxisState(
         var previousRaw: Float,
@@ -38,6 +43,11 @@ internal class OneEuroHandFilter(
         require(responsiveLandmarkA >= -1 && responsiveLandmarkB >= -1)
         require(responsiveMinCutoffHz > 0f && responsiveMinCutoffHz.isFinite())
         require(responsiveBeta >= 0f && responsiveBeta.isFinite())
+        require(maxLandmarkSpeedPerSecond > 0f &&
+            (maxLandmarkSpeedPerSecond.isFinite() || maxLandmarkSpeedPerSecond == Float.POSITIVE_INFINITY))
+        require(responsiveMaxLandmarkSpeedPerSecond > 0f &&
+            (responsiveMaxLandmarkSpeedPerSecond.isFinite() ||
+                responsiveMaxLandmarkSpeedPerSecond == Float.POSITIVE_INFINITY))
     }
 
     fun update(points: List<HandPoint>, timestampMs: Long): List<HandPoint> {
@@ -75,16 +85,53 @@ internal class OneEuroHandFilter(
             val responsive = index == responsiveLandmarkA || index == responsiveLandmarkB
             val activeMinCutoff = if (responsive) responsiveMinCutoffHz else minCutoffHz
             val activeBeta = if (responsive) responsiveBeta else beta
+
+            // Clamp only implausibly large *image-space* sample jumps before they enter
+            // the derivative estimator. This prevents a one-frame landmark teleport
+            // from making the adaptive cutoff spike and dragging the whole visible hand.
+            // World-space filters leave this disabled because their units are metres.
+            val speedLimit = if (responsive) {
+                responsiveMaxLandmarkSpeedPerSecond
+            } else {
+                maxLandmarkSpeedPerSecond
+            }
+            var rawX = point.x
+            var rawY = point.y
+            var rawZ = point.z
+            if (speedLimit.isFinite()) {
+                val previousX = activeState[offset].previousRaw
+                val previousY = activeState[offset + 1].previousRaw
+                val dx = rawX - previousX
+                val dy = rawY - previousY
+                val distance = sqrt(dx * dx + dy * dy)
+                val maximumStep = speedLimit * dtSeconds
+                if (!distance.isFinite() || distance > maximumStep) {
+                    val scale = if (distance.isFinite() && distance > 0f) {
+                        maximumStep / distance
+                    } else {
+                        0f
+                    }
+                    rawX = previousX + dx * scale
+                    rawY = previousY + dy * scale
+                }
+                val previousZ = activeState[offset + 2].previousRaw
+                val maximumDepthStep = maximumStep * MAX_DEPTH_STEP_MULTIPLIER
+                rawZ = previousZ + (rawZ - previousZ).coerceIn(
+                    -maximumDepthStep,
+                    maximumDepthStep
+                )
+            }
+
             val x = filterAxis(
-                activeState[offset], point.x, dtSeconds, derivativeAlpha,
+                activeState[offset], rawX, dtSeconds, derivativeAlpha,
                 activeMinCutoff, activeBeta
             )
             val y = filterAxis(
-                activeState[offset + 1], point.y, dtSeconds, derivativeAlpha,
+                activeState[offset + 1], rawY, dtSeconds, derivativeAlpha,
                 activeMinCutoff, activeBeta
             )
             val z = filterAxis(
-                activeState[offset + 2], point.z, dtSeconds, derivativeAlpha,
+                activeState[offset + 2], rawZ, dtSeconds, derivativeAlpha,
                 activeMinCutoff, activeBeta
             )
             output.add(HandPoint(x, y, z))
@@ -147,5 +194,6 @@ internal class OneEuroHandFilter(
         const val RESPONSIVE_BETA_MULTIPLIER = 2.4f
         const val MIN_DT_SECONDS = 0.001f
         const val MAX_DT_SECONDS = 0.1f
+        const val MAX_DEPTH_STEP_MULTIPLIER = 1.5f
     }
 }
