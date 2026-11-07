@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 pub mod tracking;
+mod core_ffi;
 
 use std::sync::{Mutex, MutexGuard};
 
