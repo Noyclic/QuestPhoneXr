@@ -133,12 +133,17 @@ internal object EndXrHandTrackingDiagnostics {
         cameraState = "starting"
     }
 
-    fun markRecovering(reason: String, attempt: Int, maxAttempts: Int) {
+    fun markRecovering(
+        reason: String,
+        attempt: Int,
+        maxAttempts: Int,
+        atUptimeMs: Long = android.os.SystemClock.uptimeMillis()
+    ) {
         cameraState = "recovering"
         recoveryAttempt = attempt
         recoveryLimit = maxAttempts
         lastRecoveryReason = reason.replace('\n', ' ').replace('\r', ' ')
-        lastRecoveryAtMs = android.os.SystemClock.uptimeMillis()
+        lastRecoveryAtMs = atUptimeMs.coerceAtLeast(0L)
     }
 
     fun markRunning() {

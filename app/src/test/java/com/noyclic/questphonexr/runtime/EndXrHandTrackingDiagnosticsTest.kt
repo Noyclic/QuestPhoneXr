@@ -48,7 +48,8 @@ class EndXrHandTrackingDiagnosticsTest {
         EndXrHandTrackingDiagnostics.markRecovering(
             reason = "No MediaPipe result",
             attempt = 2,
-            maxAttempts = 3
+            maxAttempts = 3,
+            atUptimeMs = 1_234L
         )
 
         val report = EndXrHandTrackingDiagnostics.report()
@@ -57,6 +58,7 @@ class EndXrHandTrackingDiagnosticsTest {
         assertTrue(report.contains("service_recovery_attempt=2"))
         assertTrue(report.contains("service_recovery_limit=3"))
         assertTrue(report.contains("service_last_recovery_reason=No MediaPipe result"))
+        assertTrue(report.contains("service_last_recovery_at_ms=1234"))
     }
 
     @Test
