@@ -97,11 +97,15 @@ class HandTrackManagerTest {
     }
 
     @Test
-    fun shortDetectionGapKeepsIdentityButDoesNotEmitGhostHands() {
+    fun briefSingleFrameGapHoldsLastPoseThenHidesItAndKeepsIdentity() {
         val manager = HandTrackManager()
         val first = manager.update(listOf(observation(HandSide.LEFT, 0.4f)), 1_000L).single()
-        assertTrue(manager.update(emptyList(), 1_050L).isEmpty())
 
+        val oneFrameGap = manager.update(emptyList(), 1_050L).single()
+        assertEquals(first.trackingId, oneFrameGap.trackingId)
+        assertEquals(first.points, oneFrameGap.points)
+
+        assertTrue(manager.update(emptyList(), 1_090L).isEmpty())
         val recovered = manager.update(listOf(observation(HandSide.LEFT, 0.42f)), 1_100L).single()
         assertEquals(first.trackingId, recovered.trackingId)
     }
