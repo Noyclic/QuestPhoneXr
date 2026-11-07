@@ -107,8 +107,6 @@ class SandboxSimulation {
     private val objects = mutableListOf<MutableObject>()
     private val leftCursorSmoother = SandboxCursorSmoother()
     private val rightCursorSmoother = SandboxCursorSmoother()
-    private val leftHandPoseSmoother = SandboxHandPoseSmoother()
-    private val rightHandPoseSmoother = SandboxHandPoseSmoother()
     private val leftDepthEstimator = MonocularHandDepthEstimator()
     private val rightDepthEstimator = MonocularHandDepthEstimator()
     private var leftCursor = DEFAULT_LEFT_CURSOR
@@ -152,8 +150,6 @@ class SandboxSimulation {
         rightLandmarks = emptyList()
         leftCursorSmoother.reset()
         rightCursorSmoother.reset()
-        leftHandPoseSmoother.reset()
-        rightHandPoseSmoother.reset()
     }
 
     @Synchronized
@@ -210,30 +206,26 @@ class SandboxSimulation {
             leftGrabbing && !leftRaw.grabbing
         val rightTrackingLost = rightCameraTracked && !rightRaw.cameraTracked &&
             rightGrabbing && !rightRaw.grabbing
+        // MediaPipe already applies the adaptive per-joint filter. Do not smooth the
+        // same pose again at render rate: that creates a visible rubber-band lag.
         val left = if (leftRaw.cameraTracked) {
-            val smoothedLandmarks = leftHandPoseSmoother.update(leftRaw.landmarks)
             leftRaw.copy(
-                cursor = interactionCursor(smoothedLandmarks, leftRaw.grabbing)
+                cursor = interactionCursor(leftRaw.landmarks, leftRaw.grabbing)
                     ?: leftCursorSmoother.update(leftRaw.cursor),
-                landmarks = smoothedLandmarks,
                 trackingLost = false
             )
         } else {
             leftCursorSmoother.reset()
-            leftHandPoseSmoother.reset()
             leftRaw.copy(trackingLost = leftTrackingLost)
         }
         val right = if (rightRaw.cameraTracked) {
-            val smoothedLandmarks = rightHandPoseSmoother.update(rightRaw.landmarks)
             rightRaw.copy(
-                cursor = interactionCursor(smoothedLandmarks, rightRaw.grabbing)
+                cursor = interactionCursor(rightRaw.landmarks, rightRaw.grabbing)
                     ?: rightCursorSmoother.update(rightRaw.cursor),
-                landmarks = smoothedLandmarks,
                 trackingLost = false
             )
         } else {
             rightCursorSmoother.reset()
-            rightHandPoseSmoother.reset()
             rightRaw.copy(trackingLost = rightTrackingLost)
         }
 
@@ -301,10 +293,13 @@ class SandboxSimulation {
         )
     }
 
-    private fun ControllerState.withWorldOffset(offset: SandboxVector3) = copy(
-        cursor = cursor + offset,
-        landmarks = landmarks.map { it + offset }
-    )
+    private fun ControllerState.withWorldOffset(offset: SandboxVector3): ControllerState {
+        if (offset.x == 0f && offset.y == 0f && offset.z == 0f) return this
+        return copy(
+            cursor = cursor + offset,
+            landmarks = landmarks.map { it + offset }
+        )
+    }
 
     private fun createObject(type: SandboxObjectType, position: SandboxVector3) =
         MutableObject(nextObjectId++, type, position)
