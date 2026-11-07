@@ -26,7 +26,7 @@ data class HandTrackingMetricsSnapshot(
     val delegateName: String = "CPU",
     val delegateInitThreadId: Long = 0L,
     val lastAnalyzeThreadId: Long = 0L,
-    val delegateThreadMatchesAnalyzer: Boolean = true
+    val delegateThreadMatchesAnalyzer: Boolean = false
 ) {
     val droppedFrames: Long
         get() = droppedBusyFrames + droppedIntervalFrames
