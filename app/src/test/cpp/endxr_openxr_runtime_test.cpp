@@ -257,6 +257,30 @@ void testGlesSessionSwapchainAndFrameLifecycle() {
                session != XR_NULL_HANDLE,
            "create GLES-backed XR session");
 
+    auto getBounds = reinterpret_cast<PFN_xrGetReferenceSpaceBoundsRect>(
+        resolve(request.getInstanceProcAddr, instance, "xrGetReferenceSpaceBoundsRect"));
+    XrExtent2Df bounds{9.0f, 7.0f};
+    expect(getBounds(session, XR_REFERENCE_SPACE_TYPE_LOCAL, &bounds) ==
+               XR_SPACE_BOUNDS_UNAVAILABLE &&
+               bounds.width == 0.0f && bounds.height == 0.0f,
+           "report unavailable physical bounds for the supported LOCAL space");
+    bounds = {9.0f, 7.0f};
+    expect(getBounds(session, XR_REFERENCE_SPACE_TYPE_VIEW, &bounds) ==
+               XR_SPACE_BOUNDS_UNAVAILABLE &&
+               bounds.width == 0.0f && bounds.height == 0.0f,
+           "report unavailable physical bounds for the supported VIEW space");
+    bounds = {9.0f, 7.0f};
+    expect(getBounds(session, XR_REFERENCE_SPACE_TYPE_STAGE, &bounds) ==
+               XR_ERROR_REFERENCE_SPACE_UNSUPPORTED &&
+               bounds.width == 0.0f && bounds.height == 0.0f,
+           "reject STAGE because EndXR does not expose room-scale tracking");
+    expect(getBounds(reinterpret_cast<XrSession>(static_cast<std::uintptr_t>(1)),
+                     XR_REFERENCE_SPACE_TYPE_LOCAL, &bounds) == XR_ERROR_HANDLE_INVALID,
+           "reject a stale session handle in the reference-space bounds query");
+    expect(getBounds(session, XR_REFERENCE_SPACE_TYPE_LOCAL, nullptr) ==
+               XR_ERROR_VALIDATION_FAILURE,
+           "reject a null reference-space bounds output");
+
     auto pollEvent = reinterpret_cast<PFN_xrPollEvent>(
         resolve(request.getInstanceProcAddr, instance, "xrPollEvent"));
     XrEventDataBuffer event{};
