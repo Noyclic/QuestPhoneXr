@@ -1108,26 +1108,30 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 val useFrontCamera = cameraSelection.isFrontCamera
                 val selector = cameraSelection.selector
 
-                val tracker = HandLandmarkerController(
-                    context = applicationContext,
-                    mirrorFrontCamera = useFrontCamera,
-                    onFrame = ::onHandFrame,
-                    onError = { message ->
-                        runOnUiThread {
-                            cameraStatusMessage = "MediaPipe: " + message
-                            updateStatus()
-                        }
-                    },
-                    maxHands = handTrackingPreset.maxTrackedHands,
-                    minimumInferenceIntervalMs = adaptivePerformanceState.minimumInferenceIntervalMs,
-                    // Keep the camera source at 640×480, but feed a bounded 480×360
-                    // bitmap to the MediaPipe model. This avoids paying full camera-resolution
-                    // inference cost while retaining enough detail for hand landmarks.
-                    outputWidthPx = minOf(effectiveCameraWidthPx(), MODEL_INPUT_WIDTH_PX),
-                    outputHeightPx = minOf(effectiveCameraHeightPx(), MODEL_INPUT_HEIGHT_PX),
-                    onMetrics = { snapshot -> latestSandboxTrackingMetrics = snapshot },
-                    preferredDelegate = Delegate.GPU
-                )
+                // The GPU delegate is thread-affine: create it on the same single-thread
+                // executor that CameraX uses for analyze()/detectAsync().
+                val tracker = cameraExecutor.submit<HandLandmarkerController> {
+                    HandLandmarkerController(
+                        context = applicationContext,
+                        mirrorFrontCamera = useFrontCamera,
+                        onFrame = ::onHandFrame,
+                        onError = { message ->
+                            runOnUiThread {
+                                cameraStatusMessage = "MediaPipe: " + message
+                                updateStatus()
+                            }
+                        },
+                        maxHands = handTrackingPreset.maxTrackedHands,
+                        minimumInferenceIntervalMs = adaptivePerformanceState.minimumInferenceIntervalMs,
+                        // Keep the camera source at 640×480, but feed a bounded 480×360
+                        // bitmap to the MediaPipe model.
+                        outputWidthPx = minOf(effectiveCameraWidthPx(), MODEL_INPUT_WIDTH_PX),
+                        outputHeightPx = minOf(effectiveCameraHeightPx(), MODEL_INPUT_HEIGHT_PX),
+                        onMetrics = { snapshot -> latestSandboxTrackingMetrics = snapshot },
+                        preferredDelegate = Delegate.GPU,
+                        ownerExecutor = cameraExecutor
+                    )
+                }.get()
                 handTracker = tracker
                 val analysis = ImageAnalysis.Builder()
                     .setTargetResolution(
