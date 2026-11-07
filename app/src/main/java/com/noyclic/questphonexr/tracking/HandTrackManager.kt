@@ -102,7 +102,10 @@ internal class HandTrackManager(
                 worldFilter.reset()
                 emptyList()
             }
-            val pinch = pinchEstimator.update(filteredPoints, timestampMs)
+            // The render mesh is filtered for visual stability, but gestures use the
+            // freshest MediaPipe tips. Running pinch through the One Euro mesh and then
+            // through its own time filter adds two stages of lag to the same finger motion.
+            val pinch = pinchEstimator.update(observation.points, timestampMs)
             output = TrackedHand(
                 points = filteredPoints,
                 pinchStrength = pinch.strength,
