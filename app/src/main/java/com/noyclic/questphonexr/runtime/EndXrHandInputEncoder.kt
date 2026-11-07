@@ -5,6 +5,8 @@ import com.noyclic.questphonexr.tracking.HandPoint
 import com.noyclic.questphonexr.tracking.HandGestureEstimator
 import com.noyclic.questphonexr.tracking.HandKinematicReconstructor
 import com.noyclic.questphonexr.tracking.HandSide
+import com.noyclic.questphonexr.tracking.NaturalGestureClassifier
+import com.noyclic.questphonexr.tracking.NaturalGestureResult
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.TrackedHand
 import kotlin.math.sqrt
@@ -21,7 +23,9 @@ internal data class EndXrEncodedHandInput(
     val leftPose: EndXrHandPoseSample,
     val rightPose: EndXrHandPoseSample,
     val leftJoints: EndXrHandJointSample,
-    val rightJoints: EndXrHandJointSample
+    val rightJoints: EndXrHandJointSample,
+    val leftGesture: NaturalGestureResult,
+    val rightGesture: NaturalGestureResult
 )
 
 internal object EndXrHandInputEncoder {
@@ -46,6 +50,8 @@ internal object EndXrHandInputEncoder {
     private val rightDepthEstimator = MonocularHandDepthEstimator()
     private val leftSkeletonReconstructor = HandKinematicReconstructor()
     private val rightSkeletonReconstructor = HandKinematicReconstructor()
+    private val leftGestureClassifier = NaturalGestureClassifier()
+    private val rightGestureClassifier = NaturalGestureClassifier()
 
     @Synchronized
     fun encode(frame: HandTrackingFrame): EndXrEncodedHandInput {
@@ -61,6 +67,8 @@ internal object EndXrHandInputEncoder {
 
         val leftEncoded = encodeHand(left, leftDepthEstimator, leftSkeletonReconstructor, frame.timestampMs)
         val rightEncoded = encodeHand(right, rightDepthEstimator, rightSkeletonReconstructor, frame.timestampMs)
+        val leftGesture = leftGestureClassifier.update(left, frame.timestampMs)
+        val rightGesture = rightGestureClassifier.update(right, frame.timestampMs)
         if (left == null) {
             leftDepthEstimator.reset()
             leftSkeletonReconstructor.reset()
@@ -76,7 +84,9 @@ internal object EndXrHandInputEncoder {
             leftPose = leftEncoded.pose,
             rightPose = rightEncoded.pose,
             leftJoints = leftEncoded.joints,
-            rightJoints = rightEncoded.joints
+            rightJoints = rightEncoded.joints,
+            leftGesture = leftGesture,
+            rightGesture = rightGesture
         )
     }
 
