@@ -19,11 +19,17 @@ enum class HandSide {
 
 data class PinchSignal(val strength: Float, val isPinching: Boolean)
 
-/** Normalizes thumb/index distance by palm width and applies time-aware hysteresis. */
+/**
+ * Measures thumb/index closure relative to palm width.
+ *
+ * Gesture input should be the newest raw MediaPipe image landmarks. The visual hand mesh
+ * may be One Euro filtered separately; filtering both the mesh and this signal compounds
+ * fingertip lag and can prevent a quick pinch from crossing the activation threshold.
+ */
 class PinchEstimator(
     private val smoothing: Float = 0.55f,
-    private val pinchOnThreshold: Float = 0.72f,
-    private val pinchOffThreshold: Float = 0.48f
+    private val pinchOnThreshold: Float = 0.62f,
+    private val pinchOffThreshold: Float = 0.40f
 ) {
     private var filteredStrength = 0f
     private var isPinching = false
@@ -41,9 +47,10 @@ class PinchEstimator(
         val indexMcp = points.getOrNull(5)
         val pinkyMcp = points.getOrNull(17)
         if (thumb == null || index == null || indexMcp == null || pinkyMcp == null ||
-            listOf(thumb, index, indexMcp, pinkyMcp).any {
-                !it.x.isFinite() || !it.y.isFinite()
-            }
+            !thumb.x.isFinite() || !thumb.y.isFinite() ||
+            !index.x.isFinite() || !index.y.isFinite() ||
+            !indexMcp.x.isFinite() || !indexMcp.y.isFinite() ||
+            !pinkyMcp.x.isFinite() || !pinkyMcp.y.isFinite()
         ) {
             reset()
             return PinchSignal(0f, false)
