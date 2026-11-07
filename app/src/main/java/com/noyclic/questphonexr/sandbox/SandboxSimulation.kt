@@ -784,7 +784,7 @@ class SandboxSimulation {
         private const val GAMEPAD_REACH_HEIGHT = 2.15f
         private const val GRAB_THRESHOLD = 0.45f
         private const val MAX_GRAB_DISTANCE = 1.2f
-        private const val PRECISION_GRAB_DISTANCE = 0.90f
+        private const val PRECISION_GRAB_DISTANCE = 0.65f
         private const val FINGER_CONTACT_ACCELERATION = 5.5f
         private const val CONTACT_SEPARATION_GAIN = 7.0f
         private const val BALL_CONTACT_RADIUS = 0.25f
