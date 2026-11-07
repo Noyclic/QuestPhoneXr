@@ -137,9 +137,11 @@ class PinchEstimator(
             if (filteredStrength >= pinchOnThreshold) {
                 isPinching = true
             }
-        } else if (filteredStrength <= pinchOffThreshold) {
-            // A single bad fingertip estimate should not release a held object.
-            // Require a short continuous open interval; a renewed pinch cancels it.
+        } else if (rawStrength <= pinchOffThreshold) {
+            // Start the release timer from the raw gesture measurement rather than
+            // the smoothed strength. Otherwise smoothing delays the start of the
+            // 24 ms confirmation window and makes release feel needlessly sticky.
+            // A renewed closure cancels the candidate immediately.
             val now = timestampMs
             if (now == null) {
                 isPinching = false
