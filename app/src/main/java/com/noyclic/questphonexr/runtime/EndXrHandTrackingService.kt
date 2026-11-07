@@ -229,6 +229,8 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
     private var cameraHeightPx = DEFAULT_HEIGHT_PX
     private var maxHands = DEFAULT_MAX_HANDS
     private var minimumInferenceIntervalMs = DEFAULT_INFERENCE_INTERVAL_MS
+    private var modelInputWidthPx = minOf(DEFAULT_WIDTH_PX, MAX_MODEL_INPUT_WIDTH_PX)
+    private var modelInputHeightPx = minOf(DEFAULT_HEIGHT_PX, MAX_MODEL_INPUT_HEIGHT_PX)
 
     override val lifecycle: Lifecycle
         get() = lifecycleRegistry
@@ -303,6 +305,14 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
             EXTRA_INTERVAL_MS,
             DEFAULT_INFERENCE_INTERVAL_MS
         )
+        val savedModelInputWidth = servicePreferences.getInt(
+            EXTRA_MODEL_INPUT_WIDTH,
+            minOf(savedWidth, MAX_MODEL_INPUT_WIDTH_PX)
+        )
+        val savedModelInputHeight = servicePreferences.getInt(
+            EXTRA_MODEL_INPUT_HEIGHT,
+            minOf(savedHeight, MAX_MODEL_INPUT_HEIGHT_PX)
+        )
 
         cameraWidthPx = (intent?.getIntExtra(EXTRA_WIDTH, savedWidth)
             ?: savedWidth).coerceIn(MIN_WIDTH_PX, MAX_WIDTH_PX)
@@ -312,12 +322,20 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
             ?: savedMaxHands).coerceIn(1, 2)
         minimumInferenceIntervalMs = (intent?.getLongExtra(EXTRA_INTERVAL_MS, savedInterval)
             ?: savedInterval).coerceIn(0L, 1_000L)
+        modelInputWidthPx = (intent?.getIntExtra(EXTRA_MODEL_INPUT_WIDTH, savedModelInputWidth)
+            ?: savedModelInputWidth).coerceIn(1, MAX_MODEL_INPUT_WIDTH_PX)
+            .coerceAtMost(cameraWidthPx)
+        modelInputHeightPx = (intent?.getIntExtra(EXTRA_MODEL_INPUT_HEIGHT, savedModelInputHeight)
+            ?: savedModelInputHeight).coerceIn(1, MAX_MODEL_INPUT_HEIGHT_PX)
+            .coerceAtMost(cameraHeightPx)
 
         servicePreferences.edit()
             .putInt(EXTRA_WIDTH, cameraWidthPx)
             .putInt(EXTRA_HEIGHT, cameraHeightPx)
             .putInt(EXTRA_MAX_HANDS, maxHands)
             .putLong(EXTRA_INTERVAL_MS, minimumInferenceIntervalMs)
+            .putInt(EXTRA_MODEL_INPUT_WIDTH, modelInputWidthPx)
+            .putInt(EXTRA_MODEL_INPUT_HEIGHT, modelInputHeightPx)
             .apply()
     }
 
@@ -372,8 +390,8 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                         },
                         maxHands = maxHands,
                         minimumInferenceIntervalMs = minimumInferenceIntervalMs,
-                        outputWidthPx = minOf(cameraWidthPx, MAX_MODEL_INPUT_WIDTH_PX),
-                        outputHeightPx = minOf(cameraHeightPx, MAX_MODEL_INPUT_HEIGHT_PX),
+                        outputWidthPx = modelInputWidthPx,
+                        outputHeightPx = modelInputHeightPx,
                         onMetrics = EndXrHandTrackingDiagnostics::updateMetrics,
                         preferredDelegate = Delegate.GPU,
                         ownerExecutor = cameraExecutor
@@ -406,6 +424,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                     "Persistent hand tracking active: " + cameraWidthPx + "x" +
                         cameraHeightPx + ", hands=" + maxHands +
                         ", lens=" + (if (useFrontCamera) "front (user enabled)" else "back") +
+                        ", model=" + modelInputWidthPx + "x" + modelInputHeightPx +
                         ", interval=" + minimumInferenceIntervalMs + "ms"
                 )
                 updateNotification("MediaPipe работает · руки передаются в EndXR")
@@ -531,6 +550,8 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
         private const val EXTRA_HEIGHT = "endxr.camera.height"
         private const val EXTRA_MAX_HANDS = "endxr.camera.max_hands"
         private const val EXTRA_INTERVAL_MS = "endxr.camera.interval_ms"
+        private const val EXTRA_MODEL_INPUT_WIDTH = "endxr.model.input_width"
+        private const val EXTRA_MODEL_INPUT_HEIGHT = "endxr.model.input_height"
 
         private const val DEFAULT_WIDTH_PX = 320
         private const val DEFAULT_HEIGHT_PX = 240
@@ -575,7 +596,9 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
             widthPx: Int,
             heightPx: Int,
             maxHands: Int,
-            minimumInferenceIntervalMs: Long
+            minimumInferenceIntervalMs: Long,
+            modelInputWidthPx: Int = minOf(widthPx, MAX_MODEL_INPUT_WIDTH_PX),
+            modelInputHeightPx: Int = minOf(heightPx, MAX_MODEL_INPUT_HEIGHT_PX)
         ): Intent {
             activeOrPending = true
             return Intent(context, EndXrHandTrackingService::class.java).apply {
@@ -583,6 +606,14 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                 putExtra(EXTRA_HEIGHT, heightPx)
                 putExtra(EXTRA_MAX_HANDS, maxHands)
                 putExtra(EXTRA_INTERVAL_MS, minimumInferenceIntervalMs)
+                putExtra(
+                    EXTRA_MODEL_INPUT_WIDTH,
+                    modelInputWidthPx.coerceIn(1, MAX_MODEL_INPUT_WIDTH_PX).coerceAtMost(widthPx)
+                )
+                putExtra(
+                    EXTRA_MODEL_INPUT_HEIGHT,
+                    modelInputHeightPx.coerceIn(1, MAX_MODEL_INPUT_HEIGHT_PX).coerceAtMost(heightPx)
+                )
             }
         }
 
