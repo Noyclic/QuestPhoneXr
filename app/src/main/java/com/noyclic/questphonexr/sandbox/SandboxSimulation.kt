@@ -191,14 +191,20 @@ class SandboxSimulation {
         val dt = deltaSeconds.takeIf { it.isFinite() }?.coerceIn(MIN_STEP_SECONDS, MAX_STEP_SECONDS)
             ?: MIN_STEP_SECONDS
         movePlayer(controllers, dt)
-        val handsBySide = handFrame.hands
-            .filter { it.side != HandSide.UNKNOWN }
-            .associateBy { it.side }
+        var leftTrackedHand: TrackedHand? = null
+        var rightTrackedHand: TrackedHand? = null
+        for (trackedHand in handFrame.hands) {
+            when (trackedHand.side) {
+                HandSide.LEFT -> leftTrackedHand = trackedHand
+                HandSide.RIGHT -> rightTrackedHand = trackedHand
+                HandSide.UNKNOWN -> Unit
+            }
+        }
         val leftRaw = controllerFor(
-            HandSide.LEFT, controllers, handsBySide[HandSide.LEFT], cameraToWorldRotation
+            HandSide.LEFT, controllers, leftTrackedHand, cameraToWorldRotation
         )
         val rightRaw = controllerFor(
-            HandSide.RIGHT, controllers, handsBySide[HandSide.RIGHT], cameraToWorldRotation
+            HandSide.RIGHT, controllers, rightTrackedHand, cameraToWorldRotation
         )
         val leftTrackingLost = leftCameraTracked && !leftRaw.cameraTracked &&
             leftGrabbing && !leftRaw.grabbing
