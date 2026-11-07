@@ -84,6 +84,7 @@ internal class HandTrackManager(
             // approach the camera and change apparent size, so the penalty is bounded.
             val observedPalmWidth = palmWidthOf(observation.points)
             val scaleAdjustment = if (
+                lastPalmWidth.isFinite() && observedPalmWidth.isFinite() &&
                 lastPalmWidth > MIN_ASSOCIATION_PALM_WIDTH &&
                 observedPalmWidth > MIN_ASSOCIATION_PALM_WIDTH
             ) {
