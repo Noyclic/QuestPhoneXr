@@ -19,7 +19,6 @@ import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ExecutorService
-import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Phone-camera MediaPipe implementation with bounded LIVE_STREAM inference.
@@ -50,7 +49,10 @@ class HandLandmarkerController(
     private val lastAcceptedFrameMs = AtomicLong(0L)
     private val lastSubmittedTimestampMs = AtomicLong(0L)
     private val minimumInferenceIntervalMs = AtomicLong(minimumInferenceIntervalMs)
-    private val inFlightImage = AtomicReference<MPImage?>(null)
+    private val requestGate = InFlightFrameGate<MPImage>()
+    // A MediaPipe task error may be followed by a delayed callback for the failed frame.
+    // Fail closed until the controller is recreated instead of reusing a possibly poisoned task.
+    private val taskFailed = AtomicBoolean(false)
     private val inFlightTransform = AtomicReference<HandFrameTransform?>(null)
     private val inFlightStartedAtNanos = AtomicLong(0L)
     private val inFlightSourceWidth = AtomicLong(0L)
@@ -208,7 +210,7 @@ class HandLandmarkerController(
             lastFramePixelStride = plane.pixelStride
         }
         publishMetrics()
-        if (closed.get()) {
+        if (closed.get() || taskFailed.get()) {
             imageProxy.close()
             return
         }
@@ -238,6 +240,7 @@ class HandLandmarkerController(
         inFlightSourceHeight.set(imageProxy.height.toLong())
 
         var mpImage: MPImage? = null
+        var requestTicket: InFlightFrameGate.Ticket<MPImage>? = null
         try {
             val source = copyRgbaFrame(imageProxy)
             val transform = drawModelInput(
@@ -247,8 +250,10 @@ class HandLandmarkerController(
             )
             inFlightTransform.set(transform)
 
-            mpImage = BitmapImageBuilder(checkNotNull(modelBitmap)).build()
-            inFlightImage.set(mpImage)
+            val requestImage = BitmapImageBuilder(checkNotNull(modelBitmap)).build()
+            mpImage = requestImage
+            requestTicket = requestGate.begin(requestImage)
+            check(requestTicket != null) { "A previous MediaPipe frame is still active." }
 
             val preprocessingNanos =
                 (SystemClock.elapsedRealtimeNanos() - startedAtNanos).coerceAtLeast(0L)
@@ -263,11 +268,25 @@ class HandLandmarkerController(
             publishMetrics()
             landmarker.detectAsync(mpImage, timestampMs)
         } catch (error: Exception) {
-            mpImage?.let {
-                inFlightImage.compareAndSet(it, null)
-                runCatching { it.close() }
+            val ticket = requestTicket
+            if (ticket != null) {
+                // A callback may already have completed the request while detectAsync returns.
+                // Only its owner is allowed to release the shared processing state.
+                if (requestGate.finish(ticket)) {
+                    mpImage?.let { runCatching { it.close() } }
+                    resetInFlightState()
+                } else {
+                    mpImage?.let { runCatching { it.close() } }
+                }
+            } else {
+                // Preprocessing failed before this frame acquired a request ticket.
+                // An unexpected occupied gate means the task cannot be safely reused.
+                val unexpected = requestGate.cancel()
+                unexpected?.frame?.let { runCatching { it.close() } }
+                mpImage?.let { runCatching { it.close() } }
+                if (unexpected != null) taskFailed.set(true)
+                resetInFlightState()
             }
-            resetInFlightState()
             publishMetrics(force = true)
             Log.e(TAG, "Could not process camera frame", error)
             onError(error.message ?: "MediaPipe could not process the camera frame.")
@@ -449,9 +468,15 @@ class HandLandmarkerController(
     }
 
     private fun onResult(result: HandLandmarkerResult, input: MPImage) {
+        val ticket = requestGate.currentFor(input) ?: run {
+            // A cancelled/late result must never touch the metadata or processing gate
+            // belonging to a newer camera frame.
+            runCatching { input.close() }
+            return
+        }
         val callbackStartedNanos = SystemClock.elapsedRealtimeNanos()
         try {
-            if (closed.get()) return
+            if (closed.get() || taskFailed.get() || !requestGate.isCurrent(ticket)) return
             val landmarkLists = result.landmarks()
             val handednessLists = result.handedness()
             val worldLandmarkLists = result.worldLandmarks()
@@ -487,7 +512,9 @@ class HandLandmarkerController(
             }
             // Association happens before filtering, so result-list reordering cannot exchange
             // the two hands' filter history, stable IDs or pinch state.
-            val hands = handTrackManager.update(observations, result.timestampMs())
+            val hands = synchronized(handTrackManager) {
+                handTrackManager.update(observations, result.timestampMs())
+            }
             val resultProcessingNanos =
                 (SystemClock.elapsedRealtimeNanos() - callbackStartedNanos).coerceAtLeast(0L)
             val resultProcessingMs = resultProcessingNanos / NANOS_PER_MILLISECOND
@@ -514,6 +541,7 @@ class HandLandmarkerController(
             val sourceHeight = inFlightSourceHeight.getAndSet(0L).toInt()
             val preprocessingMs = preprocessingNanos / NANOS_PER_MILLISECOND
 
+            if (closed.get() || taskFailed.get() || !requestGate.isCurrent(ticket)) return
             completedFrames.incrementAndGet()
             publishMetrics()
             onFrame(
@@ -533,15 +561,16 @@ class HandLandmarkerController(
             onError(error.message ?: "Could not read hand landmarks.")
         } finally {
             runCatching { input.close() }
-            inFlightImage.compareAndSet(input, null)
-            inFlightTransform.set(null)
-            processing.set(false)
+            // Compare-and-release is the key invariant: a late callback can only finish
+            // the exact request it started, never a newer request.
+            if (requestGate.finish(ticket)) resetInFlightState()
         }
     }
 
     private fun onTaskError(error: RuntimeException) {
-        inFlightImage.getAndSet(null)?.close()
-        handTrackManager.reset()
+        if (!taskFailed.compareAndSet(false, true)) return
+        requestGate.cancel()?.frame?.let { runCatching { it.close() } }
+        synchronized(handTrackManager) { handTrackManager.reset() }
         resetInFlightState()
         publishMetrics(force = true)
         if (!closed.get()) {
@@ -563,7 +592,7 @@ class HandLandmarkerController(
         if (!closed.compareAndSet(false, true)) return
 
         val releaseResources = Runnable {
-            inFlightImage.getAndSet(null)?.let { image -> runCatching { image.close() } }
+            requestGate.cancel()?.frame?.let { image -> runCatching { image.close() } }
             resetInFlightState()
             handTrackManager.reset()
             runCatching { landmarker.close() }
