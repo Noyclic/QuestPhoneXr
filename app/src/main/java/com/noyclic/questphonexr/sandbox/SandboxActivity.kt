@@ -56,6 +56,7 @@ import com.noyclic.questphonexr.tracking.HandCameraPreference
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.HandTrackingMetricsSnapshot
 import com.noyclic.questphonexr.tracking.HandTrackingPreset
+import com.noyclic.questphonexr.tracking.HandTrackingDelegatePreference
 import com.noyclic.questphonexr.tracking.HandTrackingPresetStore
 import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
 import com.noyclic.questphonexr.input.XrTrackingUdpSender
@@ -124,6 +125,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private lateinit var adaptivePerformance: AdaptivePerformanceController
     private lateinit var handTrackingPresetStore: HandTrackingPresetStore
     private var handTrackingPreset = HandTrackingPreset.BALANCED
+    private var handTrackingDelegatePreference = HandTrackingDelegatePreference.GPU_PREFERRED
     private var adaptivePerformanceState = AdaptivePerformanceState(30, 66L, 0)
     private var handCalibration = SandboxHandCalibration.DEFAULT
     private var viewerProfile = ViewerProfile()
@@ -292,6 +294,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         handTrackingPreset = handTrackingPresetStore.load(
             HandTrackingPreset.recommend(performancePreset.tier)
         )
+        handTrackingDelegatePreference = handTrackingPresetStore.loadDelegatePreference()
         val trackingPerformancePreset = performancePreset.copy(
             minimumInferenceIntervalMs = handTrackingPreset.minimumInferenceIntervalMs
         )
@@ -881,6 +884,13 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 )
             )
             addView(
+                controlButton("Движок MediaPipe: GPU / CPU") { showHandTrackingDelegateDialog() },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+            addView(
                 controlButton("Диагностика рук (4 с)") { runHandDiagnostics() },
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -1134,7 +1144,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                         outputWidthPx = minOf(effectiveCameraWidthPx(), handTrackingPreset.modelInputWidthPx),
                         outputHeightPx = minOf(effectiveCameraHeightPx(), handTrackingPreset.modelInputHeightPx),
                         onMetrics = { snapshot -> latestSandboxTrackingMetrics = snapshot },
-                        preferredDelegate = Delegate.GPU,
+                        preferredDelegate = handTrackingDelegatePreference.delegate,
                         ownerExecutor = cameraExecutor
                     )
                 }.get()
@@ -1235,7 +1245,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             handTrackingPreset.maxTrackedHands,
             adaptivePerformanceState.minimumInferenceIntervalMs,
             minOf(effectiveCameraWidthPx(), handTrackingPreset.modelInputWidthPx),
-            minOf(effectiveCameraHeightPx(), handTrackingPreset.modelInputHeightPx)
+            minOf(effectiveCameraHeightPx(), handTrackingPreset.modelInputHeightPx),
+            preferGpuDelegate = handTrackingDelegatePreference.delegate == Delegate.GPU
         )
         runCatching {
             ContextCompat.startForegroundService(this, serviceIntent)
@@ -1502,6 +1513,39 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             .show()
     }
 
+    private fun showHandTrackingDelegateDialog() {
+        val preferences = HandTrackingDelegatePreference.entries.toTypedArray()
+        var selectedIndex = preferences.indexOf(handTrackingDelegatePreference).coerceAtLeast(0)
+        val labels = preferences.map { it.label }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("Движок MediaPipe")
+            .setMessage(
+                "GPU может ускорить обработку, но результат зависит от драйвера Adreno. " +
+                    "Режим GPU автоматически использует CPU, если GPU-делегат не запускается. " +
+                    "Режим CPU позволяет сравнить производительность на том же телефоне."
+            )
+            .setSingleChoiceItems(labels, selectedIndex) { _, which ->
+                selectedIndex = which
+            }
+            .setPositiveButton("Применить") { _, _ ->
+                val selected = preferences[selectedIndex]
+                if (selected != handTrackingDelegatePreference) {
+                    handTrackingDelegatePreference = selected
+                    handTrackingPresetStore.saveDelegatePreference(selected)
+                    val wasTracking = handTracker != null ||
+                        handTrackingStartPending || EndXrHandTrackingService.isRunning()
+                    if (wasTracking) {
+                        restartHandTracking()
+                    } else {
+                        updateStatus()
+                    }
+                }
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
     private fun showHandCalibrationDialog() {
         val current = handCalibration.normalized()
         val content = LinearLayout(this).apply {
@@ -1692,7 +1736,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 handTrackingPreset.maxTrackedHands,
                 adaptivePerformanceState.minimumInferenceIntervalMs,
                 minOf(effectiveCameraWidthPx(), handTrackingPreset.modelInputWidthPx),
-                minOf(effectiveCameraHeightPx(), handTrackingPreset.modelInputHeightPx)
+                minOf(effectiveCameraHeightPx(), handTrackingPreset.modelInputHeightPx),
+                preferGpuDelegate = handTrackingDelegatePreference.delegate == Delegate.GPU
             )
             runCatching {
                 ContextCompat.startForegroundService(this, intent)
