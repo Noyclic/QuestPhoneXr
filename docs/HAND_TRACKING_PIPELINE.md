@@ -70,9 +70,11 @@ This stage is intentionally limited to Sandbox rendering. It does not change the
 
 The persistent service now keeps the selected CameraX capture size separate from the MediaPipe input bitmap. The source can remain at 640×480 while the model bitmap is capped at 480×360, preserving the camera detail needed for distant hands without feeding the full RGBA frame into the model.
 
-The service requests the MediaPipe GPU delegate first and falls back to CPU if GPU delegate creation fails. The selected delegate is included in diagnostics; successful delegate creation does not by itself prove that GPU inference is faster, so the Redmi must be measured on-device.
+The service prefers the MediaPipe GPU delegate by default and falls back to CPU if GPU delegate creation fails. Sandbox also exposes a persisted GPU-preferred / CPU-only choice so both paths can be compared on the same phone. Diagnostics report the delegate actually created; successful GPU initialization does not prove faster inference, so the Redmi must be measured on-device.
 
 The RGBA conversion path copies tightly packed rows directly into the reusable source bitmap. Devices that return padded rows continue to use the safe row-by-row repack path.
+
+The controller publication path scans the maximum two hand sides directly and computes grip from the four required fingertip landmarks without temporary per-frame filter/map/list collections. The EndXR pose encoder similarly computes palm centers with bounded indexed loops. This reduces allocation churn while preserving the existing left/right selection and invalid-landmark behavior.
 
 The persistent service accepts live inference-interval updates without restarting CameraX or recreating the model. The Sandbox adaptive governor can therefore adjust the running service while it is visible.
 
@@ -87,9 +89,11 @@ Diagnostics now split preprocessing, approximate inference, and result-processin
 
 The persistent service now keeps the selected CameraX capture size separate from the MediaPipe input bitmap. The source can remain at 640×480 while the model bitmap is capped at 480×360, preserving camera detail without feeding the full RGBA frame into the model.
 
-The service requests the MediaPipe GPU delegate first and falls back to CPU if GPU delegate creation fails. The selected delegate is included in diagnostics; successful delegate creation does not by itself prove that GPU inference is faster, so the Redmi must be measured on-device.
+The service prefers the MediaPipe GPU delegate by default and falls back to CPU if GPU delegate creation fails. Sandbox also exposes a persisted GPU-preferred / CPU-only choice so both paths can be compared on the same phone. Diagnostics report the delegate actually created; successful GPU initialization does not prove faster inference, so the Redmi must be measured on-device.
 
 The RGBA conversion path copies tightly packed rows directly into the reusable source bitmap. Devices that return padded rows continue to use the safe row-by-row repack path.
+
+The controller publication path scans the maximum two hand sides directly and computes grip from the four required fingertip landmarks without temporary per-frame filter/map/list collections. The EndXR pose encoder similarly computes palm centers with bounded indexed loops. This reduces allocation churn while preserving the existing left/right selection and invalid-landmark behavior.
 
 The persistent service accepts live inference-interval updates without restarting CameraX or recreating the model. The Sandbox adaptive governor can adjust the running service while it is visible.
 
