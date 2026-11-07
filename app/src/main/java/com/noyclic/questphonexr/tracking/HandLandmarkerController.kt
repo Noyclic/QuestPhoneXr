@@ -36,7 +36,8 @@ class HandLandmarkerController(
     minimumInferenceIntervalMs: Long = 0L,
     private val outputWidthPx: Int = DEFAULT_OUTPUT_WIDTH_PX,
     private val outputHeightPx: Int = DEFAULT_OUTPUT_HEIGHT_PX,
-    private val onMetrics: ((HandTrackingMetricsSnapshot) -> Unit)? = null
+    private val onMetrics: ((HandTrackingMetricsSnapshot) -> Unit)? = null,
+    private val preferredDelegate: Delegate = Delegate.CPU
 ) : AutoCloseable {
 
     private val closed = AtomicBoolean(false)
@@ -85,6 +86,7 @@ class HandLandmarkerController(
     private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val handTrackManager = HandTrackManager(maxHands)
     private val landmarker: HandLandmarker
+    @Volatile private var selectedDelegateName: String = Delegate.CPU.name
 
     init {
         require(maxHands in 1..MAX_HANDS) { "maxHands must be between 1 and $MAX_HANDS." }
@@ -93,21 +95,39 @@ class HandLandmarkerController(
             "Output dimensions are outside the supported range."
         }
 
-        val baseOptions = BaseOptions.builder()
-            .setModelAssetPath(MODEL_ASSET)
-            .setDelegate(Delegate.CPU)
-            .build()
-        val options = HandLandmarker.HandLandmarkerOptions.builder()
-            .setBaseOptions(baseOptions)
-            .setRunningMode(RunningMode.LIVE_STREAM)
-            .setNumHands(maxHands)
-            .setMinHandDetectionConfidence(DETECTION_CONFIDENCE)
-            .setMinHandPresenceConfidence(PRESENCE_CONFIDENCE)
-            .setMinTrackingConfidence(TRACKING_CONFIDENCE)
-            .setResultListener(::onResult)
-            .setErrorListener(::onTaskError)
-            .build()
-        landmarker = HandLandmarker.createFromOptions(context, options)
+        fun optionsFor(delegate: Delegate): HandLandmarker.HandLandmarkerOptions {
+            val baseOptions = BaseOptions.builder()
+                .setModelAssetPath(MODEL_ASSET)
+                .setDelegate(delegate)
+                .build()
+            return HandLandmarker.HandLandmarkerOptions.builder()
+                .setBaseOptions(baseOptions)
+                .setRunningMode(RunningMode.LIVE_STREAM)
+                .setNumHands(maxHands)
+                .setMinHandDetectionConfidence(DETECTION_CONFIDENCE)
+                .setMinHandPresenceConfidence(PRESENCE_CONFIDENCE)
+                .setMinTrackingConfidence(TRACKING_CONFIDENCE)
+                .setResultListener(::onResult)
+                .setErrorListener(::onTaskError)
+                .build()
+        }
+
+        // GPU is an optimization attempt, never a hard device requirement. If the
+        // driver or MediaPipe delegate cannot initialize, retain the known CPU path.
+        val requested = runCatching {
+            HandLandmarker.createFromOptions(context, optionsFor(preferredDelegate))
+        }
+        if (requested.isSuccess) {
+            selectedDelegateName = preferredDelegate.name
+            landmarker = checkNotNull(requested.getOrNull())
+        } else if (preferredDelegate != Delegate.CPU) {
+            Log.w(TAG, "MediaPipe ${preferredDelegate.name} delegate unavailable; falling back to CPU",
+                requested.exceptionOrNull())
+            selectedDelegateName = Delegate.CPU.name
+            landmarker = HandLandmarker.createFromOptions(context, optionsFor(Delegate.CPU))
+        } else {
+            throw requested.exceptionOrNull() ?: IllegalStateException("Could not create MediaPipe HandLandmarker.")
+        }
     }
 
     /** Can be adjusted safely while CameraX is active; no model recreation is needed. */
@@ -131,6 +151,7 @@ class HandLandmarkerController(
             droppedIntervalFrames = droppedIntervalFrames.get(),
             lastPreprocessingMs = lastPreprocessingMs.get(),
             averagePreprocessingMs = averagePreprocessingMs,
+            delegateName = selectedDelegateName,
             lastInferenceMs = lastInferenceMs.get(),
             averageInferenceMs = if (inferenceSamples.get() == 0L) 0f else
                 totalInferenceNanos.get().toFloat() / inferenceSamples.get().toFloat() /
