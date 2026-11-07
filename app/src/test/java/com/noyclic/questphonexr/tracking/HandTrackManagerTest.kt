@@ -110,6 +110,7 @@ class HandTrackManagerTest {
 
         assertTrue("fresh pinch measurements should activate without waiting for the render filter",
             afterSecondPinchSample.isPinching)
+        assertEquals(0f, afterSecondPinchSample.pinchDistanceRatio, 0f)
         val renderedTipGap = kotlin.math.sqrt(
             (afterSecondPinchSample.points[4].x - afterSecondPinchSample.points[8].x) *
                 (afterSecondPinchSample.points[4].x - afterSecondPinchSample.points[8].x) +
@@ -151,6 +152,7 @@ class HandTrackManagerTest {
 
         assertEquals(pinched.trackingId, recovered.trackingId)
         assertFalse(recovered.isPinching)
+        assertTrue(recovered.pinchDistanceRatio.isInfinite())
         assertEquals(0.9f, recovered.points[0].x, 0.0001f)
     }
 
