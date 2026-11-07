@@ -69,6 +69,21 @@ class SandboxWorldHandPoseSmootherTest {
     }
 
     @Test
+    fun depthAndLateralMotionAreSmoothedTogetherInWorldSpace() {
+        val smoother = SandboxWorldHandPoseSmoother()
+        val first = handPose(0f, -2f)
+        smoother.update(first, 1f / 30f, HandSide.LEFT, 8L)
+        val target = handPose(0.5f, -3.5f)
+
+        val rendered = smoother.update(target, 1f / 30f, HandSide.LEFT, 8L)
+
+        assertTrue(rendered[0].x > first[0].x)
+        assertTrue(rendered[0].x < target[0].x)
+        assertTrue("the rendered palm should approach the new depth smoothly",
+            rendered[0].z < first[0].z && rendered[0].z > target[0].z)
+    }
+
+    @Test
     fun newTrackingIdentityResetsWithoutDraggingThePreviousHand() {
         val smoother = SandboxWorldHandPoseSmoother()
         smoother.update(handPose(0f), 1f / 30f, HandSide.LEFT, 10L)
