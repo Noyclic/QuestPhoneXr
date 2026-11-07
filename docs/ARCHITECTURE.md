@@ -79,11 +79,18 @@ legacy dependency reports and future title-specific compatibility work. It
 is not an extension of the modern OpenXR runtime and it must not change
 GVXRS Mobile's loader, runtime service, IPC permission or Sandbox path.
 
-The initial GVXRS Legacy code statically distinguishes explicit Samsung Gear VR
-markers from generic legacy Oculus Mobile SDK evidence. It does not implement
-VrApi, Gear VR Services, a legacy session compositor or APK execution. A
-future native compatibility component should be designed only after a real
-classic APK has been inspected and its required service/API calls are known.
+The APK evidence layer statically distinguishes explicit Samsung Gear VR
+markers from generic legacy Oculus Mobile SDK evidence. The first isolated
+native C++ component is the host-tested EndGVR VrModeCoordinator. It only
+serializes the prerequisites and transitions for entering/leaving a legacy VR
+mode: backend ready, Android activity resumed, valid window surface and an
+explicit start request. It handles pause, surface loss, in-flight transitions
+and fail-closed recovery.
+
+The coordinator is not linked into the production APK and does not call VrApi,
+EGL, Android or JNI. It is not a Gear VR runtime, API shim, system service or
+compositor. The actual compatibility ABI must be based on a real classic APK
+and its exact native imports. See [the GVXRS Legacy design and current limits](ENDGVR_LEGACY_DESIGN.md).
 
 ### GVXRS Link — separate PC streaming track
 
