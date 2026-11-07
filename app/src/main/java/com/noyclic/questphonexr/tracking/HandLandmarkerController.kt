@@ -40,7 +40,7 @@ class HandLandmarkerController(
     private val onMetrics: ((HandTrackingMetricsSnapshot) -> Unit)? = null,
     private val preferredDelegate: Delegate = Delegate.CPU,
     /** The same single-thread executor used by CameraX analyzer; GPU delegates are thread-affine. */
-    private val ownerExecutor: ExecutorService? = null
+    private val ownerExecutor: ExecutorService
 ) : AutoCloseable {
 
     private val closed = AtomicBoolean(false)
@@ -560,7 +560,7 @@ class HandLandmarkerController(
         }
 
         val executor = ownerExecutor
-        if (executor == null || Thread.currentThread().id == taskCreationThreadId) {
+        if (Thread.currentThread().id == taskCreationThreadId) {
             releaseResources.run()
             return
         }
