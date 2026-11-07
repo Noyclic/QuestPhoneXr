@@ -45,6 +45,26 @@ class EndXrHandInputEncoderTest {
     }
 
     @Test
+    fun endXrSkeletonUsesRawMediaPipeWorldLandmarksNotRenderSmoothedPoints() {
+        val baseline = trackedHand(HandSide.LEFT, centerX = 0.5f)
+        val shiftedRawWorld = baseline.worldPoints.toMutableList().also {
+            it[8] = HandPoint(it[8].x + 0.018f, it[8].y, it[8].z)
+        }
+        val rawObservation = baseline.copy(
+            rawWorldPoints = shiftedRawWorld,
+            rawTimestampMs = 100L
+        )
+
+        val encoded = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(100L, listOf(rawObservation))
+        )
+
+        // OpenXR index fingertip is joint 10; X is the first local position value.
+        val fingertipX = encoded.leftJoints.values[10 * EndXrHandJointSample.FLOATS_PER_JOINT]
+        assertTrue("fresh raw tip observation must reach the kinematic filter", kotlin.math.abs(fingertipX) > 0.0001f)
+    }
+
+    @Test
     fun refusesPoseWhenMetricPalmBasisIsDegenerateOrWorldLandmarksAreMissing() {
         val missingWorld = trackedHand(HandSide.LEFT, centerX = 0.5f).copy(worldPoints = emptyList())
         val degenerateWorld = List(21) { HandPoint(0f, 0f, 0f) }
