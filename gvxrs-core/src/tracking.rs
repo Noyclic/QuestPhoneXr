@@ -150,126 +150,6 @@ pub fn sanitize_head_orientation(orientation: Quaternion) -> Option<Quaternion> 
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn close(left: f32, right: f32) {
-        assert!((left - right).abs() < 0.00001, "{left} != {right}");
-    }
-
-    #[test]
-    fn controller_values_are_clamped_and_non_finite_values_are_neutralized() {
-        let value = sanitize_controller_input(
-            true,
-            2.0,
-            -0.5,
-            f32::NAN,
-            f32::INFINITY,
-            0xA5,
-        );
-        assert!(value.active);
-        close(value.trigger, 1.0);
-        close(value.grip, 0.0);
-        close(value.stick_x, 0.0);
-        close(value.stick_y, 0.0);
-        assert_eq!(value.buttons, 0xA5);
-
-        let negative = sanitize_controller_input(false, -1.0, 0.25, -2.0, 2.0, 0);
-        assert!(!negative.active);
-        close(negative.trigger, 0.0);
-        close(negative.grip, 0.25);
-        close(negative.stick_x, -1.0);
-        close(negative.stick_y, 1.0);
-    }
-
-    #[test]
-    fn valid_hand_pose_is_normalized_without_changing_position() {
-        let position = Vector3 { x: 1.0, y: -2.0, z: -3.0 };
-        let result = sanitize_hand_pose(
-            true,
-            position,
-            Quaternion { x: 0.0, y: 0.0, z: 0.70710677, w: 0.70710677 },
-        );
-        assert!(result.active);
-        assert_eq!(result.pose.position, position);
-        close(result.pose.orientation.z, std::f32::consts::FRAC_1_SQRT_2);
-        close(result.pose.orientation.w, std::f32::consts::FRAC_1_SQRT_2);
-    }
-
-    #[test]
-    fn hand_pose_rejects_non_finite_and_out_of_envelope_samples() {
-        let identity = Quaternion::IDENTITY;
-        for position in [
-            Vector3 { x: f32::NAN, y: 0.0, z: -1.0 },
-            Vector3 { x: 8.001, y: 0.0, z: -1.0 },
-            Vector3 { x: 0.0, y: -6.001, z: -1.0 },
-            Vector3 { x: 0.0, y: 0.0, z: -0.249 },
-            Vector3 { x: 0.0, y: 0.0, z: -6.001 },
-        ] {
-            let result = sanitize_hand_pose(true, position, identity);
-            assert_eq!(result, PoseInput::INACTIVE);
-        }
-
-        for orientation in [
-            Quaternion { x: f32::NAN, y: 0.0, z: 0.0, w: 1.0 },
-            Quaternion { x: 0.0, y: 0.0, z: 0.0, w: 0.0 },
-            Quaternion { x: 0.0, y: 0.0, z: 0.0, w: 1.501 },
-        ] {
-            let result = sanitize_hand_pose(
-                true,
-                Vector3 { x: 0.0, y: 0.0, z: -1.0 },
-                orientation,
-            );
-            assert_eq!(result, PoseInput::INACTIVE);
-        }
-
-        assert_eq!(
-            sanitize_hand_pose(false, Vector3::default(), identity),
-            PoseInput::INACTIVE
-        );
-    }
-
-    #[test]
-    fn hand_pose_accepts_inclusive_position_and_quaternion_boundaries() {
-        let result = sanitize_hand_pose(
-            true,
-            Vector3 { x: 8.0, y: -6.0, z: -6.0 },
-            Quaternion { x: 0.0, y: 0.0, z: 0.0, w: 0.5 },
-        );
-        assert!(result.active);
-        close(result.pose.orientation.w, 1.0);
-
-        let result = sanitize_hand_pose(
-            true,
-            Vector3 { x: -8.0, y: 6.0, z: -0.25 },
-            Quaternion { x: 0.0, y: 0.0, z: 0.0, w: 1.5 },
-        );
-        assert!(result.active);
-        close(result.pose.orientation.w, 1.0);
-    }
-
-    #[test]
-    fn head_orientation_is_normalized_or_rejected() {
-        let normalized = sanitize_head_orientation(Quaternion {
-            x: 0.0, y: 0.0, z: 0.70710677, w: 0.70710677,
-        }).unwrap();
-        close(normalized.z, std::f32::consts::FRAC_1_SQRT_2);
-        close(normalized.w, std::f32::consts::FRAC_1_SQRT_2);
-
-        assert!(sanitize_head_orientation(Quaternion {
-            x: 0.0, y: 0.0, z: f32::INFINITY, w: 1.0,
-        }).is_none());
-        assert!(sanitize_head_orientation(Quaternion {
-            x: 0.0, y: 0.0, z: 0.0, w: 0.49,
-        }).is_none());
-        assert!(sanitize_head_orientation(Quaternion {
-            x: 0.0, y: 0.0, z: 0.0, w: 1.51,
-        }).is_none());
-    }
-}
-
-
 /// Stable C ABI representation used by host-side parity tests and a future
 /// narrow JNI/native adapter. These types contain no pointers or Rust-owned
 /// allocations and can be returned by value across the C boundary.
@@ -395,3 +275,124 @@ pub extern "C" fn gvxrs_sanitize_head_orientation(
         },
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn close(left: f32, right: f32) {
+        assert!((left - right).abs() < 0.00001, "{left} != {right}");
+    }
+
+    #[test]
+    fn controller_values_are_clamped_and_non_finite_values_are_neutralized() {
+        let value = sanitize_controller_input(
+            true,
+            2.0,
+            -0.5,
+            f32::NAN,
+            f32::INFINITY,
+            0xA5,
+        );
+        assert!(value.active);
+        close(value.trigger, 1.0);
+        close(value.grip, 0.0);
+        close(value.stick_x, 0.0);
+        close(value.stick_y, 0.0);
+        assert_eq!(value.buttons, 0xA5);
+
+        let negative = sanitize_controller_input(false, -1.0, 0.25, -2.0, 2.0, 0);
+        assert!(!negative.active);
+        close(negative.trigger, 0.0);
+        close(negative.grip, 0.25);
+        close(negative.stick_x, -1.0);
+        close(negative.stick_y, 1.0);
+    }
+
+    #[test]
+    fn valid_hand_pose_is_normalized_without_changing_position() {
+        let position = Vector3 { x: 1.0, y: -2.0, z: -3.0 };
+        let result = sanitize_hand_pose(
+            true,
+            position,
+            Quaternion { x: 0.0, y: 0.0, z: 0.70710677, w: 0.70710677 },
+        );
+        assert!(result.active);
+        assert_eq!(result.pose.position, position);
+        close(result.pose.orientation.z, std::f32::consts::FRAC_1_SQRT_2);
+        close(result.pose.orientation.w, std::f32::consts::FRAC_1_SQRT_2);
+    }
+
+    #[test]
+    fn hand_pose_rejects_non_finite_and_out_of_envelope_samples() {
+        let identity = Quaternion::IDENTITY;
+        for position in [
+            Vector3 { x: f32::NAN, y: 0.0, z: -1.0 },
+            Vector3 { x: 8.001, y: 0.0, z: -1.0 },
+            Vector3 { x: 0.0, y: -6.001, z: -1.0 },
+            Vector3 { x: 0.0, y: 0.0, z: -0.249 },
+            Vector3 { x: 0.0, y: 0.0, z: -6.001 },
+        ] {
+            let result = sanitize_hand_pose(true, position, identity);
+            assert_eq!(result, PoseInput::INACTIVE);
+        }
+
+        for orientation in [
+            Quaternion { x: f32::NAN, y: 0.0, z: 0.0, w: 1.0 },
+            Quaternion { x: 0.0, y: 0.0, z: 0.0, w: 0.0 },
+            Quaternion { x: 0.0, y: 0.0, z: 0.0, w: 1.501 },
+        ] {
+            let result = sanitize_hand_pose(
+                true,
+                Vector3 { x: 0.0, y: 0.0, z: -1.0 },
+                orientation,
+            );
+            assert_eq!(result, PoseInput::INACTIVE);
+        }
+
+        assert_eq!(
+            sanitize_hand_pose(false, Vector3::default(), identity),
+            PoseInput::INACTIVE
+        );
+    }
+
+    #[test]
+    fn hand_pose_accepts_inclusive_position_and_quaternion_boundaries() {
+        let result = sanitize_hand_pose(
+            true,
+            Vector3 { x: 8.0, y: -6.0, z: -6.0 },
+            Quaternion { x: 0.0, y: 0.0, z: 0.0, w: 0.5 },
+        );
+        assert!(result.active);
+        close(result.pose.orientation.w, 1.0);
+
+        let result = sanitize_hand_pose(
+            true,
+            Vector3 { x: -8.0, y: 6.0, z: -0.25 },
+            Quaternion { x: 0.0, y: 0.0, z: 0.0, w: 1.5 },
+        );
+        assert!(result.active);
+        close(result.pose.orientation.w, 1.0);
+    }
+
+    #[test]
+    fn head_orientation_is_normalized_or_rejected() {
+        let normalized = sanitize_head_orientation(Quaternion {
+            x: 0.0, y: 0.0, z: 0.70710677, w: 0.70710677,
+        }).unwrap();
+        close(normalized.z, std::f32::consts::FRAC_1_SQRT_2);
+        close(normalized.w, std::f32::consts::FRAC_1_SQRT_2);
+
+        assert!(sanitize_head_orientation(Quaternion {
+            x: 0.0, y: 0.0, z: f32::INFINITY, w: 1.0,
+        }).is_none());
+        assert!(sanitize_head_orientation(Quaternion {
+            x: 0.0, y: 0.0, z: 0.0, w: 0.49,
+        }).is_none());
+        assert!(sanitize_head_orientation(Quaternion {
+            x: 0.0, y: 0.0, z: 0.0, w: 1.51,
+        }).is_none());
+    }
+}
+
