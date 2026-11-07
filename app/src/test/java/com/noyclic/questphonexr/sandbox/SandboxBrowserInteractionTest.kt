@@ -74,6 +74,32 @@ class SandboxBrowserInteractionTest {
     }
 
     @Test
+    fun fingertipMustReachPanelPlaneBeforeBrowserPresses() {
+        val touching = SandboxVector3(
+            SandboxBrowserInteraction.PANEL_CENTER_X,
+            SandboxBrowserInteraction.PANEL_CENTER_Y,
+            SandboxBrowserInteraction.PANEL_CENTER_Z + 0.10f
+        )
+        val hovering = touching.copy(z = SandboxBrowserInteraction.PANEL_CENTER_Z + 0.24f)
+
+        assertTrue(SandboxBrowserInteraction.isTouchingPanel(touching))
+        assertFalse(SandboxBrowserInteraction.isTouchingPanel(hovering))
+        assertTrue(SandboxBrowserInteraction.isMaintainingPanelTouch(hovering))
+    }
+
+    @Test
+    fun fingertipOutsidePanelDoesNotPressBrowser() {
+        val outside = SandboxVector3(
+            SandboxBrowserInteraction.PANEL_CENTER_X + SandboxBrowserInteraction.PANEL_WIDTH,
+            SandboxBrowserInteraction.PANEL_CENTER_Y,
+            SandboxBrowserInteraction.PANEL_CENTER_Z
+        )
+
+        assertFalse(SandboxBrowserInteraction.isTouchingPanel(outside))
+        assertFalse(SandboxBrowserInteraction.isMaintainingPanelTouch(outside))
+    }
+
+    @Test
     fun closeAffordanceWakesWhenTrackedHandApproachesPanel() {
         val state = SandboxBrowserInteraction.closeAffordance(
             hand(
