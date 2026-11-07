@@ -163,8 +163,8 @@ class SandboxSimulationTest {
         val simulation = SandboxSimulation()
         fun trackedHand(indexX: Float): TrackedHand {
             val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
-            points[5] = HandPoint(0.6f, 0.4f, 0f)
-            points[17] = HandPoint(0.4f, 0.4f, 0f)
+            points[5] = HandPoint(0.59f, 0.4f, 0f)
+            points[17] = HandPoint(0.41f, 0.4f, 0f)
             points[8] = HandPoint(indexX, 0.5f, 0f)
             return TrackedHand(points = points, side = HandSide.RIGHT)
         }
