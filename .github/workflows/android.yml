@@ -69,6 +69,15 @@ jobs:
             -ldl -lpthread -lm -lrt -lutil \
             -o ci-results/gvxrs-rust-ffi-tests
           ci-results/gvxrs-rust-ffi-tests
+          c++ -std=c++17 -pthread -Wall -Wextra -Werror \
+            -I app/src/main/cpp \
+            -I gvxrs-core/include \
+            app/src/test/cpp/gvxrs_runtime_core_parity_test.cpp \
+            app/src/main/cpp/endxr_runtime_core.cpp \
+            gvxrs-core/target/release/libgvxrs_core.a \
+            -ldl -lpthread -lm -lrt -lutil \
+            -o ci-results/gvxrs-runtime-parity-tests
+          ci-results/gvxrs-runtime-parity-tests
 
       - name: Run native EndXR core tests
         run: |
