@@ -111,6 +111,10 @@ class ExternalRuntimeClientDiscoveryTest {
                 loaderReport.contains("xrInitializeLoaderKHR call=XR_SUCCESS")
             )
             assertTrue(
+                "The external probe must report whether XR_EXT_hand_tracking is advertised:\n$loaderReport",
+                loaderReport.contains("runtime_advertises_XR_EXT_hand_tracking=")
+            )
+            assertTrue(
                 "The external probe must report the Khronos header API version:\n$loaderReport",
                 loaderReport.contains("loader_header_api_version=1.1.65")
             )
