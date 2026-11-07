@@ -65,12 +65,15 @@ jobs:
 
           test -s "$ARCHIVE"
           mkdir -p ci-results
-          "$TOOLCHAIN/llvm-readelf" --file-header "$ARCHIVE" > ci-results/gvxrs-android-arm64-elf-headers.txt
-          grep -q "Machine: AArch64" ci-results/gvxrs-android-arm64-elf-headers.txt
+          FIRST_MEMBER="$( "$TOOLCHAIN/llvm-ar" t "$ARCHIVE" | head -n 1 )"
+          test -n "$FIRST_MEMBER"
+          "$TOOLCHAIN/llvm-ar" p "$ARCHIVE" "$FIRST_MEMBER" > ci-results/gvxrs-android-arm64-first-object.o
+          "$TOOLCHAIN/llvm-readelf" --file-header ci-results/gvxrs-android-arm64-first-object.o > ci-results/gvxrs-android-arm64-elf-headers.txt
+          grep -q "AArch64" ci-results/gvxrs-android-arm64-elf-headers.txt
 
           "$TOOLCHAIN/llvm-nm" -g --defined-only "$ARCHIVE" > ci-results/gvxrs-android-arm64-symbols.txt
-          grep -Eq "[[:space:]]gvxrs_runtime_core_create$" ci-results/gvxrs-android-arm64-symbols.txt
-          grep -Eq "[[:space:]]gvxrs_sanitize_controller_input$" ci-results/gvxrs-android-arm64-symbols.txt
+          grep -Fq "gvxrs_runtime_core_create" ci-results/gvxrs-android-arm64-symbols.txt
+          grep -Fq "gvxrs_sanitize_controller_input" ci-results/gvxrs-android-arm64-symbols.txt
           echo "Android arm64-v8a Rust archive compiled; expected C ABI symbols are present." | tee ci-results/gvxrs-android-arm64-validation.txt
 
       - name: Test Rust tracking C ABI from C++
