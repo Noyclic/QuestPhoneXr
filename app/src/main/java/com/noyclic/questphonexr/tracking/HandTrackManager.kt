@@ -11,11 +11,10 @@ internal data class HandObservation(
 )
 
 /**
- * Maintains per-hand temporal state independently of the order MediaPipe returns detections.
+ * Maintains stable per-hand state independently of MediaPipe's result-list order.
  *
- * Association combines a short velocity prediction with handedness evidence. Each persistent
- * track owns its own image/world landmark filters and pinch state, so a reordered result cannot
- * transfer one hand's gesture or filter history to the other hand.
+ * The tracker is deliberately bounded to two hands. Its hot path uses fixed-size arrays and
+ * direct comparisons instead of per-frame sorting, sets, candidate objects and sequences.
  */
 internal class HandTrackManager(
     private val maxHands: Int = 2,
@@ -30,7 +29,10 @@ internal class HandTrackManager(
         timestampMs: Long
     ) {
         private val imageFilter = OneEuroHandFilter()
-        private val worldFilter = OneEuroHandFilter(minCutoffHz = 1.0f, beta = 0.04f)
+        private val worldFilter = OneEuroHandFilter(
+            minCutoffHz = WORLD_MIN_CUTOFF_HZ,
+            beta = WORLD_BETA
+        )
         private val pinchEstimator = PinchEstimator()
 
         var side: HandSide = HandSide.UNKNOWN
@@ -54,7 +56,7 @@ internal class HandTrackManager(
 
         fun associationCost(observation: HandObservation, timestampMs: Long): Float {
             val measuredCenter = centerOf(observation.points)
-            val dt = ((timestampMs - lastMeasurementTimestampMs).coerceIn(1L, 120L)) / 1000f
+            val dt = ((timestampMs - lastMeasurementTimestampMs).coerceIn(1L, 120L)) / 1_000f
             val predictedX = (center.x + velocityX * dt).coerceIn(-0.2f, 1.2f)
             val predictedY = (center.y + velocityY * dt).coerceIn(-0.2f, 1.2f)
             val dx = measuredCenter.x - predictedX
@@ -75,7 +77,7 @@ internal class HandTrackManager(
             val nextCenter = centerOf(observation.points)
             val elapsedMs = timestampMs - lastMeasurementTimestampMs
             if (elapsedMs in 1L..VELOCITY_RESET_GAP_MS) {
-                val dt = elapsedMs / 1000f
+                val dt = elapsedMs / 1_000f
                 val measuredVelocityX = ((nextCenter.x - lastRawCenter.x) / dt)
                     .coerceIn(-MAX_IMAGE_VELOCITY, MAX_IMAGE_VELOCITY)
                 val measuredVelocityY = ((nextCenter.y - lastRawCenter.y) / dt)
@@ -83,11 +85,7 @@ internal class HandTrackManager(
                 velocityX += (measuredVelocityX - velocityX) * VELOCITY_RESPONSE
                 velocityY += (measuredVelocityY - velocityY) * VELOCITY_RESPONSE
             } else if (elapsedMs > VELOCITY_RESET_GAP_MS) {
-                velocityX = 0f
-                velocityY = 0f
-                imageFilter.reset()
-                worldFilter.reset()
-                pinchEstimator.reset()
+                resetMotionAndGesture()
             }
 
             lastRawCenter = nextCenter
@@ -126,8 +124,14 @@ internal class HandTrackManager(
         }
 
         fun reset() {
+            resetMotionAndGesture()
             imageFilter.reset()
             worldFilter.reset()
+        }
+
+        private fun resetMotionAndGesture() {
+            velocityX = 0f
+            velocityY = 0f
             pinchEstimator.reset()
         }
 
@@ -143,13 +147,16 @@ internal class HandTrackManager(
                 return
             }
 
-            if (sideCandidate == candidate) sideCandidateCount++ else {
+            if (sideCandidate == candidate) {
+                sideCandidateCount++
+            } else {
                 sideCandidate = candidate
                 sideCandidateCount = 1
             }
 
             val requiredVotes = when {
-                side == HandSide.UNKNOWN && observation.handednessConfidence >= DIRECT_SIDE_CONFIDENCE -> 1
+                side == HandSide.UNKNOWN &&
+                    observation.handednessConfidence >= DIRECT_SIDE_CONFIDENCE -> 1
                 side == HandSide.UNKNOWN -> SIDE_CONFIRMATION_FRAMES
                 else -> SIDE_CORRECTION_FRAMES
             }
@@ -160,7 +167,7 @@ internal class HandTrackManager(
         }
     }
 
-    private val tracks = mutableListOf<Track>()
+    private val tracks = ArrayList<Track>(maxHands)
     private var nextTrackId = 1L
     private var lastFrameTimestampMs: Long? = null
 
@@ -177,142 +184,154 @@ internal class HandTrackManager(
         }
         lastFrameTimestampMs = timestampMs
 
-        tracks.removeAll { track ->
-            val expired = timestampMs - track.lastSeenTimestampMs > retentionMs
-            if (expired) track.reset()
-            expired
+        var trackIndex = 0
+        while (trackIndex < tracks.size) {
+            val track = tracks[trackIndex]
+            if (timestampMs - track.lastSeenTimestampMs > retentionMs) {
+                track.reset()
+                tracks.removeAt(trackIndex)
+            } else {
+                trackIndex++
+            }
         }
 
-        val validObservations = observations
-            .asSequence()
-            .filter(::isUsable)
-            .take(maxHands)
-            .toList()
-        val availableTracks = tracks.toList()
-        val assignedTracks = mutableSetOf<Long>()
-        val assignedObservations = mutableSetOf<Int>()
+        val validObservations = ArrayList<HandObservation>(maxHands)
+        for (observation in observations) {
+            if (validObservations.size >= maxHands) break
+            if (isUsable(observation)) validObservations.add(observation)
+        }
 
-        // Greedy lowest-cost matching is sufficient for the supported one/two-hand model.
-        // Side evidence breaks ties when the two hands cross or MediaPipe reorders its result.
-        val candidates = buildList {
-            validObservations.forEachIndexed { observationIndex, observation ->
-                availableTracks.forEach { track ->
-                    val cost = track.associationCost(observation, timestampMs)
-                    if (cost <= MAX_ASSOCIATION_COST) {
-                        add(Association(observationIndex, track.id, cost))
+        val assignedObservations = BooleanArray(maxHands)
+        val assignedTrackIds = LongArray(maxHands)
+        var assignedTrackCount = 0
+
+        // Select the best complete two-hand assignment when both hands are visible.
+        if (validObservations.size == 2 && tracks.size == 2) {
+            val first = tracks[0]
+            val second = tracks[1]
+            val directA = first.associationCost(validObservations[0], timestampMs)
+            val directB = second.associationCost(validObservations[1], timestampMs)
+            val crossedA = second.associationCost(validObservations[0], timestampMs)
+            val crossedB = first.associationCost(validObservations[1], timestampMs)
+
+            val directValid = directA <= MAX_ASSOCIATION_COST && directB <= MAX_ASSOCIATION_COST
+            val crossedValid = crossedA <= MAX_ASSOCIATION_COST && crossedB <= MAX_ASSOCIATION_COST
+            if (directValid || crossedValid) {
+                val useDirect = directValid &&
+                    (!crossedValid || directA + directB <= crossedA + crossedB)
+                if (useDirect) {
+                    first.accept(validObservations[0], timestampMs)
+                    second.accept(validObservations[1], timestampMs)
+                } else {
+                    second.accept(validObservations[0], timestampMs)
+                    first.accept(validObservations[1], timestampMs)
+                }
+                assignedObservations[0] = true
+                assignedObservations[1] = true
+                assignedTrackIds[0] = first.id
+                assignedTrackIds[1] = second.id
+                assignedTrackCount = 2
+            }
+        }
+
+        // Partial visibility or a rejected pair: make the lowest-cost remaining match.
+        for (observationIndex in validObservations.indices) {
+            if (assignedObservations[observationIndex]) continue
+            var bestTrack: Track? = null
+            var bestCost = MAX_ASSOCIATION_COST
+            for (candidate in tracks) {
+                if (isAssigned(candidate.id, assignedTrackIds, assignedTrackCount)) continue
+                val cost = candidate.associationCost(validObservations[observationIndex], timestampMs)
+                if (cost < bestCost) {
+                    bestCost = cost
+                    bestTrack = candidate
+                }
+            }
+            if (bestTrack != null) {
+                bestTrack.accept(validObservations[observationIndex], timestampMs)
+                assignedObservations[observationIndex] = true
+                if (assignedTrackCount < assignedTrackIds.size) {
+                    assignedTrackIds[assignedTrackCount++] = bestTrack.id
+                }
+            }
+        }
+
+        // Create new tracks or recycle only an absent, stale track.
+        for (observationIndex in validObservations.indices) {
+            if (assignedObservations[observationIndex]) continue
+            if (tracks.size >= maxHands) {
+                var replaceIndex = -1
+                var oldestSeen = Long.MAX_VALUE
+                for (index in tracks.indices) {
+                    val candidate = tracks[index]
+                    if (isAssigned(candidate.id, assignedTrackIds, assignedTrackCount)) continue
+                    if (timestampMs - candidate.lastSeenTimestampMs >= REPLACE_STALE_TRACK_MS &&
+                        candidate.lastSeenTimestampMs < oldestSeen
+                    ) {
+                        oldestSeen = candidate.lastSeenTimestampMs
+                        replaceIndex = index
                     }
                 }
-            }
-        }.sortedBy { it.cost }
-
-        // With two hands, compare both complete assignments before accepting a greedy pair.
-        // This avoids consuming the best track for one detection when the other detection has
-        // no viable alternative (a common failure around partial occlusion).
-        val completeAssignments = if (validObservations.size == 2 && availableTracks.size == 2) {
-            val direct = listOf(
-                candidateFor(0, 0, validObservations, availableTracks, timestampMs),
-                candidateFor(1, 1, validObservations, availableTracks, timestampMs)
-            )
-            val crossed = listOf(
-                candidateFor(0, 1, validObservations, availableTracks, timestampMs),
-                candidateFor(1, 0, validObservations, availableTracks, timestampMs)
-            )
-            listOf(direct, crossed).filter { assignment -> assignment.all { it != null } }
-                .map { assignment -> assignment.filterNotNull() }
-        } else {
-            emptyList()
-        }
-
-        val selectedCompleteAssignment = completeAssignments.minByOrNull { assignment ->
-            assignment.sumOf { it.cost.toDouble() }
-        }
-        if (selectedCompleteAssignment != null) {
-            selectedCompleteAssignment.forEach { candidate ->
-                val track = availableTracks.first { it.id == candidate.trackId }
-                track.accept(validObservations[candidate.observationIndex], timestampMs)
-                assignedObservations += candidate.observationIndex
-                assignedTracks += track.id
-            }
-        } else {
-            candidates.forEach { candidate ->
-                if (candidate.observationIndex !in assignedObservations &&
-                    candidate.trackId !in assignedTracks
-                ) {
-                    val track = availableTracks.first { it.id == candidate.trackId }
-                    track.accept(validObservations[candidate.observationIndex], timestampMs)
-                    assignedObservations += candidate.observationIndex
-                    assignedTracks += track.id
+                if (replaceIndex >= 0) {
+                    tracks.removeAt(replaceIndex).reset()
                 }
             }
-        }
-
-        validObservations.forEachIndexed { index, observation ->
-            if (index in assignedObservations) return@forEachIndexed
             if (tracks.size < maxHands) {
-                val track = Track(nextTrackId++, observation, timestampMs)
-                tracks += track
-                assignedTracks += track.id
-                assignedObservations += index
-            } else {
-                // Reuse only a track that has been absent long enough to be clearly stale.
-                val replaceable = tracks
-                    .filter { it.id !in assignedTracks }
-                    .filter { timestampMs - it.lastSeenTimestampMs >= REPLACE_STALE_TRACK_MS }
-                    .maxByOrNull { it.lastSeenTimestampMs }
-                if (replaceable != null) {
-                    replaceable.reset()
-                    tracks.remove(replaceable)
-                    val track = Track(nextTrackId++, observation, timestampMs)
-                    tracks += track
-                    assignedTracks += track.id
-                    assignedObservations += index
+                val created = Track(nextTrackId++, validObservations[observationIndex], timestampMs)
+                tracks.add(created)
+                assignedObservations[observationIndex] = true
+                if (assignedTrackCount < assignedTrackIds.size) {
+                    assignedTrackIds[assignedTrackCount++] = created.id
                 }
             }
         }
 
-        tracks.filter { it.id !in assignedTracks }.forEach { it.markMissing(timestampMs) }
-        return tracks
-            .filter { it.id in assignedTracks }
-            .sortedBy { it.id }
-            .map { it.output }
+        for (track in tracks) {
+            if (!isAssigned(track.id, assignedTrackIds, assignedTrackCount)) {
+                track.markMissing(timestampMs)
+            }
+        }
+
+        val visible = ArrayList<TrackedHand>(maxHands)
+        for (track in tracks) {
+            if (isAssigned(track.id, assignedTrackIds, assignedTrackCount)) {
+                visible.add(track.output)
+            }
+        }
+        return visible
     }
 
     fun reset() {
-        tracks.forEach { it.reset() }
+        for (track in tracks) track.reset()
         tracks.clear()
         lastFrameTimestampMs = null
     }
 
-    private data class Association(
-        val observationIndex: Int,
-        val trackId: Long,
-        val cost: Float
-    )
-
-    private fun candidateFor(
-        observationIndex: Int,
-        trackIndex: Int,
-        observations: List<HandObservation>,
-        availableTracks: List<Track>,
-        timestampMs: Long
-    ): Association? {
-        val track = availableTracks[trackIndex]
-        val cost = track.associationCost(observations[observationIndex], timestampMs)
-        return if (cost <= MAX_ASSOCIATION_COST) Association(observationIndex, track.id, cost) else null
+    private fun isAssigned(id: Long, assignedIds: LongArray, count: Int): Boolean {
+        for (index in 0 until count) {
+            if (assignedIds[index] == id) return true
+        }
+        return false
     }
 
-    private fun isUsable(observation: HandObservation): Boolean =
-        observation.points.size == LANDMARK_COUNT &&
-            observation.points.all { it.x.isFinite() && it.y.isFinite() && it.z.isFinite() } &&
-            observation.handednessConfidence.isFinite()
+    private fun isUsable(observation: HandObservation): Boolean {
+        if (observation.points.size != LANDMARK_COUNT ||
+            !observation.handednessConfidence.isFinite()
+        ) return false
+        for (point in observation.points) {
+            if (!point.x.isFinite() || !point.y.isFinite() || !point.z.isFinite()) return false
+        }
+        return true
+    }
 
     private fun centerOf(points: List<HandPoint>): Center {
-        val sumX = PALM_CENTER_INDICES.sumOf { points[it].x.toDouble() }
-        val sumY = PALM_CENTER_INDICES.sumOf { points[it].y.toDouble() }
-        return Center(
-            (sumX / PALM_CENTER_INDICES.size).toFloat(),
-            (sumY / PALM_CENTER_INDICES.size).toFloat()
-        )
+        var sumX = 0f
+        var sumY = 0f
+        for (index in PALM_CENTER_INDICES) {
+            sumX += points[index].x
+            sumY += points[index].y
+        }
+        return Center(sumX / PALM_CENTER_INDICES.size, sumY / PALM_CENTER_INDICES.size)
     }
 
     private companion object {
@@ -332,5 +351,7 @@ internal class HandTrackManager(
         const val SIDE_CORRECTION_FRAMES = 3
         const val SIDE_MATCH_BONUS = 0.10f
         const val SIDE_MISMATCH_PENALTY = 0.36f
+        const val WORLD_MIN_CUTOFF_HZ = 2.2f
+        const val WORLD_BETA = 0.35f
     }
 }
