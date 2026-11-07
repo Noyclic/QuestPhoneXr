@@ -1963,10 +1963,16 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             it.hand == com.noyclic.questphonexr.tracking.HandSide.RIGHT
         }
         val scene = simulation.snapshot()
-        val leftTrackedHand = latestHandFrame.hands.firstOrNull {
+        val serviceRunning = EndXrHandTrackingService.isRunning()
+        val diagnosticHandFrame = if (serviceRunning) {
+            EndXrHandTrackingService.latestFrame()
+        } else {
+            latestHandFrame
+        }
+        val leftTrackedHand = diagnosticHandFrame.hands.firstOrNull {
             it.side == com.noyclic.questphonexr.tracking.HandSide.LEFT
         }
-        val rightTrackedHand = latestHandFrame.hands.firstOrNull {
+        val rightTrackedHand = diagnosticHandFrame.hands.firstOrNull {
             it.side == com.noyclic.questphonexr.tracking.HandSide.RIGHT
         }
         val actualFps = renderer.measuredFps
@@ -2002,12 +2008,11 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             append(" · ").append(handTrackingPreset.maxTrackedHands).append(" рук · MediaPipe ")
                 .append(inferenceRateLabel)
             append('\n')
-            append(cameraStatusMessage).append(" · рук: ").append(latestHandFrame.handCount)
+            append(cameraStatusMessage).append(" · рук: ").append(diagnosticHandFrame.handCount)
             append('\n')
             append("Pinch L: ").append(pinchDiagnostic(leftTrackedHand))
             append(" · R: ").append(pinchDiagnostic(rightTrackedHand))
             append('\n')
-            val serviceRunning = EndXrHandTrackingService.isRunning()
             val serviceState = EndXrHandTrackingService.diagnosticState()
             append("Фоновая камера EndXR: ")
             append(
