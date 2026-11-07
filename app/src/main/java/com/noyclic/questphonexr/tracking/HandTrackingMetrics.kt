@@ -22,7 +22,8 @@ data class HandTrackingMetricsSnapshot(
     val averageInferenceMs: Float = 0f,
     /** Time spent converting landmarks, associating hands and updating gesture state. */
     val lastResultProcessingMs: Long = 0L,
-    val averageResultProcessingMs: Float = 0f
+    val averageResultProcessingMs: Float = 0f,
+    val delegateName: String = "CPU"
 ) {
     val droppedFrames: Long
         get() = droppedBusyFrames + droppedIntervalFrames
