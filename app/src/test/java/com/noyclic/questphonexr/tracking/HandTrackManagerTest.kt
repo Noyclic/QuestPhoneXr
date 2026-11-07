@@ -152,8 +152,24 @@ class HandTrackManagerTest {
 
         assertEquals(pinched.trackingId, recovered.trackingId)
         assertFalse(recovered.isPinching)
-        assertTrue(recovered.pinchDistanceRatio.isInfinite())
+        assertTrue(recovered.pinchDistanceRatio.isFinite())
         assertEquals(0.9f, recovered.points[0].x, 0.0001f)
+    }
+
+    @Test
+    fun shortDetectionLossReleasesPinchAndMarksDistanceUnavailable() {
+        val manager = HandTrackManager(pinchReleaseDelayMs = 30L)
+        manager.update(listOf(observation(HandSide.LEFT, 0.4f, pinching = true)), 1_000L)
+        manager.update(
+            listOf(observation(HandSide.LEFT, 0.4f, pinching = true)),
+            1_016L
+        )
+
+        val heldDuringLoss = manager.update(emptyList(), 1_048L).single()
+
+        assertFalse(heldDuringLoss.isPinching)
+        assertEquals(0f, heldDuringLoss.pinchStrength, 0f)
+        assertTrue(heldDuringLoss.pinchDistanceRatio.isInfinite())
     }
 
     @Test
