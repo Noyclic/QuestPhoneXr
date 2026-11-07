@@ -7,7 +7,7 @@ class EndXrHandTrackingDiagnosticsTest {
 
     @Test
     fun stopPreservesCameraStartFailureForDiagnostics() {
-        EndXrHandTrackingDiagnostics.begin(640, 480)
+        EndXrHandTrackingDiagnostics.begin(640, 480, maxHands = 2, inferenceIntervalMs = 100L)
         EndXrHandTrackingDiagnostics.markError("CameraX could not bind")
 
         EndXrHandTrackingDiagnostics.markStopped()
@@ -17,7 +17,7 @@ class EndXrHandTrackingDiagnosticsTest {
 
     @Test
     fun normalStopChangesRunningServiceToStopped() {
-        EndXrHandTrackingDiagnostics.begin(640, 480)
+        EndXrHandTrackingDiagnostics.begin(640, 480, maxHands = 2, inferenceIntervalMs = 100L)
         EndXrHandTrackingDiagnostics.markRunning()
 
         EndXrHandTrackingDiagnostics.markStopped()
