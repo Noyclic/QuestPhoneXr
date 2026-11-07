@@ -119,12 +119,17 @@ internal class HandTrackManager(
                 velocityX += (measuredVelocityX - velocityX) * VELOCITY_RESPONSE
                 velocityY += (measuredVelocityY - velocityY) * VELOCITY_RESPONSE
             } else if (elapsedMs > VELOCITY_RESET_GAP_MS) {
-                // The motion estimate and discrete gesture are no longer trustworthy
-                // after a longer dropout, but keep the visual filters warm. Their own
-                // 250 ms gap policy decides when a full cold-start is actually needed.
+                // Motion and gesture state become stale after a medium dropout.
                 velocityX = 0f
                 velocityY = 0f
                 pinchEstimator.reset()
+                // Keep the mesh filter warm for short/medium gaps, but do not blend
+                // a pose across a long disappearance: reacquisition must snap to the
+                // fresh hand pose once the gap exceeds the visual reset threshold.
+                if (elapsedMs > FILTER_RESET_GAP_MS) {
+                    imageFilter.reset()
+                    worldFilter.reset()
+                }
             }
 
             lastRawCenter = nextCenter
@@ -452,6 +457,7 @@ internal class HandTrackManager(
         const val PALM_SCALE_COST_WEIGHT = 0.12f
         const val MAX_PALM_SCALE_COST = 0.18f
         const val VELOCITY_RESET_GAP_MS = 120L
+        const val FILTER_RESET_GAP_MS = 180L
         const val REPLACE_STALE_TRACK_MS = 180L
         const val MAX_IMAGE_VELOCITY = 3.0f
         const val VELOCITY_RESPONSE = 0.45f
