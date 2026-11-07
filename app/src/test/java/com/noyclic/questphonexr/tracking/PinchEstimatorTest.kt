@@ -6,10 +6,23 @@ import org.junit.Test
 
 class PinchEstimatorTest {
     @Test
-    fun pinchActivatesAfterTimeAwareStrengthPassesOnThreshold() {
+    fun highConfidenceFullPinchActivatesOnFirstObservation() {
         val estimator = PinchEstimator()
-        assertFalse(estimator.update(points(pinching = true), 1_000L).isPinching)
+        assertTrue(estimator.update(points(pinching = true), 1_000L).isPinching)
         assertTrue(estimator.update(points(pinching = true), 1_016L).isPinching)
+    }
+
+    @Test
+    fun partialClosureStillNeedsConsistentSamplesInsteadOfOneFrameJitter() {
+        val estimator = PinchEstimator()
+        val partial = points(pinching = false).toMutableList().also {
+            it[4] = HandPoint(0.465f, 0.5f, 0f)
+            it[8] = HandPoint(0.535f, 0.5f, 0f)
+        }
+
+        assertFalse(estimator.update(partial, 1_000L).isPinching)
+        assertFalse(estimator.update(partial, 1_016L).isPinching)
+        assertTrue(estimator.update(partial, 1_032L).isPinching)
     }
 
     @Test
