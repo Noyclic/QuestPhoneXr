@@ -21,7 +21,9 @@ data class PinchSignal(
     val strength: Float,
     val isPinching: Boolean,
     /** Raw thumb/index distance divided by palm width; infinity means unavailable. */
-    val normalizedDistanceRatio: Float = Float.POSITIVE_INFINITY
+    val normalizedDistanceRatio: Float = Float.POSITIVE_INFINITY,
+    /** True when the ratio came from MediaPipe's hand-local 3D world landmarks. */
+    val usedWorldLandmarks: Boolean = false
 )
 
 /**
@@ -46,7 +48,11 @@ class PinchEstimator(
         require(pinchOffThreshold < pinchOnThreshold)
     }
 
-    fun update(points: List<HandPoint>, timestampMs: Long? = null): PinchSignal {
+    fun update(
+        points: List<HandPoint>,
+        timestampMs: Long? = null,
+        worldPoints: List<HandPoint> = emptyList()
+    ): PinchSignal {
         val thumb = points.getOrNull(4)
         val index = points.getOrNull(8)
         val indexMcp = points.getOrNull(5)
@@ -61,13 +67,52 @@ class PinchEstimator(
             return PinchSignal(0f, false)
         }
 
-        val measuredPalmWidth = distance(indexMcp, pinkyMcp)
-        val measuredTipDistance = distance(thumb, index)
+        // A 2D camera projection compresses the apparent palm width when the hand
+        // turns edge-on. Prefer MediaPipe's hand-local 3D distances when its palm
+        // geometry is complete and physically plausible; fall back to image space
+        // for models/frames that do not provide usable world landmarks.
+        val worldThumb = worldPoints.getOrNull(4)
+        val worldIndex = worldPoints.getOrNull(8)
+        val worldIndexMcp = worldPoints.getOrNull(5)
+        val worldPinkyMcp = worldPoints.getOrNull(17)
+        val hasFiniteWorldGeometry =
+            worldThumb != null && worldIndex != null &&
+                worldIndexMcp != null && worldPinkyMcp != null &&
+                worldThumb.x.isFinite() && worldThumb.y.isFinite() && worldThumb.z.isFinite() &&
+                worldIndex.x.isFinite() && worldIndex.y.isFinite() && worldIndex.z.isFinite() &&
+                worldIndexMcp.x.isFinite() && worldIndexMcp.y.isFinite() && worldIndexMcp.z.isFinite() &&
+                worldPinkyMcp.x.isFinite() && worldPinkyMcp.y.isFinite() && worldPinkyMcp.z.isFinite()
+
+        val worldPalmWidth = if (hasFiniteWorldGeometry) {
+            distance3d(checkNotNull(worldIndexMcp), checkNotNull(worldPinkyMcp))
+        } else {
+            Float.NaN
+        }
+        val worldTipDistance = if (hasFiniteWorldGeometry) {
+            distance3d(checkNotNull(worldThumb), checkNotNull(worldIndex))
+        } else {
+            Float.NaN
+        }
+        val useWorldGeometry = worldPalmWidth.isFinite() &&
+            worldTipDistance.isFinite() &&
+            worldPalmWidth in MIN_WORLD_PALM_WIDTH_METERS..MAX_WORLD_PALM_WIDTH_METERS
+
+        val measuredPalmWidth = if (useWorldGeometry) {
+            worldPalmWidth
+        } else {
+            distance(indexMcp, pinkyMcp)
+        }
+        val measuredTipDistance = if (useWorldGeometry) {
+            worldTipDistance
+        } else {
+            distance(thumb, index)
+        }
         if (!measuredPalmWidth.isFinite() || !measuredTipDistance.isFinite()) {
             reset()
             return PinchSignal(0f, false)
         }
-        val palmWidth = measuredPalmWidth.coerceAtLeast(MIN_PALM_WIDTH)
+        val minimumPalmWidth = if (useWorldGeometry) MIN_WORLD_PALM_WIDTH_METERS else MIN_PALM_WIDTH
+        val palmWidth = measuredPalmWidth.coerceAtLeast(minimumPalmWidth)
         val normalizedPinchDistance = measuredTipDistance / palmWidth
         if (!normalizedPinchDistance.isFinite()) {
             reset()
@@ -91,7 +136,7 @@ class PinchEstimator(
         } else if (isPinching && filteredStrength <= pinchOffThreshold) {
             isPinching = false
         }
-        return PinchSignal(filteredStrength, isPinching, normalizedPinchDistance)
+        return PinchSignal(filteredStrength, isPinching, normalizedPinchDistance, useWorldGeometry)
     }
 
     fun reset() {
@@ -119,8 +164,17 @@ class PinchEstimator(
         return sqrt(dx * dx + dy * dy)
     }
 
+    private fun distance3d(a: HandPoint, b: HandPoint): Float {
+        val dx = a.x - b.x
+        val dy = a.y - b.y
+        val dz = a.z - b.z
+        return sqrt(dx * dx + dy * dy + dz * dz)
+    }
+
     private companion object {
         const val MIN_PALM_WIDTH = 0.015f
+        const val MIN_WORLD_PALM_WIDTH_METERS = 0.02f
+        const val MAX_WORLD_PALM_WIDTH_METERS = 0.16f
         const val OPEN_RATIO = 0.72f
         const val RATIO_RANGE = 0.52f
         const val FAST_PRESS_RAW_STRENGTH = 0.90f
@@ -140,7 +194,9 @@ data class TrackedHand(
     /** Stable ID assigned by temporal hand association, zero for externally constructed samples. */
     val trackingId: Long = 0L,
     /** Latest raw thumb/index distance relative to palm width; infinity means unavailable. */
-    val pinchDistanceRatio: Float = Float.POSITIVE_INFINITY
+    val pinchDistanceRatio: Float = Float.POSITIVE_INFINITY,
+    /** True when pinchDistanceRatio was derived from world-space landmarks. */
+    val pinchUsesWorldLandmarks: Boolean = false
 ) {
     val thumbTip: HandPoint? get() = points.getOrNull(4)
     val indexTip: HandPoint? get() = points.getOrNull(8)
