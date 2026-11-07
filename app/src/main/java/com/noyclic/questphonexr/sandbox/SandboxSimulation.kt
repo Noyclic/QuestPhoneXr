@@ -155,8 +155,6 @@ class SandboxSimulation {
     @Synchronized
     fun setHandCalibration(calibration: SandboxHandCalibration) {
         handCalibration = calibration.normalized()
-        leftHandPoseSmoother.reset()
-        rightHandPoseSmoother.reset()
         leftCursorSmoother.reset()
         rightCursorSmoother.reset()
         leftLandmarks = emptyList()
