@@ -78,6 +78,7 @@ class HandLandmarkerController(
     private var modelCanvas: Canvas? = null
     private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val pinchEstimators = mutableListOf<PinchEstimator>()
+    private val landmarkFilters = mutableListOf<OneEuroHandFilter>()
     private val landmarker: HandLandmarker
 
     init {
@@ -387,13 +388,15 @@ class HandLandmarkerController(
 
             while (pinchEstimators.size < landmarkLists.size) {
                 pinchEstimators.add(PinchEstimator())
+                landmarkFilters.add(OneEuroHandFilter())
             }
             while (pinchEstimators.size > landmarkLists.size) {
                 pinchEstimators.removeAt(pinchEstimators.lastIndex)
+                landmarkFilters.removeAt(landmarkFilters.lastIndex)
             }
 
             val hands = landmarkLists.mapIndexed { index, landmarks ->
-                val points = landmarks.map { landmark ->
+                val rawPoints = landmarks.map { landmark ->
                     val mapped = transform?.toRotatedFrameNormalized(landmark.x(), landmark.y())
                     if (mapped == null) {
                         HandPoint(landmark.x(), landmark.y(), landmark.z())
@@ -401,6 +404,9 @@ class HandLandmarkerController(
                         HandPoint(mapped.first, mapped.second, landmark.z())
                     }
                 }
+                // Filter using MediaPipe's real callback timestamp; LIVE_STREAM may drop frames.
+                // Pinch is derived from the same stable points that are sent to the renderer.
+                val points = landmarkFilters[index].update(rawPoints, result.timestampMs())
                 val pinch = pinchEstimators[index].update(points)
                 val label = handednessLists.getOrNull(index)
                     ?.firstOrNull()
@@ -458,6 +464,7 @@ class HandLandmarkerController(
     private fun onTaskError(error: RuntimeException) {
         inFlightImage.getAndSet(null)?.close()
         pinchEstimators.forEach { it.reset() }
+        landmarkFilters.forEach { it.reset() }
         resetInFlightState()
         publishMetrics()
         if (!closed.get()) {
