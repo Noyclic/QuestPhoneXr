@@ -34,6 +34,26 @@ class EndXrInputAccessPolicyTest {
     }
 
     @Test
+    fun restoredGrantRequiresExactPackageAndSigningCertificate() {
+        val record = EndXrInputGrantRecord("com.example.vrgame", fingerprint)
+        val matchingClient = EndXrInputClient(
+            packageName = "com.example.vrgame",
+            label = "VR Game",
+            signingCertificateSha256 = fingerprint
+        )
+        val differentSigner = matchingClient.copy(
+            signingCertificateSha256 = "abcdef12".repeat(8)
+        )
+        val differentPackage = matchingClient.copy(
+            packageName = "com.example.other"
+        )
+
+        assertTrue(EndXrInputGrantCodec.matches(record, matchingClient))
+        assertFalse(EndXrInputGrantCodec.matches(record, differentSigner))
+        assertFalse(EndXrInputGrantCodec.matches(record, differentPackage))
+    }
+
+    @Test
     fun malformedStoredEntriesAreIgnored() {
         val decoded = EndXrInputGrantCodec.decode(
             setOf(
