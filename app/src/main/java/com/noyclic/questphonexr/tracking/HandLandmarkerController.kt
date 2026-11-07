@@ -262,8 +262,10 @@ class HandLandmarkerController(
             )
             inFlightTransform.set(transform)
 
+            // This MPImage is a wrapper over the controller-owned, reusable modelBitmap.
+            // MPImage.close() recycles its BitmapImageContainer's Bitmap, so the wrapper must
+            // remain borrowed: closing it here would recycle the bitmap reused by later frames.
             val requestImage = BitmapImageBuilder(checkNotNull(modelBitmap)).build()
-            mpImage = requestImage
             val timestampMs = nextMonotonicTimestamp()
             requestTicket = requestGate.begin(requestImage, timestampMs)
             check(requestTicket != null) { "A previous MediaPipe frame is still active." }
@@ -286,16 +288,15 @@ class HandLandmarkerController(
                 // Only its owner is allowed to release the shared processing state.
                 if (requestGate.finish(ticket)) {
                     // The callback owns normal completion; this branch owns a synchronous
-                    // detectAsync() failure before a callback took responsibility.
-                    mpImage?.let { runCatching { it.close() } }
-                    resetInFlightState()
+                    // detectAsync() failure before a callback took responsibility. Do not
+                    // close the MPImage wrapper: it borrows the reusable modelBitmap.
                 }
             } else {
                 // Preprocessing failed before this frame acquired a request ticket.
                 // An unexpected occupied gate means the task cannot be safely reused.
                 val unexpected = requestGate.cancel()
-                unexpected?.frame?.let { runCatching { it.close() } }
-                mpImage?.let { runCatching { it.close() } }
+                // These tickets hold borrowed MPImage wrappers over modelBitmap. Never close
+                // them individually; closing one recycles the bitmap shared by future frames.
                 if (unexpected != null) taskFailed.set(true)
                 resetInFlightState()
             }
@@ -485,10 +486,11 @@ class HandLandmarkerController(
         lastCallbackTimestampMs.set(callbackTimestampMs)
         val ticket = requestGate.currentForTimestamp(callbackTimestampMs) ?: run {
             // A cancelled/late callback must never touch metadata or the processing gate
-            // belonging to a newer frame. Always release the callback's MPImage wrapper.
+            // belonging to a newer frame. The callback MPImage is a borrowed wrapper produced
+            // from MediaPipe's IMAGE:image_out packet; do not close it because that packet can
+            // wrap the same reusable Bitmap owned by this controller.
             unmatchedCallbackCount.incrementAndGet()
             publishMetrics(force = true)
-            runCatching { input.close() }
             Log.w(TAG, "Ignoring unmatched MediaPipe callback timestamp=$callbackTimestampMs")
             return
         }
@@ -580,14 +582,11 @@ class HandLandmarkerController(
             Log.e(TAG, "Could not convert MediaPipe landmarks", error)
             onError(error.message ?: "Could not read hand landmarks.")
         } finally {
-            // MediaPipe 1.1.1 returns a distinct MPImage wrapper for IMAGE:image_out.
-            // Close both wrappers, but only release the submitted image if this callback
-            // still owns the timestamp ticket (a concurrent cancellation owns it otherwise).
-            runCatching { input.close() }
+            // Both `ticket.frame` and `input` are borrowed MPImage wrappers. MediaPipe's
+            // HandLandmarker adapter creates `input` with BitmapImageBuilder around the
+            // IMAGE:image_out packet bitmap; it may be the same Bitmap as modelBitmap.
+            // MPImage.close() calls Bitmap.recycle(), so neither wrapper may be closed here.
             if (requestGate.finish(ticket)) {
-                if (ticket.frame !== input) {
-                    runCatching { ticket.frame.close() }
-                }
                 resetInFlightState()
                 publishMetrics(force = true)
             }
@@ -596,7 +595,8 @@ class HandLandmarkerController(
 
     private fun onTaskError(error: RuntimeException) {
         if (!taskFailed.compareAndSet(false, true)) return
-        requestGate.cancel()?.frame?.let { runCatching { it.close() } }
+        // Retire the in-flight ticket without closing its borrowed MPImage wrapper. The
+        // backing bitmap is controller-owned and remains reusable until the task is closed.
         synchronized(handTrackManager) { handTrackManager.reset() }
         resetInFlightState()
         publishMetrics(force = true)
@@ -619,12 +619,15 @@ class HandLandmarkerController(
         if (!closed.compareAndSet(false, true)) return
 
         val releaseResources = Runnable {
-            requestGate.cancel()?.frame?.let { image -> runCatching { image.close() } }
+            // Cancel bookkeeping only. The ticket's MPImage wraps our reusable modelBitmap;
+            // MPImage.close() would recycle it before all MediaPipe graph work has drained.
+            requestGate.cancel()
             resetInFlightState()
             handTrackManager.reset()
             runCatching { landmarker.close() }
                 .onFailure { Log.e(TAG, "Could not close MediaPipe task on its owner thread", it) }
-            // Do not recycle bitmaps while a native callback could still hold a reference.
+            // Drop our references only after the graph has been closed on its owner thread.
+            // Do not call MPImage.close(): its BitmapImageContainer recycles the shared bitmap.
             sourceBitmap = null
             modelBitmap = null
             modelCanvas = null
