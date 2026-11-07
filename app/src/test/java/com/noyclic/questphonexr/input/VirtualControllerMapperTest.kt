@@ -25,6 +25,8 @@ class VirtualControllerMapperTest {
         assertEquals(0.9f, frame.left.trigger, 0.001f)
         assertEquals(HandSide.RIGHT, frame.right.hand)
         assertEquals(0.2f, frame.right.trigger, 0.001f)
+        assertTrue("left-hand pinch should reach the controller trigger", frame.left.pinchPressed)
+        assertFalse("an open right hand must not report a pinch", frame.right.pinchPressed)
     }
 
     @Test
