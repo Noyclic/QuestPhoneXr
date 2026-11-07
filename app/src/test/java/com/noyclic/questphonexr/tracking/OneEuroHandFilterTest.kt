@@ -129,6 +129,43 @@ class OneEuroHandFilterTest {
     }
 
     @Test
+    fun metricSpaceLimiterBoundsDisplayedWorldLandmarkJumps() {
+        val worldFilter = OneEuroHandFilter(
+            minCutoffHz = 100f,
+            beta = 0f,
+            maxLandmarkSpeedPerSecond = 1f
+        )
+        worldFilter.update(listOf(HandPoint(0f, 0f, 0f)), 1_000L)
+
+        val result = worldFilter.update(listOf(HandPoint(0.5f, 0f, 0f)), 1_050L).single()
+
+        assertTrue("world-space display jumps should be bounded to 0.05 m per 50 ms", result.x in 0f..0.051f)
+    }
+
+    @Test
+    fun metricSpaceFingertipsKeepTheirLargerArticulationBudget() {
+        val worldFilter = OneEuroHandFilter(
+            minCutoffHz = 100f,
+            beta = 0f,
+            responsiveLandmarkA = 4,
+            responsiveLandmarkB = 8,
+            responsiveMinCutoffHz = 100f,
+            responsiveBeta = 0f,
+            maxLandmarkSpeedPerSecond = 1f,
+            responsiveMaxLandmarkSpeedPerSecond = 3f
+        )
+        val initial = List(21) { HandPoint(0f, 0f, 0f) }
+        val moved = List(21) { HandPoint(0.5f, 0f, 0f) }
+        worldFilter.update(initial, 1_000L)
+
+        val result = worldFilter.update(moved, 1_050L)
+
+        assertTrue("thumb/index tips should retain a higher articulation budget",
+            result[4].x > result[0].x + 0.07f)
+        assertTrue(result[4].x <= 0.151f)
+    }
+
+    @Test
     fun speedLimiterRemainsDisabledForDefaultFilters() {
         val filter = OneEuroHandFilter(minCutoffHz = 100f, beta = 0f)
         filter.update(listOf(HandPoint(0.1f, 0.5f, 0f)), 1_000L)
