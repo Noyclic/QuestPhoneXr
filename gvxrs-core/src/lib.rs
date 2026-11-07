@@ -2,8 +2,12 @@
 //!
 //! This crate intentionally does not implement OpenXR entry points, Android
 //! services, EGL/GLES, JNI, RuntimeBroker discovery, or loader negotiation.
-//! It is a safe Rust parity implementation of the small lifecycle core that
-//! is currently wrapped by the Android JNI layer.
+//! It is a safe Rust parity implementation of the app-side lifecycle helper
+//! currently called by Android JNI. It is not the loader-facing OpenXR engine.
+
+#![forbid(unsafe_code)]
+
+pub mod tracking;
 
 use std::sync::{Mutex, MutexGuard};
 
@@ -345,6 +349,42 @@ mod tests {
         let snapshot = core.snapshot();
         assert_eq!(snapshot.state, RuntimeState::Cold);
         assert_eq!(snapshot.config, RuntimeConfig::default());
+    }
+
+    #[test]
+    fn reports_timestamp_overflow_without_starting_a_frame() {
+        let core = running(RuntimeConfig::default());
+        let error = core.wait_frame(i64::MAX - 10).unwrap_err();
+        assert_eq!(error, "Frame deadline overflow.");
+        let snapshot = core.snapshot();
+        assert_eq!(snapshot.state, RuntimeState::Running);
+        assert_eq!(snapshot.frames_started, 0);
+        assert_eq!(snapshot.last_error, "Frame deadline overflow.");
+    }
+
+    #[test]
+    fn concurrent_snapshots_are_safe_during_state_changes() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let core = Arc::new(RuntimeCore::new());
+        core.initialize(RuntimeConfig::default()).unwrap();
+        let readers: Vec<_> = (0..4).map(|_| {
+            let shared = Arc::clone(&core);
+            thread::spawn(move || {
+                for _ in 0..500 {
+                    let snapshot = shared.snapshot();
+                    assert!(snapshot.config.target_fps >= MIN_FPS);
+                }
+            })
+        }).collect();
+
+        core.create_session().unwrap();
+        core.begin_session().unwrap();
+        for reader in readers {
+            reader.join().expect("snapshot reader thread must not panic");
+        }
+        assert_eq!(core.snapshot().state, RuntimeState::Running);
     }
 
     #[test]
