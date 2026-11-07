@@ -556,7 +556,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         val cameraInput = EndXrHandInputEncoder.encode(handFrame)
         endXrRuntime.setControllerInput(left, right)
         EndXrInputSnapshotStore.publish(left, right)
-        EndXrInputSnapshotStore.publishHandPoses(cameraInput.leftPose, cameraInput.rightPose)
+        EndXrInputSnapshotStore.publishHandPoses(
+            cameraInput.leftPose, cameraInput.rightPose,
+            cameraInput.leftJoints, cameraInput.rightJoints
+        )
     }
 
     private fun launchExternalOpenXrProbe() {

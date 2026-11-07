@@ -69,6 +69,8 @@ void endxrClearControllerInput();
 void endxrSetHandPose(std::uint32_t hand, std::uint32_t active,
     float x, float y, float z, float qx, float qy, float qz, float qw);
 void endxrClearHandPoses();
+void endxrSetHandJointData(std::uint32_t hand, std::uint32_t active,
+    const float* values, std::uint32_t floatCount);
 std::uint32_t endxrGetLastGlesError();
 
 #if defined(__cplusplus)

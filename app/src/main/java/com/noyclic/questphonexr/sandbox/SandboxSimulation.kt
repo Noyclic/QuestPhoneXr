@@ -274,7 +274,8 @@ class SandboxSimulation {
         val connected: Boolean,
         val cameraTracked: Boolean,
         val trackingLost: Boolean = false,
-        val landmarks: List<SandboxVector3> = emptyList()
+        val landmarks: List<SandboxVector3> = emptyList(),
+        val contactLandmarks: List<SandboxVector3> = emptyList()
     )
 
     private val objects = mutableListOf<MutableObject>()
@@ -426,6 +427,8 @@ class SandboxSimulation {
 
         updateGrab(HandSide.LEFT, left.grabbing, leftWorld.cursor, dt, left.trackingLost)
         updateGrab(HandSide.RIGHT, right.grabbing, rightWorld.cursor, dt, right.trackingLost)
+        applyFingerContacts(leftWorld, dt)
+        applyFingerContacts(rightWorld, dt)
         updatePhysics(dt)
     }
 
@@ -481,7 +484,8 @@ class SandboxSimulation {
         if (offset.x == 0f && offset.y == 0f && offset.z == 0f) return this
         return copy(
             cursor = cursor + offset,
-            landmarks = landmarks.map { it + offset }
+            landmarks = landmarks.map { it + offset },
+            contactLandmarks = contactLandmarks.map { it + offset }
         )
     }
 
@@ -522,7 +526,9 @@ class SandboxSimulation {
             }
         }.orEmpty()
         if (trackedHand == null) depthEstimator.reset()
-        val cameraCursor = interactionCursor(cameraLandmarks, trackedHand?.isPinching == true)
+        val pinching = trackedHand?.isPinching == true
+        val powerGripping = trackedHand?.let { isPowerGrip(it.points) } == true
+        val cameraCursor = interactionCursor(cameraLandmarks, pinching, powerGripping)
         // A deflected Joy-Con stick takes temporary control of the virtual hand.
         // Releasing the stick returns control to MediaPipe (or the default hand pose).
         val gamepadCursor = physical
@@ -569,24 +575,102 @@ class SandboxSimulation {
         val analogGrab = physical?.let {
             it.leftTrigger > GRAB_THRESHOLD || it.rightTrigger > GRAB_THRESHOLD
         } ?: false
-        val grabbing = trackedHand?.isPinching == true || digitalGrab || analogGrab
+        // A closed three-or-more-finger power grip is a natural grab fallback.
+        // Pinch remains supported as a precision grip, and physical controllers remain available.
+        val grabbing = pinching || powerGripping || digitalGrab || analogGrab
         return ControllerState(
             cursor = cursor,
             grabbing = grabbing,
             connected = trackedHand != null || physical != null,
             cameraTracked = trackedHand != null,
-            landmarks = renderedLandmarks
+            landmarks = renderedLandmarks,
+            contactLandmarks = cameraLandmarks
         )
+    }
+
+    private fun isPowerGrip(points: List<HandPoint>): Boolean {
+        if (points.size < 21) return false
+        val wrist = points[0]
+        var curledFingers = 0
+        for (mcpIndex in FINGER_MCP_INDICES) {
+            val mcp = points[mcpIndex]
+            val pip = points[mcpIndex + 1]
+            val dip = points[mcpIndex + 2]
+            val tip = points[mcpIndex + 3]
+            val palmLength = distance(wrist, mcp)
+            val firstSegment = distance(mcp, pip)
+            val middleSegment = distance(pip, dip)
+            val lastSegment = distance(dip, tip)
+            val foldedLength = distance(mcp, tip)
+            if (!palmLength.isFinite() || palmLength < MIN_PALM_FINGER_LENGTH ||
+                !firstSegment.isFinite() || firstSegment < MIN_FINGER_SEGMENT_LENGTH ||
+                !middleSegment.isFinite() || middleSegment < MIN_FINGER_SEGMENT_LENGTH ||
+                !lastSegment.isFinite() || lastSegment < MIN_FINGER_SEGMENT_LENGTH ||
+                !foldedLength.isFinite()
+            ) continue
+
+            // Ignore incomplete landmark chains (common during brief occlusion).
+            // A closed fingertip sits close to its MCP; three complete curled
+            // finger chains are required to avoid treating missing data as a fist.
+            if (foldedLength / palmLength < POWER_GRIP_FOLD_RATIO) {
+                curledFingers++
+            }
+        }
+        return curledFingers >= POWER_GRIP_MIN_FINGERS
+    }
+
+    private fun distance(a: HandPoint, b: HandPoint): Float {
+        val dx = a.x - b.x
+        val dy = a.y - b.y
+        val dz = a.z - b.z
+        return sqrt(dx * dx + dy * dy + dz * dz)
     }
 
     private fun interactionCursor(
         landmarks: List<SandboxVector3>,
-        isPinching: Boolean
+        isPinching: Boolean,
+        isPowerGripping: Boolean
     ): SandboxVector3? {
         val indexTip = landmarks.getOrNull(8) ?: landmarks.firstOrNull() ?: return null
-        if (!isPinching) return indexTip
-        val thumbTip = landmarks.getOrNull(4) ?: return indexTip
-        return (thumbTip + indexTip) * 0.5f
+        if (isPinching) {
+            val thumbTip = landmarks.getOrNull(4) ?: return indexTip
+            return (thumbTip + indexTip) * 0.5f
+        }
+        if (isPowerGripping) {
+            val palmPoints = PALM_MCP_INDICES.mapNotNull(landmarks::getOrNull)
+            if (palmPoints.isNotEmpty()) {
+                return palmPoints.reduce { total, point -> total + point } *
+                    (1f / palmPoints.size.toFloat())
+            }
+        }
+        return indexTip
+    }
+
+    private fun applyFingerContacts(hand: ControllerState, deltaSeconds: Float) {
+        if (!hand.cameraTracked || hand.grabbing) return
+        val fingertips = FINGERTIP_INDICES.mapNotNull(hand.contactLandmarks::getOrNull)
+        if (fingertips.isEmpty()) return
+        for (item in objects) {
+            if (item.heldBy != null || item.type == SandboxObjectType.TARGET) continue
+            val contactRadius = if (item.type == SandboxObjectType.BALL) {
+                BALL_CONTACT_RADIUS
+            } else {
+                CUBE_CONTACT_RADIUS
+            }
+            val contact = fingertips
+                .map { tip -> tip to (item.position - tip) }
+                .minByOrNull { it.second.length() } ?: continue
+            val distance = contact.second.length()
+            if (distance >= contactRadius) continue
+            val normal = if (distance > 0.0001f) {
+                contact.second * (1f / distance)
+            } else {
+                SandboxVector3(0f, 0.35f, -0.94f)
+            }
+            val penetration = (contactRadius - distance).coerceAtLeast(0f)
+            item.velocity = item.velocity +
+                normal * (FINGER_CONTACT_ACCELERATION * deltaSeconds + penetration * CONTACT_SEPARATION_GAIN)
+        }
     }
 
     private fun updateGrab(
@@ -672,6 +756,17 @@ class SandboxSimulation {
         private const val GAMEPAD_REACH_HEIGHT = 2.15f
         private const val GRAB_THRESHOLD = 0.45f
         private const val MAX_GRAB_DISTANCE = 1.2f
+        private const val MIN_PALM_FINGER_LENGTH = 0.025f
+        private const val MIN_FINGER_SEGMENT_LENGTH = 0.012f
+        private const val POWER_GRIP_FOLD_RATIO = 0.92f
+        private const val POWER_GRIP_MIN_FINGERS = 3
+        private const val FINGER_CONTACT_ACCELERATION = 5.5f
+        private const val CONTACT_SEPARATION_GAIN = 7.0f
+        private const val BALL_CONTACT_RADIUS = 0.25f
+        private const val CUBE_CONTACT_RADIUS = 0.30f
+        private val FINGER_MCP_INDICES = intArrayOf(5, 9, 13, 17)
+        private val PALM_MCP_INDICES = intArrayOf(5, 9, 13, 17)
+        private val FINGERTIP_INDICES = intArrayOf(4, 8, 12, 16, 20)
         private const val MAX_THROW_SPEED = 4.5f
         private const val GRAVITY = 3.2f
         private const val FLOOR_Y = -1.18f

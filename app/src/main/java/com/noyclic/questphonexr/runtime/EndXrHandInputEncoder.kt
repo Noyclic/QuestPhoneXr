@@ -1,8 +1,5 @@
 package com.noyclic.questphonexr.runtime
 
-import com.noyclic.questphonexr.input.ControllerInputSource
-import com.noyclic.questphonexr.input.VirtualControllerMapper
-import com.noyclic.questphonexr.input.VirtualControllerState
 import com.noyclic.questphonexr.sandbox.MonocularHandDepthEstimator
 import com.noyclic.questphonexr.tracking.HandPoint
 import com.noyclic.questphonexr.tracking.HandSide
@@ -11,22 +8,21 @@ import com.noyclic.questphonexr.tracking.TrackedHand
 import kotlin.math.sqrt
 
 /**
- * Camera-local palm poses are estimates, not metric controller tracking.
- * Image x/y place the palm in the interaction frustum; apparent palm width
- * estimates distance; MediaPipe world landmarks supply palm orientation.
- *
- * This deliberately does not call the result 6DoF. Translation is monocular
- * and orientation is derived from a hand skeleton, not a tracked controller.
+ * Camera-local hand poses are estimates, not metric controller tracking.
+ * The 26 OpenXR joint positions are reconstructed from MediaPipe's 21 landmarks:
+ * palm and four finger metacarpal bases are derived, while the measured wrist,
+ * thumb and finger joints retain their MediaPipe positions.
  */
 internal data class EndXrEncodedHandInput(
-    val leftRow: FloatArray,
-    val rightRow: FloatArray,
     val leftPose: EndXrHandPoseSample,
-    val rightPose: EndXrHandPoseSample
+    val rightPose: EndXrHandPoseSample,
+    val leftJoints: EndXrHandJointSample,
+    val rightJoints: EndXrHandJointSample
 )
 
 internal object EndXrHandInputEncoder {
     private data class Vec3(val x: Float, val y: Float, val z: Float) {
+        operator fun plus(other: Vec3) = Vec3(x + other.x, y + other.y, z + other.z)
         operator fun minus(other: Vec3) = Vec3(x - other.x, y - other.y, z - other.z)
         operator fun times(scale: Float) = Vec3(x * scale, y * scale, z * scale)
         fun length(): Float = sqrt(x * x + y * y + z * z)
@@ -37,15 +33,16 @@ internal object EndXrHandInputEncoder {
         }
     }
 
-    private val mapper = VirtualControllerMapper()
+    private data class EncodedHand(
+        val pose: EndXrHandPoseSample,
+        val joints: EndXrHandJointSample
+    )
+
     private val leftDepthEstimator = MonocularHandDepthEstimator()
     private val rightDepthEstimator = MonocularHandDepthEstimator()
 
     @Synchronized
     fun encode(frame: HandTrackingFrame): EndXrEncodedHandInput {
-        val mapped = mapper.map(frame, emptyList())
-        // There are at most two useful hand sides. Select them in one pass instead
-        // of building a filtered list and a temporary map on every camera result.
         var left: TrackedHand? = null
         var right: TrackedHand? = null
         for (hand in frame.hands) {
@@ -56,29 +53,31 @@ internal object EndXrHandInputEncoder {
             }
         }
 
-        val leftPose = encodePose(left, leftDepthEstimator)
-        val rightPose = encodePose(right, rightDepthEstimator)
+        val leftEncoded = encodeHand(left, leftDepthEstimator)
+        val rightEncoded = encodeHand(right, rightDepthEstimator)
         if (left == null) leftDepthEstimator.reset()
         if (right == null) rightDepthEstimator.reset()
 
         return EndXrEncodedHandInput(
-            leftRow = encodeState(mapped.left),
-            rightRow = encodeState(mapped.right),
-            leftPose = leftPose,
-            rightPose = rightPose
+            leftPose = leftEncoded.pose,
+            rightPose = rightEncoded.pose,
+            leftJoints = leftEncoded.joints,
+            rightJoints = rightEncoded.joints
         )
     }
 
-    private fun encodePose(
+    private fun encodeHand(
         hand: TrackedHand?,
         depthEstimator: MonocularHandDepthEstimator
-    ): EndXrHandPoseSample {
+    ): EncodedHand {
         if (hand == null || hand.points.size < LANDMARK_COUNT ||
             hand.worldPoints.size < LANDMARK_COUNT
-        ) return EndXrHandPoseSample.EMPTY
+        ) return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
 
-        val imageCenter = average(hand.points, PALM_INDICES) ?: return EndXrHandPoseSample.EMPTY
-        val worldCenter = average(hand.worldPoints, PALM_INDICES) ?: return EndXrHandPoseSample.EMPTY
+        val imageCenter = average(hand.points, PALM_INDICES)
+            ?: return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
+        val worldCenter = average(hand.worldPoints, PALM_INDICES)
+            ?: return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
         val distance = depthEstimator.update(hand.points)?.takeIf { it.isFinite() }
             ?: DEFAULT_HAND_DISTANCE_METERS
 
@@ -89,12 +88,129 @@ internal object EndXrHandInputEncoder {
         val z = (-distance + worldCenter.z.coerceIn(-MAX_LOCAL_DEPTH_METERS, MAX_LOCAL_DEPTH_METERS) *
             LOCAL_DEPTH_SCALE).coerceIn(-MAX_HAND_DISTANCE_METERS, -0.25f)
 
-        val orientation = palmOrientation(hand.worldPoints) ?: return EndXrHandPoseSample.EMPTY
-        return EndXrHandPoseSample.fromCameraPose(
+        val orientation = palmOrientation(hand.worldPoints)
+            ?: return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
+        val pose = EndXrHandPoseSample.fromCameraPose(
             x = x, y = y, z = z,
             qx = orientation[0], qy = orientation[1],
             qz = orientation[2], qw = orientation[3]
         )
+        if (!pose.active) return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
+
+        val joints = encodeJoints(hand, pose)
+        return EncodedHand(pose, joints)
+    }
+
+    /**
+     * Reconstruct OpenXR's 26-joint order from MediaPipe's 21 landmarks.
+     * Four finger metacarpals are estimated along the wrist-to-MCP segment.
+     * All joint offsets and orientations are kept in MediaPipe world space,
+     * so the native runtime composes them with the monocular palm pose once.
+     */
+    private fun encodeJoints(
+        hand: TrackedHand,
+        palmPose: EndXrHandPoseSample
+    ): EndXrHandJointSample {
+        val world = Array(LANDMARK_COUNT) { index ->
+            hand.worldPoints.getOrNull(index)?.toVec3()
+        }
+        if (world.any { it == null }) return EndXrHandJointSample.EMPTY
+        val points = world.map { checkNotNull(it) }
+
+        fun interpolate(a: Int, b: Int, amount: Float): Vec3 =
+            points[a] + (points[b] - points[a]) * amount
+
+        val palm = (points[5] + points[9] + points[13] + points[17]) * 0.25f
+        val jointPoints = arrayOf(
+            palm, points[0],
+            points[1], points[2], points[3], points[4],
+            interpolate(0, 5, 0.58f), points[5], points[6], points[7], points[8],
+            interpolate(0, 9, 0.58f), points[9], points[10], points[11], points[12],
+            interpolate(0, 13, 0.58f), points[13], points[14], points[15], points[16],
+            interpolate(0, 17, 0.58f), points[17], points[18], points[19], points[20]
+        )
+        if (jointPoints.size != EndXrHandJointSample.JOINT_COUNT) {
+            return EndXrHandJointSample.EMPTY
+        }
+
+        val inversePalm = floatArrayOf(
+            -palmPose.qx, -palmPose.qy, -palmPose.qz, palmPose.qw
+        )
+        val values = FloatArray(EndXrHandJointSample.FLOAT_COUNT)
+        for (index in jointPoints.indices) {
+            val localOffset = rotate(inversePalm, jointPoints[index] - palm)
+            if (!localOffset.x.isFinite() || !localOffset.y.isFinite() ||
+                !localOffset.z.isFinite() || kotlin.math.abs(localOffset.x) > 0.24f ||
+                kotlin.math.abs(localOffset.y) > 0.24f ||
+                kotlin.math.abs(localOffset.z) > 0.24f
+            ) return EndXrHandJointSample.EMPTY
+
+            val nextIndex = nextJointIndex(index)
+            val direction = if (nextIndex >= 0) {
+                (jointPoints[nextIndex] - jointPoints[index]).normalized()
+            } else if (index > 1) {
+                (jointPoints[index] - jointPoints[previousJointIndex(index)]).normalized()
+            } else {
+                null
+            }
+            val localDirection = direction?.let { rotate(inversePalm, it) }
+            val localOrientation = localDirection?.let(::quaternionFromDirection)
+                ?: floatArrayOf(0f, 0f, 0f, 1f)
+
+            val offset = index * EndXrHandJointSample.FLOATS_PER_JOINT
+            values[offset] = localOffset.x
+            values[offset + 1] = localOffset.y
+            values[offset + 2] = localOffset.z
+            values[offset + 3] = jointRadius(index)
+            values[offset + 4] = localOrientation[0]
+            values[offset + 5] = localOrientation[1]
+            values[offset + 6] = localOrientation[2]
+            values[offset + 7] = localOrientation[3]
+        }
+        return EndXrHandJointSample.fromValues(values)
+    }
+
+    private fun nextJointIndex(index: Int): Int = when {
+        index in 2..4 -> index + 1
+        index in 6..9 -> index + 1
+        index in 11..14 -> index + 1
+        index in 16..19 -> index + 1
+        index in 21..24 -> index + 1
+        else -> -1
+    }
+
+    private fun previousJointIndex(index: Int): Int = when {
+        index == 5 -> 4
+        index in 7..10 -> index - 1
+        index in 12..15 -> index - 1
+        index in 17..20 -> index - 1
+        index in 22..25 -> index - 1
+        else -> 1
+    }
+
+    private fun quaternionFromDirection(direction: Vec3): FloatArray? {
+        val forward = direction.normalized() ?: return null
+        val reference = Vec3(0f, 0f, 1f)
+        val right = cross(forward, reference).normalized()
+            ?: cross(forward, Vec3(0f, 1f, 0f)).normalized()
+            ?: return null
+        val up = cross(right, forward).normalized() ?: return null
+        return quaternionFromBasis(right, forward, up)
+    }
+    private fun jointRadius(index: Int): Float = when {
+        index == 0 -> 0.022f
+        index == 1 -> 0.014f
+        index in 2..5 -> 0.010f
+        index % 5 == 0 -> 0.008f
+        else -> 0.009f
+    }
+
+    /** Rotate a vector by a normalized quaternion. */
+    private fun rotate(q: FloatArray, value: Vec3): Vec3 {
+        val qv = Vec3(q[0], q[1], q[2])
+        val cross1 = cross(qv, value)
+        val cross2 = cross(qv, cross1 + value * q[3])
+        return value + cross2 * 2f
     }
 
     private fun average(points: List<HandPoint>, indices: IntArray): Vec3? {
@@ -117,10 +233,6 @@ internal object EndXrHandInputEncoder {
         )
     }
 
-    /**
-     * Construct an approximate palm basis from wrist, index/middle/pinky MCP.
-     * The basis is hand-local and camera-aligned; it is not a controller model.
-     */
     private fun palmOrientation(points: List<HandPoint>): FloatArray? {
         val wrist = points.getOrNull(0)?.toVec3() ?: return null
         val indexMcp = points.getOrNull(5)?.toVec3() ?: return null
@@ -182,17 +294,9 @@ internal object EndXrHandInputEncoder {
         return q.takeIf { it.all(Float::isFinite) }
     }
 
-    private fun encodeState(state: VirtualControllerState): FloatArray = floatArrayOf(
-        if (state.source != ControllerInputSource.NONE) 1f else 0f,
-        state.trigger.coerceIn(0f, 1f),
-        state.grip.coerceIn(0f, 1f),
-        0f,
-        0f,
-        0f
-    )
 
     private const val LANDMARK_COUNT = 21
-    private val PALM_INDICES = intArrayOf(0, 5, 9, 13, 17)
+    private val PALM_INDICES = intArrayOf(5, 9, 13, 17)
     private const val DEFAULT_HAND_DISTANCE_METERS = 2.55f
     private const val HORIZONTAL_FOV_SCALE = 2.4f
     private const val VERTICAL_FOV_SCALE = 1.8f
