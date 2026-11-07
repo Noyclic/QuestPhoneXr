@@ -109,7 +109,7 @@ internal class SandboxHandPoseInterpolator {
         to: TrackedHand,
         amount: Float
     ): TrackedHand {
-        if (amount >= 0.9999f) return to
+        if (amount == 1f) return to
         val points = interpolatePoints(from.points, to.points, amount)
         val worldPoints = if (from.worldPoints.size == to.worldPoints.size) {
             interpolatePoints(from.worldPoints, to.worldPoints, amount)
