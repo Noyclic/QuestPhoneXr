@@ -33,6 +33,7 @@ class PinchEstimatorTest {
         val released = estimator.update(invalid, 1_032L)
         assertFalse(released.isPinching)
         assertTrue(released.strength == 0f)
+        assertTrue(released.normalizedDistanceRatio.isInfinite())
     }
 
     @Test
@@ -56,6 +57,7 @@ class PinchEstimatorTest {
         val signal = estimator.update(points, 1_000L)
 
         assertTrue("a deliberate partial closure should cross the activation threshold", signal.isPinching)
+        assertTrue(kotlin.math.abs(signal.normalizedDistanceRatio - 0.35f) < 0.0001f)
     }
 
     @Test
@@ -70,6 +72,7 @@ class PinchEstimatorTest {
         val signal = estimator.update(points, 1_000L)
 
         assertFalse(signal.isPinching)
+        assertTrue(kotlin.math.abs(signal.normalizedDistanceRatio - 0.55f) < 0.0001f)
     }
 
     @Test
