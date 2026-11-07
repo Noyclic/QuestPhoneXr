@@ -104,6 +104,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
     private lateinit var glView: GLSurfaceView
     private lateinit var renderer: SandboxRenderer
+    private lateinit var browserPanel: SandboxBrowserPanelView
+    private var sandboxBrowserVisible = false
+    private var lastBrowserTextureUpdateMs = 0L
     private val xrSurfaceLifecycle = EndXrGlSurfaceLifecycle()
     private val endXrRuntime = EndXrRuntimeBridge()
     @Volatile private var endXrRuntimeLabel = "ожидает GLES surface"
@@ -175,6 +178,24 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             if (isFinishing || !::glView.isInitialized) return
 
             val nowMs = SystemClock.uptimeMillis()
+            if (::browserPanel.isInitialized) {
+                if (sandboxBrowserVisible) {
+                    browserPanel.updateHandInput(simulation.snapshot())
+                    if (nowMs - lastBrowserTextureUpdateMs >= BROWSER_TEXTURE_REFRESH_MS) {
+                        lastBrowserTextureUpdateMs = nowMs
+                        runCatching { browserPanel.captureTextureBitmap() }
+                            .onSuccess { bitmap ->
+                                renderer.submitBrowserBitmap(bitmap)
+                                glView.requestRender()
+                            }
+                            .onFailure { error ->
+                                Log.w(TAG, "Sandbox browser texture capture failed", error)
+                            }
+                    }
+                } else {
+                    browserPanel.releaseHandPointer()
+                }
+            }
             val serviceActive = EndXrHandTrackingService.isRunning()
             val currentHandTrackingFps = if (serviceActive) {
                 EndXrHandTrackingService.diagnosticFps()
@@ -777,8 +798,21 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private fun buildScreen() {
         val root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
-            addView(
-                glView,
+        }
+
+        // Keep the real WebView attached to the Activity, underneath the GLES
+        // SurfaceView. Its view tree is captured into the in-world stereo texture.
+        browserPanel = SandboxBrowserPanelView(this)
+        root.addView(
+            browserPanel,
+            FrameLayout.LayoutParams(
+                SandboxBrowserInteraction.TEXTURE_WIDTH,
+                SandboxBrowserInteraction.TEXTURE_HEIGHT,
+                Gravity.CENTER
+            )
+        )
+        root.addView(
+            glView,
                 FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.MATCH_PARENT
@@ -829,6 +863,15 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             )
             addView(buttons)
+            addView(
+                controlButton("Открыть 3D-браузер + клавиатуру") {
+                    toggleSandboxBrowser()
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
             addView(
                 controlButton("Подключить ПК · телеметрия рук и головы") {
                     showPcBridgeDialog()
@@ -1943,6 +1986,27 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             .show()
     }
 
+    private fun toggleSandboxBrowser() {
+        sandboxBrowserVisible = !sandboxBrowserVisible
+        renderer.setBrowserVisible(sandboxBrowserVisible)
+        if (sandboxBrowserVisible) {
+            browserPanel.onResumeBrowser()
+            lastBrowserTextureUpdateMs = 0L
+            runCatching { browserPanel.captureTextureBitmap() }
+                .onSuccess { renderer.submitBrowserBitmap(it) }
+                .onFailure { Log.w(TAG, "Initial Sandbox browser texture capture failed", it) }
+            Toast.makeText(
+                this,
+                "Браузер открыт в 3D. Наведи палец и сведи большой с указательным для нажатия; удерживай pinch и двигай рукой для прокрутки.",
+                Toast.LENGTH_LONG
+            ).show()
+        } else {
+            browserPanel.releaseHandPointer()
+            Toast.makeText(this, "3D-браузер закрыт", Toast.LENGTH_SHORT).show()
+        }
+        glView.requestRender()
+    }
+
     private fun spawnCube() {
         simulation.spawnCube()
         glView.queueEvent { renderer.updateScene(simulation.snapshot()) }
@@ -2114,6 +2178,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
     override fun onResume() {
         super.onResume()
+        if (::browserPanel.isInitialized) browserPanel.onResumeBrowser()
         if (::glView.isInitialized) {
             glView.onResume()
             val retryOpenXrProbe = retryOpenXrProbeOnResume
@@ -2146,6 +2211,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     }
 
     override fun onPause() {
+        if (::browserPanel.isInitialized) browserPanel.onPauseBrowser()
         Choreographer.getInstance().removeFrameCallback(frameCallback)
         if (::sensorManager.isInitialized) sensorManager.unregisterListener(this)
         inputManager.unregisterInputDeviceListener(this)
@@ -2165,6 +2231,11 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     }
 
     @Suppress("DEPRECATION")
+    override fun onDestroy() {
+        if (::browserPanel.isInitialized) browserPanel.destroyBrowser()
+        super.onDestroy()
+    }
+
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR &&
             event.sensor.type != Sensor.TYPE_GAME_ROTATION_VECTOR
@@ -2272,6 +2343,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         private const val MIN_HAND_TRACKING_CAMERA_HEIGHT_PX = 480
         const val EXTRA_OPEN_PC_BRIDGE = "com.noyclic.questphonexr.OPEN_PC_BRIDGE"
         private const val NANOS_PER_SECOND = 1_000_000_000L
+        private const val BROWSER_TEXTURE_REFRESH_MS = 350L
         private const val MAX_PHYSICS_STEP_SECONDS = 0.05f
         private const val MODEL_INPUT_WIDTH_PX = 480
         private const val MODEL_INPUT_HEIGHT_PX = 360
