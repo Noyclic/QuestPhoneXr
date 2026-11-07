@@ -34,7 +34,7 @@ data class DevicePerformancePreset(
         require(maxRenderFps > 0)
         require(cameraWidthPx > 0 && cameraHeightPx > 0)
         require(maxTrackedHands in 1..2)
-        require(minimumInferenceIntervalMs > 0L)
+        require(minimumInferenceIntervalMs >= 0L) { "Inference interval cannot be negative." }
     }
 }
 
