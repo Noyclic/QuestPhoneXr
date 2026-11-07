@@ -1,0 +1,190 @@
+package com.noyclic.questphonexr.tracking
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class HandTrackManagerTest {
+    @Test
+    fun persistentIdsFollowHandsWhenMediaPipeReordersItsResultList() {
+        val manager = HandTrackManager()
+        val first = manager.update(
+            listOf(
+                observation(HandSide.LEFT, 0.22f),
+                observation(HandSide.RIGHT, 0.78f)
+            ),
+            1_000L
+        )
+        val leftId = first.single { it.side == HandSide.LEFT }.trackingId
+        val rightId = first.single { it.side == HandSide.RIGHT }.trackingId
+
+        val reordered = manager.update(
+            listOf(
+                observation(HandSide.RIGHT, 0.80f),
+                observation(HandSide.LEFT, 0.20f)
+            ),
+            1_016L
+        )
+
+        assertEquals(leftId, reordered.single { it.side == HandSide.LEFT }.trackingId)
+        assertEquals(rightId, reordered.single { it.side == HandSide.RIGHT }.trackingId)
+    }
+
+    @Test
+    fun handednessPreventsIdentitySwapWhenHandsCross() {
+        val manager = HandTrackManager()
+        val first = manager.update(
+            listOf(
+                observation(HandSide.LEFT, 0.25f),
+                observation(HandSide.RIGHT, 0.75f)
+            ),
+            1_000L
+        )
+        val leftId = first.single { it.side == HandSide.LEFT }.trackingId
+        val rightId = first.single { it.side == HandSide.RIGHT }.trackingId
+
+        manager.update(
+            listOf(
+                observation(HandSide.RIGHT, 0.62f),
+                observation(HandSide.LEFT, 0.38f)
+            ),
+            1_032L
+        )
+        val crossed = manager.update(
+            listOf(
+                observation(HandSide.RIGHT, 0.42f),
+                observation(HandSide.LEFT, 0.58f)
+            ),
+            1_064L
+        )
+
+        assertEquals(leftId, crossed.single { it.side == HandSide.LEFT }.trackingId)
+        assertEquals(rightId, crossed.single { it.side == HandSide.RIGHT }.trackingId)
+    }
+
+    @Test
+    fun pinchStateAndLandmarkFilterStayWithHandAfterResultReordering() {
+        val manager = HandTrackManager()
+        manager.update(
+            listOf(
+                observation(HandSide.LEFT, 0.22f, pinching = true),
+                observation(HandSide.RIGHT, 0.78f, pinching = false)
+            ),
+            1_000L
+        )
+        val second = manager.update(
+            listOf(
+                observation(HandSide.LEFT, 0.22f, pinching = true),
+                observation(HandSide.RIGHT, 0.78f, pinching = false)
+            ),
+            1_016L
+        )
+        assertTrue(second.single { it.side == HandSide.LEFT }.isPinching)
+        assertFalse(second.single { it.side == HandSide.RIGHT }.isPinching)
+
+        val reordered = manager.update(
+            listOf(
+                observation(HandSide.RIGHT, 0.78f, pinching = false),
+                observation(HandSide.LEFT, 0.22f, pinching = true)
+            ),
+            1_032L
+        )
+
+        assertTrue(reordered.single { it.side == HandSide.LEFT }.isPinching)
+        assertFalse(reordered.single { it.side == HandSide.RIGHT }.isPinching)
+    }
+
+    @Test
+    fun briefSingleFrameGapHoldsLastPoseThenHidesItAndKeepsIdentity() {
+        val manager = HandTrackManager()
+        val first = manager.update(listOf(observation(HandSide.LEFT, 0.4f)), 1_000L).single()
+
+        val oneFrameGap = manager.update(emptyList(), 1_050L).single()
+        assertEquals(first.trackingId, oneFrameGap.trackingId)
+        assertEquals(first.points, oneFrameGap.points)
+
+        assertTrue(manager.update(emptyList(), 1_090L).isEmpty())
+        val recovered = manager.update(listOf(observation(HandSide.LEFT, 0.42f)), 1_100L).single()
+        assertEquals(first.trackingId, recovered.trackingId)
+    }
+
+    @Test
+    fun longDetectionGapReleasesPinchAndResetsMotionFilter() {
+        val manager = HandTrackManager()
+        manager.update(listOf(observation(HandSide.LEFT, 0.4f, pinching = true)), 1_000L)
+        val pinched = manager.update(
+            listOf(observation(HandSide.LEFT, 0.4f, pinching = true)),
+            1_016L
+        ).single()
+        assertTrue(pinched.isPinching)
+
+        assertTrue(manager.update(emptyList(), 1_200L).isEmpty())
+        val recovered = manager.update(
+            listOf(observation(HandSide.LEFT, 0.9f, pinching = false)),
+            1_216L
+        ).single()
+
+        assertEquals(pinched.trackingId, recovered.trackingId)
+        assertFalse(recovered.isPinching)
+        assertEquals(0.9f, recovered.points[0].x, 0.0001f)
+    }
+
+    @Test
+    fun expiredTrackGetsANewIdentity() {
+        val manager = HandTrackManager()
+        val first = manager.update(listOf(observation(HandSide.LEFT, 0.4f)), 1_000L).single()
+
+        val recovered = manager.update(
+            listOf(observation(HandSide.LEFT, 0.4f)),
+            1_400L
+        ).single()
+
+        assertNotEquals(first.trackingId, recovered.trackingId)
+    }
+
+    @Test
+    fun malformedLandmarksAreIgnoredWithoutCrashing() {
+        val manager = HandTrackManager()
+        val malformed = observation(HandSide.LEFT, 0.4f).copy(points = List(4) { HandPoint(0f, 0f, 0f) })
+
+        assertTrue(manager.update(listOf(malformed), 1_000L).isEmpty())
+    }
+
+    @Test
+    fun nonMonotonicTimestampResetsTrackingState() {
+        val manager = HandTrackManager()
+        val first = manager.update(listOf(observation(HandSide.LEFT, 0.4f)), 1_000L).single()
+
+        val reset = manager.update(listOf(observation(HandSide.LEFT, 0.4f)), 900L).single()
+
+        assertNotEquals(first.trackingId, reset.trackingId)
+    }
+
+    private fun observation(
+        side: HandSide,
+        centerX: Float,
+        pinching: Boolean = false
+    ): HandObservation {
+        val points = MutableList(21) { HandPoint(centerX, 0.5f, 0f) }
+        points[0] = HandPoint(centerX, 0.62f, 0f)
+        points[5] = HandPoint(centerX + 0.10f, 0.44f, 0f)
+        points[9] = HandPoint(centerX, 0.40f, 0f)
+        points[13] = HandPoint(centerX - 0.05f, 0.43f, 0f)
+        points[17] = HandPoint(centerX - 0.10f, 0.44f, 0f)
+        if (pinching) {
+            points[4] = HandPoint(centerX - 0.02f, 0.50f, 0f)
+            points[8] = HandPoint(centerX - 0.02f, 0.50f, 0f)
+        } else {
+            points[4] = HandPoint(centerX - 0.08f, 0.52f, 0f)
+            points[8] = HandPoint(centerX + 0.08f, 0.48f, 0f)
+        }
+        return HandObservation(
+            points = points,
+            worldPoints = emptyList(),
+            observedSide = side,
+            handednessConfidence = if (side == HandSide.UNKNOWN) 0f else 0.99f
+        )
+    }
+}

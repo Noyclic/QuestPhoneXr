@@ -1,4 +1,44 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="300" viewBox="0 0 960 300" fill="none">
-<rect width="960" height="300" rx="24" fill="#151F35"/><text x="48" y="55" fill="#AABCF0" font-family="Arial,sans-serif" font-size="15" letter-spacing="3">SOFTWARE OVERVIEW</text><text x="48" y="94" fill="#F6F8FF" font-family="Arial,sans-serif" font-size="30" font-weight="700">OpenXR request flow</text>
-<g font-family="Arial,sans-serif" text-anchor="middle"><rect x="48" y="145" width="190" height="92" rx="14" fill="#263B63" stroke="#6C89D6"/><text x="143" y="181" fill="#FFFFFF" font-size="18" font-weight="700">XR application</text><text x="143" y="207" fill="#C2D0F4" font-size="13">OpenXR API calls</text><rect x="385" y="145" width="190" height="92" rx="14" fill="#234C55" stroke="#56B7A9"/><text x="480" y="181" fill="#FFFFFF" font-size="18" font-weight="700">OpenXR loader</text><text x="480" y="207" fill="#BFE7E0" font-size="13">Runtime discovery</text><rect x="722" y="145" width="190" height="92" rx="14" fill="#43345F" stroke="#A68AD8"/><text x="817" y="181" fill="#FFFFFF" font-size="18" font-weight="700">EndXR runtime</text><text x="817" y="207" fill="#D8C9F2" font-size="13">Android native layer</text></g>
-<g stroke="#B7C8F7" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M250 191h122m-12-10 12 10-12 10M587 191h122m-12-10 12 10-12 10"/></g><text x="480" y="272" text-anchor="middle" fill="#AAB7D4" font-family="Arial,sans-serif" font-size="13">Simplified architecture diagram — device runtime selection still needs physical validation.</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="360" viewBox="0 0 1120 360" fill="none" role="img" aria-labelledby="title desc">
+<title id="title">GVXRS Mobile OpenXR flow</title><desc id="desc">An XR application communicates through the Khronos OpenXR loader to the GVXRS Mobile runtime, with a separate shared input and tracking bridge.</desc>
+<defs>
+ <linearGradient id="bg" x1="0" y1="0" x2="1120" y2="360" gradientUnits="userSpaceOnUse"><stop stop-color="#091525"/><stop offset=".6" stop-color="#111E35"/><stop offset="1" stop-color="#171B36"/></linearGradient>
+ <linearGradient id="app" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#2D4A78"/><stop offset="1" stop-color="#1E3154"/></linearGradient>
+ <linearGradient id="loader" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#246A69"/><stop offset="1" stop-color="#17434F"/></linearGradient>
+ <linearGradient id="runtime" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#51477F"/><stop offset="1" stop-color="#282C59"/></linearGradient>
+ <linearGradient id="line" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#61E2CE"/><stop offset="1" stop-color="#8C91FF"/></linearGradient>
+ <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" stroke="#AEC3E1" stroke-opacity=".06"/></pattern>
+</defs>
+<rect width="1120" height="360" rx="26" fill="url(#bg)"/><rect width="1120" height="360" rx="26" fill="url(#grid)"/>
+<text x="52" y="50" fill="#79EBD8" font-family="Inter,Arial,sans-serif" font-size="11" font-weight="700" letter-spacing="3">GVXRS MOBILE  /  OPENXR REQUEST FLOW</text>
+<text x="52" y="88" fill="#F3F6FF" font-family="Inter,Arial,sans-serif" font-size="29" font-weight="750">From XR app to runtime</text>
+<g>
+ <rect x="52" y="126" width="280" height="116" rx="18" fill="url(#app)" stroke="#6D91D1" stroke-opacity=".8"/>
+ <circle cx="90" cy="164" r="19" fill="#4266A0"/><path d="M79 163h22v15H79zM84 157h12v6H84z" fill="none" stroke="#DCEAFF" stroke-width="2" stroke-linejoin="round"/>
+ <text x="122" y="160" fill="#F3F7FF" font-family="Inter,Arial,sans-serif" font-size="18" font-weight="700">XR application</text>
+ <text x="78" y="204" fill="#B8C9E7" font-family="Inter,Arial,sans-serif" font-size="12">Uses the OpenXR API</text>
+ <text x="78" y="224" fill="#8099C2" font-family="Inter,Arial,sans-serif" font-size="10">Requests views, input and frames</text>
+</g>
+<g>
+ <rect x="420" y="126" width="280" height="116" rx="18" fill="url(#loader)" stroke="#53B8A9" stroke-opacity=".85"/>
+ <circle cx="458" cy="164" r="19" fill="#2B7B75"/><path d="M448 155h20v18h-20zM453 150v5m10-5v5m-10 18v5m10-5v5" stroke="#D7FFF7" stroke-width="2" stroke-linecap="round"/>
+ <text x="490" y="160" fill="#F1FFFC" font-family="Inter,Arial,sans-serif" font-size="18" font-weight="700">Khronos loader</text>
+ <text x="446" y="204" fill="#B7E2DA" font-family="Inter,Arial,sans-serif" font-size="12">Runtime discovery</text>
+ <text x="446" y="224" fill="#81B8AE" font-family="Inter,Arial,sans-serif" font-size="10">Selects an available runtime</text>
+</g>
+<g>
+ <rect x="788" y="126" width="280" height="116" rx="18" fill="url(#runtime)" stroke="#9B8CDE" stroke-opacity=".85"/>
+ <circle cx="826" cy="164" r="19" fill="#65599A"/><path d="M814 164c4-8 8-11 12-11s8 3 12 11c-4 8-8 11-12 11s-8-3-12-11Z" stroke="#F0EDFF" stroke-width="2" fill="none"/><path d="M820 164h12" stroke="#8DEEDD" stroke-width="2" stroke-linecap="round"/>
+ <text x="858" y="160" fill="#F7F4FF" font-family="Inter,Arial,sans-serif" font-size="18" font-weight="700">GVXRS Mobile</text>
+ <text x="814" y="204" fill="#D0C8F0" font-family="Inter,Arial,sans-serif" font-size="12">Android native runtime</text>
+ <text x="814" y="224" fill="#A69CD2" font-family="Inter,Arial,sans-serif" font-size="10">GLES · views · input · frame lifecycle</text>
+</g>
+<g stroke="url(#line)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M340 184h65m-10-9 10 9-10 9M708 184h65m-10-9 10 9-10 9"/></g>
+<g>
+ <rect x="210" y="278" width="700" height="50" rx="15" fill="#18263A" stroke="#617796" stroke-opacity=".65"/>
+ <circle cx="238" cy="303" r="6" fill="#70E9D5"/><text x="255" y="299" fill="#E6F1FF" font-family="Inter,Arial,sans-serif" font-size="12" font-weight="700">GVXRS CORE</text>
+ <text x="255" y="315" fill="#8FA6C4" font-family="Inter,Arial,sans-serif" font-size="10">Input snapshots · phone orientation · diagnostics</text>
+ <path d="M560 278v-18M560 260h368v-18" stroke="#6ADBCB" stroke-opacity=".65" stroke-width="1.5" stroke-dasharray="4 5"/>
+ <path d="M192 260h736" stroke="#6ADBCB" stroke-opacity=".2" stroke-width="1.2"/>
+</g>
+<text x="52" y="345" fill="#7184A3" font-family="Inter,Arial,sans-serif" font-size="10">Service discovery is not proof of active-runtime selection or third-party game compatibility.</text>
+</svg>
