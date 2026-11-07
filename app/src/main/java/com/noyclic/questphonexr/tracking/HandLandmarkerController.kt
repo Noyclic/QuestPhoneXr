@@ -77,8 +77,7 @@ class HandLandmarkerController(
     private var modelBitmap: Bitmap? = null
     private var modelCanvas: Canvas? = null
     private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG)
-    private val pinchEstimators = mutableListOf<PinchEstimator>()
-    private val landmarkFilters = mutableListOf<OneEuroHandFilter>()
+    private val handTrackManager = HandTrackManager(maxHands)
     private val landmarker: HandLandmarker
 
     init {
@@ -386,17 +385,8 @@ class HandLandmarkerController(
             val worldLandmarkLists = result.worldLandmarks()
             val transform = inFlightTransform.get()
 
-            while (pinchEstimators.size < landmarkLists.size) {
-                pinchEstimators.add(PinchEstimator())
-                landmarkFilters.add(OneEuroHandFilter())
-            }
-            while (pinchEstimators.size > landmarkLists.size) {
-                pinchEstimators.removeAt(pinchEstimators.lastIndex)
-                landmarkFilters.removeAt(landmarkFilters.lastIndex)
-            }
-
-            val hands = landmarkLists.mapIndexed { index, landmarks ->
-                val rawPoints = landmarks.map { landmark ->
+            val observations = landmarkLists.mapIndexed { index, landmarks ->
+                val points = landmarks.map { landmark ->
                     val mapped = transform?.toRotatedFrameNormalized(landmark.x(), landmark.y())
                     if (mapped == null) {
                         HandPoint(landmark.x(), landmark.y(), landmark.z())
@@ -404,14 +394,8 @@ class HandLandmarkerController(
                         HandPoint(mapped.first, mapped.second, landmark.z())
                     }
                 }
-                // Filter using MediaPipe's real callback timestamp; LIVE_STREAM may drop frames.
-                // Pinch is derived from the same stable points that are sent to the renderer.
-                val points = landmarkFilters[index].update(rawPoints, result.timestampMs())
-                val pinch = pinchEstimators[index].update(points)
-                val label = handednessLists.getOrNull(index)
-                    ?.firstOrNull()
-                    ?.categoryName()
-                    ?.lowercase()
+                val category = handednessLists.getOrNull(index)?.firstOrNull()
+                val label = category?.categoryName()?.lowercase()
                 val detectedSide = when (label) {
                     "left" -> HandSide.LEFT
                     "right" -> HandSide.RIGHT
@@ -422,8 +406,16 @@ class HandLandmarkerController(
                 val worldPoints = worldLandmarkLists.getOrNull(index).orEmpty().map {
                     HandPoint(if (mirrorFrontCamera) -it.x() else it.x(), it.y(), it.z())
                 }
-                TrackedHand(points, pinch.strength, pinch.isPinching, side, worldPoints)
+                HandObservation(
+                    points = points,
+                    worldPoints = worldPoints,
+                    observedSide = side,
+                    handednessConfidence = category?.score() ?: 0f
+                )
             }
+            // Association happens before filtering, so result-list reordering cannot exchange
+            // the two hands' filter history, stable IDs or pinch state.
+            val hands = handTrackManager.update(observations, result.timestampMs())
 
             val startedAtNanos = inFlightStartedAtNanos.getAndSet(0L)
             val latencyMs = if (startedAtNanos > 0L) {
@@ -463,8 +455,7 @@ class HandLandmarkerController(
 
     private fun onTaskError(error: RuntimeException) {
         inFlightImage.getAndSet(null)?.close()
-        pinchEstimators.forEach { it.reset() }
-        landmarkFilters.forEach { it.reset() }
+        handTrackManager.reset()
         resetInFlightState()
         publishMetrics()
         if (!closed.get()) {
@@ -486,7 +477,7 @@ class HandLandmarkerController(
         if (closed.compareAndSet(false, true)) {
             inFlightImage.getAndSet(null)?.close()
             resetInFlightState()
-            pinchEstimators.forEach { it.reset() }
+            handTrackManager.reset()
             landmarker.close()
 
             // Do not recycle bitmaps while a native callback could still hold a reference.
