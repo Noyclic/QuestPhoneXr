@@ -2,6 +2,7 @@ package com.noyclic.questphonexr.tracking
 
 import android.content.Context
 import com.noyclic.questphonexr.performance.DevicePerformanceTier
+import com.google.mediapipe.tasks.core.Delegate
 
 /**
  * User-selectable MediaPipe workload. These are workload presets, not FPS guarantees.
@@ -80,7 +81,24 @@ enum class HandTrackingPreset(
     }
 }
 
-/** Persists only the user's selected workload preset; automatic dimensions remain automatic. */
+/**
+ * Explicit delegate choice for controlled on-device comparisons.
+ * GPU_PREFERRED still falls back to CPU if the GPU delegate cannot initialize.
+ */
+enum class HandTrackingDelegatePreference(
+    val label: String,
+    val delegate: Delegate
+) {
+    GPU_PREFERRED("GPU · резервный CPU", Delegate.GPU),
+    CPU_ONLY("Только CPU", Delegate.CPU);
+
+    companion object {
+        fun fromStoredName(value: String?): HandTrackingDelegatePreference =
+            entries.firstOrNull { it.name == value } ?: GPU_PREFERRED
+    }
+}
+
+/** Persists the selected hand-tracking workload and delegate preference. */
 class HandTrackingPresetStore(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences(
         PREFERENCES_NAME,
@@ -94,8 +112,19 @@ class HandTrackingPresetStore(context: Context) {
         preferences.edit().putString(KEY_PRESET, preset.name).apply()
     }
 
+    fun loadDelegatePreference(
+        fallback: HandTrackingDelegatePreference = HandTrackingDelegatePreference.GPU_PREFERRED
+    ): HandTrackingDelegatePreference = HandTrackingDelegatePreference.fromStoredName(
+        preferences.getString(KEY_DELEGATE, fallback.name)
+    )
+
+    fun saveDelegatePreference(preference: HandTrackingDelegatePreference) {
+        preferences.edit().putString(KEY_DELEGATE, preference.name).apply()
+    }
+
     private companion object {
         const val PREFERENCES_NAME = "hand_tracking_preferences"
         const val KEY_PRESET = "tracking_preset"
+        const val KEY_DELEGATE = "tracking_delegate"
     }
 }
