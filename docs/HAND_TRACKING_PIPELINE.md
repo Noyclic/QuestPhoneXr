@@ -78,6 +78,8 @@ The persistent service accepts live inference-interval updates without restartin
 
 A new **Быстро · 1 рука** preset uses one-hand inference and no additional frame interval. It is an optional low-latency workload; two-hand presets remain available. Preset descriptions are workload guidance, not guaranteed FPS.
 
+A separate **Турбо · 1 рука** preset keeps CameraX capture at 640×480 but scales the model bitmap to 320×240. This reduces model-input pixels to one quarter of the 640×480 source size while retaining the higher-resolution camera image for preprocessing. It is a speed/detail tradeoff, not a prediction of a fourfold inference speedup. The selected model dimensions are preserved when tracking moves into the foreground service.
+
 Diagnostics now split preprocessing, approximate inference, and result-processing time. Compare these values alongside result FPS, dropped-busy frames, dropped-interval frames, and result age. If inference dominates, test GPU versus CPU and one-hand mode. If preprocessing dominates, inspect CameraX stride/format and source dimensions. Do not claim a performance gain until the same scene and lighting are measured on the physical Redmi Note 13 4G.
 
 
