@@ -268,7 +268,7 @@ class HandLandmarkerController(
                 runCatching { it.close() }
             }
             resetInFlightState()
-            publishMetrics()
+            publishMetrics(force = true)
             Log.e(TAG, "Could not process camera frame", error)
             onError(error.message ?: "MediaPipe could not process the camera frame.")
         } finally {
@@ -543,7 +543,7 @@ class HandLandmarkerController(
         inFlightImage.getAndSet(null)?.close()
         handTrackManager.reset()
         resetInFlightState()
-        publishMetrics()
+        publishMetrics(force = true)
         if (!closed.get()) {
             Log.e(TAG, "MediaPipe task error", error)
             onError(error.message ?: "MediaPipe reported an unknown error.")
