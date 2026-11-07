@@ -61,9 +61,20 @@ class PinchEstimator(
             return PinchSignal(0f, false)
         }
 
-        val palmWidth = distance(indexMcp, pinkyMcp).coerceAtLeast(MIN_PALM_WIDTH)
-        val normalizedPinchDistance = distance(thumb, index) / palmWidth
-        val rawStrength = ((OPEN_RATIO - normalizedPinchDistance) / RATIO_RANGE).coerceIn(0f, 1f)
+        val measuredPalmWidth = distance(indexMcp, pinkyMcp)
+        val measuredTipDistance = distance(thumb, index)
+        if (!measuredPalmWidth.isFinite() || !measuredTipDistance.isFinite()) {
+            reset()
+            return PinchSignal(0f, false)
+        }
+        val palmWidth = measuredPalmWidth.coerceAtLeast(MIN_PALM_WIDTH)
+        val normalizedPinchDistance = measuredTipDistance / palmWidth
+        if (!normalizedPinchDistance.isFinite()) {
+            reset()
+            return PinchSignal(0f, false)
+        }
+        val rawStrength = ((OPEN_RATIO - normalizedPinchDistance) / RATIO_RANGE)
+            .coerceIn(0f, 1f)
         val alpha = smoothingAlpha(timestampMs)
         filteredStrength += (rawStrength - filteredStrength) * alpha
 
