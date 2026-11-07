@@ -253,6 +253,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
     private val recoveryPolicy = TrackingRecoveryPolicy()
     private var cameraStartAttemptAtMs = 0L
     private var recoveryInProgress = false
+    private var pendingRecoveryRunnable: Runnable? = null
     private val trackingWatchdog = object : Runnable {
         override fun run() {
             if (!activeOrPending) return
@@ -293,6 +294,8 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             activeOrPending = false
+            cancelPendingRecovery()
+            mainHandler.removeCallbacks(trackingWatchdog)
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -307,6 +310,8 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
             return START_STICKY
         }
 
+        cancelPendingRecovery()
+        recoveryPolicy.reset()
         readConfiguration(intent)
         EndXrHandTrackingDiagnostics.begin(
             cameraWidthPx,
@@ -595,14 +600,23 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
         )
         updateNotification("Восстанавливаем трекинг · попытка ${retry.attempt}/${recoveryPolicy.maxAttempts}")
 
-        mainHandler.postDelayed({
+        val recoveryRunnable = Runnable {
+            pendingRecoveryRunnable = null
             if (!activeOrPending) {
                 recoveryInProgress = false
-                return@postDelayed
+                return@Runnable
             }
             recoveryInProgress = false
             startCamera()
-        }, retry.delayMs)
+        }
+        pendingRecoveryRunnable = recoveryRunnable
+        mainHandler.postDelayed(recoveryRunnable, retry.delayMs)
+    }
+
+    private fun cancelPendingRecovery() {
+        pendingRecoveryRunnable?.let(mainHandler::removeCallbacks)
+        pendingRecoveryRunnable = null
+        recoveryInProgress = false
     }
 
     private fun startHeadOrientationTracking() {
@@ -677,7 +691,7 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
     override fun onDestroy() {
         activeOrPending = false
         mainHandler.removeCallbacks(trackingWatchdog)
-        recoveryInProgress = false
+        cancelPendingRecovery()
         EndXrHandTrackingDiagnostics.markStopped()
         sensorManager.unregisterListener(this)
         cameraGeneration += 1L

@@ -38,6 +38,19 @@ class TrackingRecoveryPolicyTest {
     }
 
     @Test
+    fun failuresDoNotResetJustBecauseTimePassedWithoutHealthyFrames() {
+        val policy = TrackingRecoveryPolicy()
+        policy.nextRetry(1_000L)
+        policy.nextRetry(2_000L)
+        policy.nextRetry(3_000L)
+
+        assertNull(
+            "a long dead pipeline is not a healthy interval",
+            policy.nextRetry(30_000L)
+        )
+    }
+
+    @Test
     fun recoveryPolicyResetsWhenClockMovesBackwards() {
         val policy = TrackingRecoveryPolicy()
         policy.nextRetry(5_000L)

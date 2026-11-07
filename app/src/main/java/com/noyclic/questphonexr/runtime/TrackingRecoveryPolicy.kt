@@ -26,7 +26,7 @@ internal class TrackingRecoveryPolicy(
     }
 
     fun nextRetry(nowMs: Long): TrackingRecoveryRetry? {
-        resetAfterStableWindow(nowMs)
+        if (lastFailureAtMs >= 0L && nowMs < lastFailureAtMs) reset()
         if (attempts >= maxAttempts) return null
         attempts += 1
         lastFailureAtMs = nowMs
@@ -47,9 +47,9 @@ internal class TrackingRecoveryPolicy(
 
     private fun resetAfterStableWindow(nowMs: Long) {
         if (lastFailureAtMs < 0L) return
-        if (nowMs < lastFailureAtMs) {
-            reset()
-        } else if (nowMs - lastFailureAtMs >= healthyResetAfterMs) {
+        if (nowMs < lastFailureAtMs ||
+            nowMs - lastFailureAtMs >= healthyResetAfterMs
+        ) {
             reset()
         }
     }
