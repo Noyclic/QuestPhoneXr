@@ -1131,8 +1131,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                         minimumInferenceIntervalMs = adaptivePerformanceState.minimumInferenceIntervalMs,
                         // Keep the camera source at 640×480, but feed a bounded 480×360
                         // bitmap to the MediaPipe model.
-                        outputWidthPx = minOf(effectiveCameraWidthPx(), MODEL_INPUT_WIDTH_PX),
-                        outputHeightPx = minOf(effectiveCameraHeightPx(), MODEL_INPUT_HEIGHT_PX),
+                        outputWidthPx = minOf(effectiveCameraWidthPx(), handTrackingPreset.modelInputWidthPx),
+                        outputHeightPx = minOf(effectiveCameraHeightPx(), handTrackingPreset.modelInputHeightPx),
                         onMetrics = { snapshot -> latestSandboxTrackingMetrics = snapshot },
                         preferredDelegate = Delegate.GPU,
                         ownerExecutor = cameraExecutor
@@ -1233,7 +1233,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             effectiveCameraWidthPx(),
             effectiveCameraHeightPx(),
             handTrackingPreset.maxTrackedHands,
-            adaptivePerformanceState.minimumInferenceIntervalMs
+            adaptivePerformanceState.minimumInferenceIntervalMs,
+            minOf(effectiveCameraWidthPx(), handTrackingPreset.modelInputWidthPx),
+            minOf(effectiveCameraHeightPx(), handTrackingPreset.modelInputHeightPx)
         )
         runCatching {
             ContextCompat.startForegroundService(this, serviceIntent)
@@ -1688,7 +1690,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 effectiveCameraWidthPx(),
                 effectiveCameraHeightPx(),
                 handTrackingPreset.maxTrackedHands,
-                adaptivePerformanceState.minimumInferenceIntervalMs
+                adaptivePerformanceState.minimumInferenceIntervalMs,
+                minOf(effectiveCameraWidthPx(), handTrackingPreset.modelInputWidthPx),
+                minOf(effectiveCameraHeightPx(), handTrackingPreset.modelInputHeightPx)
             )
             runCatching {
                 ContextCompat.startForegroundService(this, intent)
