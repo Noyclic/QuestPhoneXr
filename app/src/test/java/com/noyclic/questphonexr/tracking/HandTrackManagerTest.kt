@@ -148,6 +148,45 @@ class HandTrackManagerTest {
     }
 
     @Test
+    fun shortOcclusionUsesBoundedDecayingMotionPrediction() {
+        val manager = HandTrackManager()
+        manager.update(listOf(observation(HandSide.LEFT, 0.4f)), 1_000L)
+        val latest = manager.update(listOf(observation(HandSide.LEFT, 0.5f)), 1_016L).single()
+
+        val duringGap = manager.update(emptyList(), 1_040L).single()
+
+        assertTrue("brief gap should continue the last motion direction", duringGap.points[0].x > latest.points[0].x)
+        assertTrue("prediction must stay tightly bounded", duringGap.points[0].x - latest.points[0].x <= 0.08f)
+        assertEquals(latest.worldPoints, duringGap.worldPoints)
+        assertEquals(latest.isPinching, duringGap.isPinching)
+    }
+
+    @Test
+    fun palmScaleContinuityDisambiguatesAmbiguousUnknownHandReacquisition() {
+        val manager = HandTrackManager()
+        val initial = manager.update(
+            listOf(
+                observation(HandSide.UNKNOWN, 0.35f, palmScale = 0.65f),
+                observation(HandSide.UNKNOWN, 0.65f, palmScale = 1.35f)
+            ),
+            1_000L
+        )
+        val smallHandId = initial.minBy { palmWidth(it.points) }.trackingId
+        val largeHandId = initial.maxBy { palmWidth(it.points) }.trackingId
+
+        val reacquired = manager.update(
+            listOf(
+                observation(HandSide.UNKNOWN, 0.5f, palmScale = 1.35f),
+                observation(HandSide.UNKNOWN, 0.5f, palmScale = 0.65f)
+            ),
+            1_016L
+        )
+
+        assertEquals(smallHandId, reacquired.minBy { palmWidth(it.points) }.trackingId)
+        assertEquals(largeHandId, reacquired.maxBy { palmWidth(it.points) }.trackingId)
+    }
+
+    @Test
     fun briefSingleFrameGapHoldsLastPoseThenHidesItAndKeepsIdentity() {
         val manager = HandTrackManager()
         val first = manager.update(listOf(observation(HandSide.LEFT, 0.4f)), 1_000L).single()
@@ -233,7 +272,8 @@ class HandTrackManagerTest {
     private fun observation(
         side: HandSide,
         centerX: Float,
-        pinching: Boolean = false
+        pinching: Boolean = false,
+        palmScale: Float = 1f
     ): HandObservation {
         val points = MutableList(21) { HandPoint(centerX, 0.5f, 0f) }
         points[0] = HandPoint(centerX, 0.62f, 0f)
@@ -248,12 +288,25 @@ class HandTrackManagerTest {
             points[4] = HandPoint(centerX - 0.08f, 0.52f, 0f)
             points[8] = HandPoint(centerX + 0.08f, 0.48f, 0f)
         }
+        val scaledPoints = if (palmScale == 1f) points else points.map { point ->
+            HandPoint(
+                centerX + (point.x - centerX) * palmScale,
+                0.5f + (point.y - 0.5f) * palmScale,
+                point.z
+            )
+        }
         return HandObservation(
-            points = points,
+            points = scaledPoints,
             worldPoints = emptyList(),
             observedSide = side,
             handednessConfidence = if (side == HandSide.UNKNOWN) 0f else 0.99f
         )
+    }
+
+    private fun palmWidth(points: List<HandPoint>): Float {
+        val dx = points[5].x - points[17].x
+        val dy = points[5].y - points[17].y
+        return kotlin.math.sqrt(dx * dx + dy * dy)
     }
 }
 
