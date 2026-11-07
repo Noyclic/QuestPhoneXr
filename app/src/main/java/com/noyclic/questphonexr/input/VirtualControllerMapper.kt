@@ -115,10 +115,10 @@ class VirtualControllerMapper {
         val middleTip = points.getOrNull(16) ?: return 0f
         val pinkyTip = points.getOrNull(20) ?: return 0f
         val averageRatio = (
-            distance(wrist, thumbTip).toDouble() / palmLength +
-                distance(wrist, indexTip).toDouble() / palmLength +
-                distance(wrist, middleTip).toDouble() / palmLength +
-                distance(wrist, pinkyTip).toDouble() / palmLength
+            (distance(wrist, thumbTip) / palmLength).toDouble() +
+                (distance(wrist, indexTip) / palmLength).toDouble() +
+                (distance(wrist, middleTip) / palmLength).toDouble() +
+                (distance(wrist, pinkyTip) / palmLength).toDouble()
             ) / FINGER_TIP_COUNT
         return ((OPEN_HAND_RATIO - averageRatio.toFloat()) / GRIP_RANGE).coerceIn(0f, 1f)
     }
