@@ -83,3 +83,12 @@ A new **Быстро · 1 рука** preset uses one-hand inference and no addit
 A separate **Турбо · 1 рука** preset keeps CameraX capture at 640×480 but scales the model bitmap to 320×240. This reduces model-input pixels to one quarter of the 640×480 source size while retaining the higher-resolution camera image for preprocessing. It is a speed/detail tradeoff, not a prediction of a fourfold inference speedup. The selected model dimensions are preserved when tracking moves into the foreground service.
 
 Diagnostics now split preprocessing, approximate inference, and result-processing time. Compare these values alongside result FPS, dropped-busy frames, dropped-interval frames, and result age. If inference dominates, test GPU versus CPU and one-hand mode. If preprocessing dominates, inspect CameraX stride/format and source dimensions. Do not claim a performance gain until the same scene and lighting are measured on the physical Redmi Note 13 4G. The diagnostic callback snapshots are throttled to 4 Hz, and the optional frame-luma sample runs at 1 Hz; error events still force an immediate metrics publish. A 0 ms inference interval means no added software throttle, not a guaranteed 1000 FPS target; the adaptive governor only adds delay after measured overload.
+
+## Adaptive presentation timing
+
+Sandbox render interpolation now estimates both the recent MediaPipe callback interval and its
+short-term absolute interval jitter. Stable cadence uses a 30% interval presentation delay
+(clamped to 18–64 ms); irregular callback spacing adds a bounded jitter margin. The estimator
+resets when a hand disappears, changes identity, or the sample gap is too large. Forward
+prediction remains capped at 26 ms / 35% of the sample interval. This changes rendered landmark
+timing only: pinch/grip and the interaction cursor continue to use the newest observation.
