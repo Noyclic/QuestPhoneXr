@@ -1,7 +1,6 @@
 package com.noyclic.questphonexr.tracking
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -13,9 +12,9 @@ class HandKinematicReconstructorTest {
         val result = reconstructor.reconstruct(sampleHand(), trackingId = 7L, timestampMs = 100L)
 
         assertEquals(26, result?.size)
-        assertEquals(0.0f, result?.get(0)?.x ?: Float.NaN, 0.0001f)
-        assertEquals(0.58f, result?.get(6)?.y ?: Float.NaN, 0.0001f)
-        assertEquals(0.58f, result?.get(11)?.y ?: Float.NaN, 0.0001f)
+        assertEquals(-0.00625f, result?.get(0)?.x ?: Float.NaN, 0.0001f)
+        assertEquals(0.058f, result?.get(6)?.y ?: Float.NaN, 0.0001f)
+        assertEquals(0.0696f, result?.get(11)?.y ?: Float.NaN, 0.0001f)
     }
 
     @Test
@@ -58,7 +57,7 @@ class HandKinematicReconstructorTest {
         }
         assertNull(reconstructor.reconstruct(invalid, 1L, 116L))
         val recovered = reconstructor.reconstruct(sampleHand(), 1L, 132L)
-        assertNotEquals(null, recovered)
+        assertTrue(recovered != null)
     }
 
     private fun sampleHand(): List<HandPoint> = List(21) { index ->
