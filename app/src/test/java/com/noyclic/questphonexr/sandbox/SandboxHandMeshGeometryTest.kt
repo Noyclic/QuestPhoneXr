@@ -14,7 +14,7 @@ class SandboxHandMeshGeometryTest {
         chains.forEach { chain ->
             assertEquals(4, chain.size)
             assertTrue(chain.all { it in 0..20 })
-            assertTrue(chain.zipWithNext().all { (first, second) -> first != second })
+            assertTrue(chain.toList().zipWithNext().all { (first, second) -> first != second })
         }
     }
 
