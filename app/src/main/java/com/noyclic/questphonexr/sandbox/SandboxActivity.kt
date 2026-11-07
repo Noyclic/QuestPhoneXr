@@ -2078,7 +2078,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         val percent = (hand.pinchStrength * 100f).toInt().coerceIn(0, 100)
         val ratio = hand.pinchDistanceRatio.takeIf { it.isFinite() }
             ?.let { String.format(Locale.US, "%.2f", it) } ?: "—"
-        return "$percent% · разрыв $ratio× · " + if (hand.isPinching) "ON" else "off"
+        val source = if (hand.pinchUsesWorldLandmarks) "3D" else "2D"
+        return "$percent% · разрыв $ratio× · $source · " +
+            if (hand.isPinching) "ON" else "off"
     }
 
     private fun updateStatus() {
