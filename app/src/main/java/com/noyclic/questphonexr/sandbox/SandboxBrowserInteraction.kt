@@ -22,6 +22,17 @@ internal object SandboxBrowserInteraction {
      * Maps the camera-derived cursor onto the browser plane. Dragging can clamp
      * at the edge so a held pinch continues delivering a valid Android pointer.
      */
+    /** Convert a texture coordinate back to a point just in front of the 3D panel. */
+    fun toWorld(point: PixelPoint, forwardOffsetMeters: Float = 0.022f): SandboxVector3 {
+        val u = (point.x / (TEXTURE_WIDTH - 1)).coerceIn(0f, 1f)
+        val v = (point.y / (TEXTURE_HEIGHT - 1)).coerceIn(0f, 1f)
+        return SandboxVector3(
+            x = PANEL_CENTER_X - PANEL_WIDTH * 0.5f + u * PANEL_WIDTH,
+            y = PANEL_CENTER_Y + PANEL_HEIGHT * 0.5f - v * PANEL_HEIGHT,
+            z = PANEL_CENTER_Z + forwardOffsetMeters.coerceIn(0f, 0.08f)
+        )
+    }
+
     fun map(cursor: SandboxVector3, clampToPanel: Boolean = false): PixelPoint? {
         if (!cursor.x.isFinite() || !cursor.y.isFinite() || !cursor.z.isFinite()) return null
         if (abs(cursor.z - PANEL_CENTER_Z) > MAX_DEPTH_DELTA) return null
