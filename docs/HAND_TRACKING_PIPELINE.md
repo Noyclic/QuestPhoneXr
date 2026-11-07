@@ -143,3 +143,14 @@ Sandbox now builds the visible 3D hand as one reusable stereo render batch inste
 - The 3D mesh remains presentation-only. Cursor movement, pinch/grab logic and EndXR input are still driven by the tracking path and do not depend on the mesh batch.
 
 The new JVM tests cover all five four-point finger chains, the 15 bone links, palm/web topology, the maximum batch primitive count, and bounded per-digit radii/taper. The draw-call and vertex-count reduction is a code-level estimate; sustained FPS and visual quality still require measurement on the Redmi Note 13 4G.
+
+
+## Raw-observation natural gestures and OpenXR hand skeleton
+
+EndXR preserves the newest MediaPipe observation alongside the separately filtered Sandbox presentation landmarks. The input path uses those raw observations for pinch, natural-gesture classification, palm pose construction, and the 21-to-26 joint reconstruction. The EndXR joint reconstructor applies its own per-joint adaptive temporal filter to raw MediaPipe world landmarks; it does not run a second filter over the Sandbox One Euro render mesh.
+
+The natural gesture classifier reports independent per-finger extension state and confidence, then recognizes **open palm**, **point**, **victory**, and **thumbs-up** poses. It prefers valid MediaPipe world landmarks and falls back to image-space landmarks with reduced confidence. A pose must be seen in two distinct MediaPipe observations; repeating a held frame does not count as a second observation. The classifier resets on hand loss, tracking identity changes, invalid landmarks, timestamp rollback, or a long inference gap.
+
+Natural gesture results are currently diagnostic-only. They are not converted into physical A/B/X/Y buttons or stick movements, and the six-field controller row ABI remains unchanged. Pinch and natural power grip continue through the existing trigger/grip channels. The 26-joint skeleton is exposed separately through `XR_EXT_hand_tracking`; the palm and four non-thumb metacarpal bases are estimated points, and monocular camera-derived locations intentionally do not claim OpenXR tracked flags.
+
+The classifier and encoder tests cover the four static poses, raw-versus-render landmark separation, world/image fallback, confidence, duplicate samples, identity/loss resets, ambiguous/invalid input, and the camera-to-joint mapping. The external-client probe exercises the hand-tracking extension from a separate Android package when a RuntimeBroker-selected runtime and session are available. Physical Redmi and third-party game testing remain necessary.
