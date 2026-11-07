@@ -818,7 +818,6 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     FrameLayout.LayoutParams.MATCH_PARENT
                 )
             )
-        }
 
         statusView = TextView(this).apply {
             text = statusText()
@@ -2231,11 +2230,6 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     }
 
     @Suppress("DEPRECATION")
-    override fun onDestroy() {
-        if (::browserPanel.isInitialized) browserPanel.destroyBrowser()
-        super.onDestroy()
-    }
-
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR &&
             event.sensor.type != Sensor.TYPE_GAME_ROTATION_VECTOR
@@ -2328,6 +2322,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     }
 
     override fun onDestroy() {
+        if (::browserPanel.isInitialized) browserPanel.destroyBrowser()
         trackingSender?.close()
         trackingSender = null
         if (!EndXrHandTrackingService.isRunning()) {
@@ -2339,6 +2334,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     }
 
     companion object {
+        private const val TAG = "QuestPhoneXR.Sandbox"
         private const val MIN_HAND_TRACKING_CAMERA_WIDTH_PX = 640
         private const val MIN_HAND_TRACKING_CAMERA_HEIGHT_PX = 480
         const val EXTRA_OPEN_PC_BRIDGE = "com.noyclic.questphonexr.OPEN_PC_BRIDGE"
