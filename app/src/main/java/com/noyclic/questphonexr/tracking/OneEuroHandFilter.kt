@@ -1,25 +1,25 @@
 package com.noyclic.questphonexr.tracking
 
-import kotlin.math.abs
 import kotlin.math.PI
-import kotlin.math.exp
+import kotlin.math.abs
 
 /**
- * Adaptive One Euro filter for MediaPipe landmarks.
+ * Allocation-light One Euro filter for a fixed MediaPipe landmark set.
  *
- * Low-speed motion receives stronger jitter reduction; fast motion raises the cutoff
- * so the hand does not feel as if it is being dragged behind the user's fingers.
- * Timestamps are supplied by MediaPipe and may be irregular in LIVE_STREAM mode.
+ * Velocity is calculated from the previous raw sample (not the filtered value), which is
+ * important: measuring velocity against the filtered pose underestimates motion and creates
+ * unnecessary lag. Axis state is allocated once and reused for every subsequent frame.
  */
 internal class OneEuroHandFilter(
-    private val minCutoffHz: Float = 1.2f,
-    private val beta: Float = 0.25f,
-    private val derivativeCutoffHz: Float = 1.0f,
-    private val resetAfterGapMs: Long = 250L
+    private val minCutoffHz: Float = DEFAULT_MIN_CUTOFF_HZ,
+    private val beta: Float = DEFAULT_BETA,
+    private val derivativeCutoffHz: Float = DEFAULT_DERIVATIVE_CUTOFF_HZ,
+    private val resetAfterGapMs: Long = DEFAULT_RESET_AFTER_GAP_MS
 ) {
     private data class AxisState(
-        var value: Float,
-        var derivative: Float
+        var previousRaw: Float,
+        var filtered: Float,
+        var filteredDerivative: Float
     )
 
     private var previousTimestampMs: Long? = null
@@ -37,39 +37,41 @@ internal class OneEuroHandFilter(
             reset()
             return emptyList()
         }
-        if (points.any { !it.x.isFinite() || !it.y.isFinite() || !it.z.isFinite() }) {
-            reset()
-            return points
+
+        for (point in points) {
+            if (!point.x.isFinite() || !point.y.isFinite() || !point.z.isFinite()) {
+                reset()
+                return points
+            }
         }
 
         val previousTime = previousTimestampMs
-        val state = axes
-        val values = flatten(points)
-        if (previousTime == null || state == null || state.size != values.size ||
+        var state = axes
+        if (previousTime == null || state == null || state.size != points.size * AXES_PER_POINT ||
             timestampMs <= previousTime || timestampMs - previousTime > resetAfterGapMs
         ) {
-            axes = Array(values.size) { index -> AxisState(values[index], 0f) }
+            state = createInitialState(points)
+            axes = state
             previousTimestampMs = timestampMs
-            return points.toList()
+            return points
         }
 
-        val dtSeconds = ((timestampMs - previousTime).toFloat() / 1000f)
+        val dtSeconds = ((timestampMs - previousTime).toFloat() / 1_000f)
             .coerceIn(MIN_DT_SECONDS, MAX_DT_SECONDS)
         val derivativeAlpha = smoothingAlpha(derivativeCutoffHz, dtSeconds)
-        val filtered = FloatArray(values.size)
+        val output = ArrayList<HandPoint>(points.size)
 
-        for (index in values.indices) {
-            val axis = state[index]
-            val rawDerivative = (values[index] - axis.value) / dtSeconds
-            axis.derivative += derivativeAlpha * (rawDerivative - axis.derivative)
-            val cutoff = minCutoffHz + beta * abs(axis.derivative)
-            val valueAlpha = smoothingAlpha(cutoff, dtSeconds)
-            axis.value += valueAlpha * (values[index] - axis.value)
-            filtered[index] = axis.value
+        for (index in points.indices) {
+            val point = points[index]
+            val offset = index * AXES_PER_POINT
+            val x = filterAxis(state[offset], point.x, dtSeconds, derivativeAlpha)
+            val y = filterAxis(state[offset + 1], point.y, dtSeconds, derivativeAlpha)
+            val z = filterAxis(state[offset + 2], point.z, dtSeconds, derivativeAlpha)
+            output.add(HandPoint(x, y, z))
         }
 
         previousTimestampMs = timestampMs
-        return unflatten(filtered, points.size)
+        return output
     }
 
     fun reset() {
@@ -77,20 +79,33 @@ internal class OneEuroHandFilter(
         axes = null
     }
 
-    private fun flatten(points: List<HandPoint>): FloatArray {
-        val values = FloatArray(points.size * 3)
+    private fun createInitialState(points: List<HandPoint>): Array<AxisState> {
+        val result = Array(points.size * AXES_PER_POINT) { AxisState(0f, 0f, 0f) }
         points.forEachIndexed { index, point ->
-            values[index * 3] = point.x
-            values[index * 3 + 1] = point.y
-            values[index * 3 + 2] = point.z
+            val offset = index * AXES_PER_POINT
+            result[offset] = AxisState(point.x, point.x, 0f)
+            result[offset + 1] = AxisState(point.y, point.y, 0f)
+            result[offset + 2] = AxisState(point.z, point.z, 0f)
         }
-        return values
+        return result
     }
 
-    private fun unflatten(values: FloatArray, pointCount: Int): List<HandPoint> =
-        List(pointCount) { index ->
-            HandPoint(values[index * 3], values[index * 3 + 1], values[index * 3 + 2])
-        }
+    private fun filterAxis(
+        state: AxisState,
+        rawValue: Float,
+        dtSeconds: Float,
+        derivativeAlpha: Float
+    ): Float {
+        val rawDerivative = (rawValue - state.previousRaw) / dtSeconds
+        state.filteredDerivative += derivativeAlpha *
+            (rawDerivative - state.filteredDerivative)
+
+        val adaptiveCutoff = minCutoffHz + beta * abs(state.filteredDerivative)
+        val valueAlpha = smoothingAlpha(adaptiveCutoff, dtSeconds)
+        state.filtered += valueAlpha * (rawValue - state.filtered)
+        state.previousRaw = rawValue
+        return state.filtered
+    }
 
     private fun smoothingAlpha(cutoffHz: Float, dtSeconds: Float): Float {
         val tau = 1f / (2f * PI.toFloat() * cutoffHz)
@@ -98,6 +113,11 @@ internal class OneEuroHandFilter(
     }
 
     private companion object {
+        const val AXES_PER_POINT = 3
+        const val DEFAULT_MIN_CUTOFF_HZ = 2.8f
+        const val DEFAULT_BETA = 0.65f
+        const val DEFAULT_DERIVATIVE_CUTOFF_HZ = 1.5f
+        const val DEFAULT_RESET_AFTER_GAP_MS = 250L
         const val MIN_DT_SECONDS = 0.001f
         const val MAX_DT_SECONDS = 0.1f
     }
