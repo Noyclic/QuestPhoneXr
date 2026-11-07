@@ -574,7 +574,7 @@ class SandboxSimulation {
         if (trackedHand == null) depthEstimator.reset()
         val pinching = trackedHand?.isPinching == true
         val powerGripping = trackedHand?.let(::isPowerGrip) == true
-        val cameraCursor = interactionCursor(cameraLandmarks, pinching, powerGripping)
+        val cameraCursor = interactionCursor(cameraLandmarks, pinching)
         // A deflected Joy-Con stick takes temporary control of the virtual hand.
         // Releasing the stick returns control to MediaPipe (or the default hand pose).
         val gamepadCursor = physical
@@ -649,8 +649,7 @@ class SandboxSimulation {
 
     private fun interactionCursor(
         landmarks: List<SandboxVector3>,
-        isPinching: Boolean,
-        isPowerGripping: Boolean
+        isPinching: Boolean
     ): SandboxVector3? {
         val indexTip = landmarks.getOrNull(8) ?: landmarks.firstOrNull() ?: return null
         if (isPinching) {
