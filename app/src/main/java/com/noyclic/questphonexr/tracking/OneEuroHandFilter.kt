@@ -38,6 +38,7 @@ internal class OneEuroHandFilter(
             return emptyList()
         }
         if (points.any { !it.x.isFinite() || !it.y.isFinite() || !it.z.isFinite() }) {
+            reset()
             return points
         }
 
