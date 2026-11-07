@@ -314,10 +314,10 @@ internal class SandboxVirtualKeyboardView(
     private var numeric = false
 
     private val alphaRows = listOf(
-        listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p").map(::Key),
-        listOf("a", "s", "d", "f", "g", "h", "j", "k", "l").map(::Key),
+        listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p").map { Key(it) },
+        listOf("a", "s", "d", "f", "g", "h", "j", "k", "l").map { Key(it) },
         listOf(Key("⇧", 1.25f)) +
-            listOf("z", "x", "c", "v", "b", "n", "m").map(::Key) +
+            listOf("z", "x", "c", "v", "b", "n", "m").map { Key(it) } +
             listOf(Key("⌫", 1.25f)),
         listOf(
             Key("123", 1.2f), Key("-", 0.8f), Key("_", 0.8f), Key(".", 0.8f),
@@ -326,10 +326,10 @@ internal class SandboxVirtualKeyboardView(
     )
 
     private val numericRows = listOf(
-        listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0").map(::Key),
-        listOf("@", "#", "$", "%", "&", "-", "+", "(", ")").map(::Key),
+        listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0").map { Key(it) },
+        listOf("@", "#", "$", "%", "&", "-", "+", "(", ")").map { Key(it) },
         listOf(Key("⇧", 1.25f)) +
-            listOf("*", """, "'", ":", ";", "!", "?").map(::Key) +
+            listOf("*", "\"", "'", ":", ";", "!", "?").map { Key(it) } +
             listOf(Key("⌫", 1.25f)),
         listOf(
             Key("ABC", 1.2f), Key(",", 0.8f), Key(".", 0.8f), Key("/", 0.8f),
@@ -402,6 +402,7 @@ internal class SandboxVirtualKeyboardView(
                 pressedKey = null
                 invalidate()
                 return true
+            }
         }
         return true
     }
