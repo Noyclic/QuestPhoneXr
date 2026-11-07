@@ -59,6 +59,12 @@ class HandLandmarkerController(
     private val preprocessingSamples = AtomicLong(0L)
     private val totalPreprocessingNanos = AtomicLong(0L)
     private val lastPreprocessingMs = AtomicLong(0L)
+    private val lastInferenceMs = AtomicLong(0L)
+    private val inferenceSamples = AtomicLong(0L)
+    private val totalInferenceNanos = AtomicLong(0L)
+    private val lastResultProcessingMs = AtomicLong(0L)
+    private val resultProcessingSamples = AtomicLong(0L)
+    private val totalResultProcessingNanos = AtomicLong(0L)
     @Volatile private var lastFrameWidthPx = 0
     @Volatile private var lastFrameHeightPx = 0
     @Volatile private var lastFrameFormat = 0
@@ -125,6 +131,14 @@ class HandLandmarkerController(
             droppedIntervalFrames = droppedIntervalFrames.get(),
             lastPreprocessingMs = lastPreprocessingMs.get(),
             averagePreprocessingMs = averagePreprocessingMs,
+            lastInferenceMs = lastInferenceMs.get(),
+            averageInferenceMs = if (inferenceSamples.get() == 0L) 0f else
+                totalInferenceNanos.get().toFloat() / inferenceSamples.get().toFloat() /
+                    NANOS_PER_MILLISECOND,
+            lastResultProcessingMs = lastResultProcessingMs.get(),
+            averageResultProcessingMs = if (resultProcessingSamples.get() == 0L) 0f else
+                totalResultProcessingNanos.get().toFloat() /
+                    resultProcessingSamples.get().toFloat() / NANOS_PER_MILLISECOND,
             lastFrameWidthPx = lastFrameWidthPx,
             lastFrameHeightPx = lastFrameHeightPx,
             lastFrameFormat = lastFrameFormat,
@@ -378,6 +392,7 @@ class HandLandmarkerController(
     }
 
     private fun onResult(result: HandLandmarkerResult, input: MPImage) {
+        val callbackStartedNanos = SystemClock.elapsedRealtimeNanos()
         try {
             if (closed.get()) return
             val landmarkLists = result.landmarks()
@@ -416,6 +431,12 @@ class HandLandmarkerController(
             // Association happens before filtering, so result-list reordering cannot exchange
             // the two hands' filter history, stable IDs or pinch state.
             val hands = handTrackManager.update(observations, result.timestampMs())
+            val resultProcessingNanos =
+                (SystemClock.elapsedRealtimeNanos() - callbackStartedNanos).coerceAtLeast(0L)
+            val resultProcessingMs = resultProcessingNanos / NANOS_PER_MILLISECOND
+            lastResultProcessingMs.set(resultProcessingMs)
+            totalResultProcessingNanos.addAndGet(resultProcessingNanos)
+            resultProcessingSamples.incrementAndGet()
 
             val startedAtNanos = inFlightStartedAtNanos.getAndSet(0L)
             val latencyMs = if (startedAtNanos > 0L) {
@@ -424,9 +445,17 @@ class HandLandmarkerController(
             } else {
                 0L
             }
+            val preprocessingNanos = inFlightPreprocessingMs.getAndSet(0L) *
+                NANOS_PER_MILLISECOND
+            val inferenceNanos = (callbackStartedNanos - startedAtNanos - preprocessingNanos)
+                .coerceAtLeast(0L)
+            val inferenceMs = inferenceNanos / NANOS_PER_MILLISECOND
+            lastInferenceMs.set(inferenceMs)
+            totalInferenceNanos.addAndGet(inferenceNanos)
+            inferenceSamples.incrementAndGet()
             val sourceWidth = inFlightSourceWidth.getAndSet(0L).toInt()
             val sourceHeight = inFlightSourceHeight.getAndSet(0L).toInt()
-            val preprocessingMs = inFlightPreprocessingMs.getAndSet(0L)
+            val preprocessingMs = preprocessingNanos / NANOS_PER_MILLISECOND
 
             completedFrames.incrementAndGet()
             publishMetrics()
