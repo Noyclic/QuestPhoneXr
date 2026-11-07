@@ -77,7 +77,7 @@ class PinchEstimator(
         val elapsedMs = (timestampMs - previous).coerceIn(1L, MAX_PINCH_SAMPLE_GAP_MS)
         if (smoothing >= 1f) return 1f
         val timeConstantMs = -REFERENCE_INTERVAL_MS / kotlin.math.ln(1f - smoothing)
-        return (1f - kotlin.math.exp(-elapsedMs / timeConstantMs)).coerceIn(0f, 1f)
+        return (1f - kotlin.math.exp(-elapsedMs.toFloat() / timeConstantMs)).coerceIn(0f, 1f)
     }
 
     private fun distance(a: HandPoint, b: HandPoint): Float {
