@@ -1,7 +1,9 @@
 package com.noyclic.questphonexr.sandbox
 
+import android.graphics.Bitmap
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
+import android.opengl.GLUtils
 import android.opengl.Matrix
 import com.noyclic.questphonexr.tracking.HandSide
 import com.noyclic.questphonexr.vr.PhoneVrMath
@@ -45,6 +47,16 @@ class SandboxRenderer : GLSurfaceView.Renderer {
     private var handBatchVertexCount = 0
     private var program = 0
     private var positionHandle = 0
+    private var browserTextureProgram = 0
+    private var browserTexturePositionHandle = 0
+    private var browserTextureUvHandle = 0
+    private var browserTextureMvpHandle = 0
+    private var browserTextureSamplerHandle = 0
+    private var browserTextureId = 0
+    private lateinit var browserQuadBuffer: FloatBuffer
+    private val browserBitmapLock = Any()
+    private var pendingBrowserBitmap: Bitmap? = null
+    @Volatile private var browserVisible = false
     private var colorHandle = 0
     private var mvpHandle = 0
     private var surfaceWidth = 1
@@ -73,6 +85,18 @@ class SandboxRenderer : GLSurfaceView.Renderer {
         scene = snapshot
     }
 
+    fun setBrowserVisible(visible: Boolean) {
+        browserVisible = visible
+    }
+
+    /** Thread-safe handoff; GLES uploads the newest browser frame on the render thread. */
+    fun submitBrowserBitmap(bitmap: Bitmap) {
+        synchronized(browserBitmapLock) {
+            pendingBrowserBitmap?.takeIf { it !== bitmap && !it.isRecycled }?.recycle()
+            pendingBrowserBitmap = bitmap
+        }
+    }
+
     fun recenterHead() {
         synchronized(rotationLock) {
             referenceHeadRotation = pendingHeadRotation.copyOf()
@@ -92,6 +116,20 @@ class SandboxRenderer : GLSurfaceView.Renderer {
         positionHandle = GLES20.glGetAttribLocation(program, "aPosition")
         colorHandle = GLES20.glGetAttribLocation(program, "aColor")
         mvpHandle = GLES20.glGetUniformLocation(program, "uMvp")
+        browserTextureProgram = createProgram(TEXTURE_VERTEX_SHADER, TEXTURE_FRAGMENT_SHADER)
+        browserTexturePositionHandle = GLES20.glGetAttribLocation(browserTextureProgram, "aPosition")
+        browserTextureUvHandle = GLES20.glGetAttribLocation(browserTextureProgram, "aTexCoord")
+        browserTextureMvpHandle = GLES20.glGetUniformLocation(browserTextureProgram, "uMvp")
+        browserTextureSamplerHandle = GLES20.glGetUniformLocation(browserTextureProgram, "uTexture")
+        browserQuadBuffer = createBrowserQuadBuffer()
+        val textureNames = IntArray(1)
+        GLES20.glGenTextures(1, textureNames, 0)
+        browserTextureId = textureNames[0]
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, browserTextureId)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
         cubeMesh = createCubeMesh()
         ballMesh = createSphereMesh(0.95f, 0.42f, 0.18f)
         leftCursorMesh = createSphereMesh(0.16f, 0.88f, 0.62f)
@@ -153,6 +191,7 @@ class SandboxRenderer : GLSurfaceView.Renderer {
         val ambientBob = sin(elapsed * 1.4f) * 0.015f
         // Hand geometry is identical for both eyes; build it once per phone frame.
         buildHandBatch(snapshot)
+        uploadPendingBrowserBitmap()
 
         for (eye in 0..1) {
             val viewportX = eye * eyeWidth
@@ -227,6 +266,10 @@ class SandboxRenderer : GLSurfaceView.Renderer {
                 }
             }
 
+            if (browserVisible && browserTextureId != 0) {
+                drawBrowserPanel()
+            }
+
             val leftHand = snapshot.leftHand
             val rightHand = snapshot.rightHand
             if (!(leftHand.cameraTracked && leftHand.landmarks.size >= HAND_LANDMARK_COUNT)) {
@@ -245,6 +288,85 @@ class SandboxRenderer : GLSurfaceView.Renderer {
             measuredFramesPerSecond = measured
         }
         lastFrameCompleted = true
+    }
+
+    private fun uploadPendingBrowserBitmap() {
+        if (browserTextureId == 0) return
+        synchronized(browserBitmapLock) {
+            val bitmap = pendingBrowserBitmap ?: return
+            if (!bitmap.isRecycled) {
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, browserTextureId)
+                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
+            }
+            pendingBrowserBitmap = null
+            if (!bitmap.isRecycled) bitmap.recycle()
+        }
+    }
+
+    /** Draw the browser as a true world-space quad, once in each stereo eye. */
+    private fun drawBrowserPanel() {
+        Matrix.setIdentityM(model, 0)
+        Matrix.translateM(
+            model, 0,
+            SandboxBrowserInteraction.PANEL_CENTER_X,
+            SandboxBrowserInteraction.PANEL_CENTER_Y,
+            SandboxBrowserInteraction.PANEL_CENTER_Z
+        )
+        Matrix.scaleM(
+            model, 0,
+            SandboxBrowserInteraction.PANEL_WIDTH,
+            SandboxBrowserInteraction.PANEL_HEIGHT,
+            1f
+        )
+        Matrix.multiplyMM(mvp, 0, view, 0, model, 0)
+        Matrix.multiplyMM(mvp, 0, projection, 0, mvp, 0)
+
+        GLES20.glUseProgram(browserTextureProgram)
+        GLES20.glUniformMatrix4fv(browserTextureMvpHandle, 1, false, mvp, 0)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, browserTextureId)
+        GLES20.glUniform1i(browserTextureSamplerHandle, 0)
+
+        browserQuadBuffer.position(0)
+        GLES20.glEnableVertexAttribArray(browserTexturePositionHandle)
+        GLES20.glVertexAttribPointer(
+            browserTexturePositionHandle,
+            3,
+            GLES20.GL_FLOAT,
+            false,
+            TEXTURED_VERTEX_FLOATS * BYTES_PER_FLOAT,
+            browserQuadBuffer
+        )
+        browserQuadBuffer.position(3)
+        GLES20.glEnableVertexAttribArray(browserTextureUvHandle)
+        GLES20.glVertexAttribPointer(
+            browserTextureUvHandle,
+            2,
+            GLES20.GL_FLOAT,
+            false,
+            TEXTURED_VERTEX_FLOATS * BYTES_PER_FLOAT,
+            browserQuadBuffer
+        )
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, BROWSER_QUAD_VERTEX_COUNT)
+        GLES20.glDisableVertexAttribArray(browserTexturePositionHandle)
+        GLES20.glDisableVertexAttribArray(browserTextureUvHandle)
+        browserQuadBuffer.position(0)
+    }
+
+    private fun createBrowserQuadBuffer(): FloatBuffer {
+        val values = floatArrayOf(
+            -0.5f, -0.5f, 0f, 0f, 1f,
+             0.5f, -0.5f, 0f, 1f, 1f,
+            -0.5f,  0.5f, 0f, 0f, 0f,
+             0.5f,  0.5f, 0f, 1f, 0f
+        )
+        return ByteBuffer.allocateDirect(values.size * BYTES_PER_FLOAT)
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
+            .apply {
+                put(values)
+                position(0)
+            }
     }
 
     private fun buildHeadView(rotation: FloatArray) {
@@ -720,6 +842,8 @@ class SandboxRenderer : GLSurfaceView.Renderer {
     companion object {
         private const val BYTES_PER_FLOAT = 4
         private const val FLOATS_PER_VERTEX = 6
+        private const val TEXTURED_VERTEX_FLOATS = 5
+        private const val BROWSER_QUAD_VERTEX_COUNT = 4
         private const val CUBE_VERTEX_COUNT = 36
         private const val HAND_LANDMARK_COUNT = 21
         private const val MAX_TRACKED_HANDS = 2
@@ -752,6 +876,26 @@ class SandboxRenderer : GLSurfaceView.Renderer {
             varying vec3 vColor;
             void main() {
                 gl_FragColor = vec4(vColor, 1.0);
+            }
+        """
+
+        private const val TEXTURE_VERTEX_SHADER = """
+            uniform mat4 uMvp;
+            attribute vec3 aPosition;
+            attribute vec2 aTexCoord;
+            varying vec2 vTexCoord;
+            void main() {
+                gl_Position = uMvp * vec4(aPosition, 1.0);
+                vTexCoord = aTexCoord;
+            }
+        """
+
+        private const val TEXTURE_FRAGMENT_SHADER = """
+            precision mediump float;
+            uniform sampler2D uTexture;
+            varying vec2 vTexCoord;
+            void main() {
+                gl_FragColor = texture2D(uTexture, vTexCoord);
             }
         """
     }
