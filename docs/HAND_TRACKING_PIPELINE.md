@@ -16,7 +16,7 @@ This document describes the Android camera-to-hand-input path and its current sa
 2. The image is rotated, optionally mirrored for the explicitly selected front camera, scaled and letterboxed to the model input.
 3. MediaPipe returns image landmarks, world landmarks and handedness metadata.
 4. `HandTrackManager` associates each result with a persistent track before filtering.
-5. Each track independently filters image landmarks and world landmarks, then estimates pinch from the filtered image landmarks.
+5. Each track independently filters image landmarks and world landmarks for presentation, while pinch is estimated from the newest raw image landmarks with its own time-aware smoothing. Gesture input is not delayed by the render mesh filter.
 6. The current visible detections are published to Sandbox / GVXRS input. Missing detections are not emitted as stale visible hands.
 
 ## Identity and recovery
@@ -35,7 +35,8 @@ This document describes the Android camera-to-hand-input path and its current sa
 - Sandbox uses MediaPipe's adaptive landmark filter as the single camera-pose smoothing stage; it no longer double-smooths hands at render rate. Camera-space mapping validates the rotation matrix once per hand instead of allocating temporary rotation-check lists for every landmark.
 - The filter uses MediaPipe callback timestamps, not an assumed fixed frame rate. Large or invalid timestamp gaps reset filter state.
 - Pinch distance is normalized by palm width so the gesture is less sensitive to how close the hand is to the camera.
-- Pinch uses separate activation and release thresholds (hysteresis) and time-aware smoothing. Missing or invalid key landmarks clear the gesture rather than leaving a stuck pinch.
+- Pinch uses the newest raw thumb/index/palm landmarks rather than the already-filtered render mesh, avoiding two serial smoothing stages on fingertip motion. Its own time-aware smoother uses separate activation and release thresholds (0.62 / 0.40) to respond to deliberate partial closure without treating a relaxed open hand as a pinch. Missing or invalid key landmarks clear the gesture rather than leaving a stuck pinch.
+- The gesture hot path validates the four required landmarks directly without creating a temporary list.
 
 ## Device tuning and limits
 
@@ -58,9 +59,9 @@ Physical-device checks are still required for latency, occlusion behavior, low-l
 
 The Sandbox keeps interaction input and rendered hand geometry on separate paths:
 
-- Pinch/grip state and the interaction cursor use the newest MediaPipe observation immediately.
+- Pinch/grip state and the interaction cursor use the newest MediaPipe observation immediately; pinch has its own short time-aware smoothing and does not wait for the visual One Euro filter.
 - The 21 displayed landmarks are interpolated between the previous and newest per-hand observation using callback-arrival uptime timestamps.
-- Presentation delay adapts to the observed sample interval (55% of the interval, clamped to 18–48 ms). Forward prediction is limited to 26 ms and 35% of the sample interval.
+- Presentation delay adapts to the observed sample interval and callback jitter (clamped to 18–64 ms). Forward prediction is limited to 26 ms and 35% of the sample interval.
 - Interpolation is reset on tracking loss, calibration changes, or a hand identity change. Discrete gesture state is never interpolated.
 
 This stage is intentionally limited to Sandbox rendering. It does not change the MediaPipe filter, the OpenXR input snapshot, or the hand-tracking service output. Physical-device latency and perceived smoothness still need to be checked on the Redmi.
