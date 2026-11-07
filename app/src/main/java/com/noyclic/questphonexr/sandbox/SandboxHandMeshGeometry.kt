@@ -8,6 +8,9 @@ package com.noyclic.questphonexr.sandbox
  * proportions deterministic and straightforward to regression-test.
  */
 internal object SandboxHandMeshGeometry {
+    const val MAX_PRIMITIVES_PER_HAND = 24
+    const val BASE_PRIMITIVES_PER_HAND = 22
+
     val FINGER_CHAINS = arrayOf(
         intArrayOf(1, 2, 3, 4),       // thumb
         intArrayOf(5, 6, 7, 8),       // index
