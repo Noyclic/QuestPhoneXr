@@ -130,6 +130,8 @@ class SandboxSimulationTest {
             snapshot.leftHand.cursor,
             (snapshot.leftHand.landmarks[4] + snapshot.leftHand.landmarks[8]) * 0.5f
         )
+        // Browser touch uses the actual index fingertip, not the pinch midpoint.
+        assertEquals(snapshot.leftHand.landmarks[8], snapshot.leftHand.touchPoint)
         assertEquals(1, snapshot.grabbedObjectCount)
         assertEquals(HandSide.LEFT, snapshot.objects.single { it.heldBy != null }.heldBy)
     }
