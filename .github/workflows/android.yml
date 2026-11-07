@@ -65,6 +65,16 @@ jobs:
             -o ci-results/endxr-runtime-core-tests
           ci-results/endxr-runtime-core-tests
 
+      - name: Run native EndGVR lifecycle tests
+        run: |
+          set -euo pipefail
+          c++ -std=c++17 -Wall -Wextra -Werror \
+            -I app/src/main/cpp/endgvr \
+            app/src/test/cpp/endgvr_vr_mode_coordinator_test.cpp \
+            app/src/main/cpp/endgvr/endgvr_vr_mode_coordinator.cpp \
+            -o ci-results/endgvr-vr-mode-tests
+          ci-results/endgvr-vr-mode-tests
+
       - name: Run native OpenXR bootstrap tests
         run: |
           set -euo pipefail
