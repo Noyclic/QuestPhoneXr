@@ -121,6 +121,33 @@ class HandTrackManagerTest {
     }
 
     @Test
+    fun handTrackManagerUsesWorldGeometryForEdgeOnPinch() {
+        val manager = HandTrackManager()
+        val imagePoints = observation(HandSide.LEFT, 0.4f).points.toMutableList().also {
+            it[5] = HandPoint(0.51f, 0.50f, 0f)
+            it[17] = HandPoint(0.49f, 0.50f, 0f)
+            it[4] = HandPoint(0.491f, 0.50f, 0f)
+            it[8] = HandPoint(0.509f, 0.50f, 0f)
+        }
+        val worldPoints = List(21) { HandPoint(0f, 0f, 0f) }.toMutableList().also {
+            it[5] = HandPoint(0.04f, 0f, 0f)
+            it[17] = HandPoint(-0.04f, 0f, 0f)
+            it[4] = HandPoint(-0.008f, 0f, 0f)
+            it[8] = HandPoint(0.008f, 0f, 0f)
+        }
+        val edgeOnHand = observation(HandSide.LEFT, 0.4f).copy(
+            points = imagePoints,
+            worldPoints = worldPoints
+        )
+
+        val tracked = manager.update(listOf(edgeOnHand), 1_000L).single()
+
+        assertTrue(tracked.isPinching)
+        assertTrue(tracked.pinchUsesWorldLandmarks)
+        assertTrue(tracked.pinchDistanceRatio < 0.25f)
+    }
+
+    @Test
     fun briefSingleFrameGapHoldsLastPoseThenHidesItAndKeepsIdentity() {
         val manager = HandTrackManager()
         val first = manager.update(listOf(observation(HandSide.LEFT, 0.4f)), 1_000L).single()
