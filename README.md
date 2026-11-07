@@ -19,6 +19,10 @@ The Android OpenXR runtime is branded **GVXRS Mobile**. **GVXRS Link** is the PC
 - **GVXRS Link** — PC-to-phone VR streaming and host integration.
 - **GVXRS Core** — shared tracking contracts, diagnostics and common platform services.
 
+The Rust migration is currently experimental and isolated in [`gvxrs-core/`](gvxrs-core/), with C++ parity tests and a narrow C ABI. The first port covers the app-side frame/lifecycle helper and pure controller/pose input sanitization.
+
+**Rust is not yet linked into the Android app or the loader-facing OpenXR runtime.** GVXRS Mobile's production OpenXR library, loader negotiation, EGL/GLES session and swapchain code remain in C++ until the shadow implementation passes differential tests and an opt-in Android integration stage.
+
 NextVRera is the main application. The Android package ID and Kotlin package remain `com.noyclic.questphonexr` for now so the branding change does not break app identity, IPC permissions or runtime discovery. Historical native identifiers such as `libendxr_openxr.so` also remain unchanged in this pass.
 
 ## What NextVRera is working towards
