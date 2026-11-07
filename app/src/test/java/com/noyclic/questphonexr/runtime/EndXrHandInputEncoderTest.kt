@@ -66,9 +66,15 @@ class EndXrHandInputEncoderTest {
 
     @Test
     fun refusesPoseWhenMetricPalmBasisIsDegenerateOrWorldLandmarksAreMissing() {
-        val missingWorld = trackedHand(HandSide.LEFT, centerX = 0.5f).copy(worldPoints = emptyList())
+        val missingWorld = trackedHand(HandSide.LEFT, centerX = 0.5f).copy(
+            worldPoints = emptyList(),
+            rawWorldPoints = emptyList()
+        )
         val degenerateWorld = List(21) { HandPoint(0f, 0f, 0f) }
-        val degenerate = trackedHand(HandSide.RIGHT, centerX = 0.5f).copy(worldPoints = degenerateWorld)
+        val degenerate = trackedHand(HandSide.RIGHT, centerX = 0.5f).copy(
+            worldPoints = degenerateWorld,
+            rawWorldPoints = degenerateWorld
+        )
 
         val encoded = EndXrHandInputEncoder.encode(
             HandTrackingFrame(2L, listOf(missingWorld, degenerate))
