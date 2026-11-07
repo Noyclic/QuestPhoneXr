@@ -7,6 +7,7 @@ import android.provider.MediaStore
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -130,9 +131,71 @@ class ExternalRuntimeClientDiscoveryTest {
                 "The diagnostic did not record whether the runtime was loaded:\n$loaderReport",
                 loaderReport.contains("runtime_loaded=")
             )
+
+            // CI devices without an active RuntimeBroker stop before instance creation.
+            // When a runtime is selected, exercise the extension from this separate APK.
+            if (loaderReport.contains("runtime_instance_created=YES") &&
+                loaderReport.contains("runtime_advertises_XR_EXT_hand_tracking=YES")
+            ) {
+                for (functionName in listOf(
+                    "xrCreateHandTrackerEXT",
+                    "xrDestroyHandTrackerEXT",
+                    "xrLocateHandJointsEXT"
+                )) {
+                    assertTrue(
+                        "External hand-tracking function lookup failed ($functionName):\n$loaderReport",
+                        loaderReport.contains("external_" + functionName + "_lookup=XR_SUCCESS")
+                    )
+                }
+
+                if (loaderReport.contains("external_xrCreateSession=XR_SUCCESS")) {
+                    assertTrue(
+                        "External left hand tracker creation failed:\n$loaderReport",
+                        loaderReport.contains("external_xrCreateHandTrackerEXT_left=XR_SUCCESS")
+                    )
+                    assertTrue(
+                        "External right hand tracker creation failed:\n$loaderReport",
+                        loaderReport.contains("external_xrCreateHandTrackerEXT_right=XR_SUCCESS")
+                    )
+                    if (loaderReport.contains("external_xrWaitFrame=XR_SUCCESS") &&
+                        loaderReport.contains("external_xrCreateReferenceSpace(LOCAL)=XR_SUCCESS")
+                    ) {
+                        assertHandLocateResult(loaderReport, "left")
+                        assertHandLocateResult(loaderReport, "right")
+                    }
+                    assertTrue(
+                        "External left hand tracker was not destroyed cleanly:\n$loaderReport",
+                        loaderReport.contains("external_xrDestroyHandTrackerEXT_left=XR_SUCCESS")
+                    )
+                    assertTrue(
+                        "External right hand tracker was not destroyed cleanly:\n$loaderReport",
+                        loaderReport.contains("external_xrDestroyHandTrackerEXT_right=XR_SUCCESS")
+                    )
+                }
+            }
         } finally {
             activity.finish()
         }
+    }
+
+    private fun assertHandLocateResult(report: String, hand: String) {
+        val pattern = Regex(
+            "external_xrLocateHandJointsEXT_" + hand +
+                "=XR_SUCCESS active=(YES|NO) position_valid=(\\d+) " +
+                "orientation_valid=(\\d+) tracked=(\\d+)"
+        )
+        val match = pattern.find(report)
+        assertNotNull("External " + hand + " hand-joint locate failed or was not reported:\n" + report, match)
+        val values = requireNotNull(match)
+        val active = values.groupValues[1] == "YES"
+        val positionValid = values.groupValues[2].toInt()
+        val orientationValid = values.groupValues[3].toInt()
+        val tracked = values.groupValues[4].toInt()
+        val expectedValidCount = if (active) 26 else 0
+
+        assertEquals("Unexpected " + hand + " position-valid joint count", expectedValidCount, positionValid)
+        assertEquals("Unexpected " + hand + " orientation-valid joint count", expectedValidCount, orientationValid)
+        assertEquals("Camera-estimated " + hand + " joints must not claim TRACKED flags", 0, tracked)
     }
 
     private fun publishReport(
