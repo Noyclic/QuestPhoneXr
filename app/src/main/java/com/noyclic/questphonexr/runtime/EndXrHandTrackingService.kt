@@ -31,6 +31,7 @@ import com.noyclic.questphonexr.tracking.HandLandmarkerController
 import com.noyclic.questphonexr.tracking.HandCameraPreference
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.HandTrackingMetricsSnapshot
+import com.noyclic.questphonexr.tracking.NaturalGestureResult
 import com.google.mediapipe.tasks.core.Delegate
 import java.util.concurrent.Executors
 
@@ -67,6 +68,8 @@ internal object EndXrHandTrackingDiagnostics {
     @Volatile private var recoveryLimit = 3
     @Volatile private var lastRecoveryReason = ""
     @Volatile private var lastRecoveryAtMs = 0L
+    @Volatile private var lastLeftNaturalGesture = NaturalGestureResult.EMPTY
+    @Volatile private var lastRightNaturalGesture = NaturalGestureResult.EMPTY
 
     fun begin(
         widthPx: Int,
@@ -118,6 +121,8 @@ internal object EndXrHandTrackingDiagnostics {
         recoveryLimit = 3
         lastRecoveryReason = ""
         lastRecoveryAtMs = 0L
+        lastLeftNaturalGesture = NaturalGestureResult.EMPTY
+        lastRightNaturalGesture = NaturalGestureResult.EMPTY
     }
 
     fun updateInferenceInterval(intervalMs: Long) {
@@ -165,6 +170,11 @@ internal object EndXrHandTrackingDiagnostics {
 
     fun updateMetrics(snapshot: HandTrackingMetricsSnapshot) {
         metrics = snapshot
+    }
+
+    fun updateNaturalGestures(left: NaturalGestureResult, right: NaturalGestureResult) {
+        lastLeftNaturalGesture = left
+        lastRightNaturalGesture = right
     }
 
     fun onFrame(frame: HandTrackingFrame) {
@@ -223,6 +233,12 @@ internal object EndXrHandTrackingDiagnostics {
             append("service_hand_result_fps=").append(resultFps).append('\n')
             append("service_last_result_hands=").append(lastResultHands).append('\n')
             append("service_last_result_age_ms=").append(resultAgeMs).append('\n')
+            append("service_left_natural_gesture=").append(lastLeftNaturalGesture.gesture.name).append('\n')
+            append("service_left_natural_gesture_confidence=").append(lastLeftNaturalGesture.confidence).append('\n')
+            append("service_left_natural_gesture_source=").append(if (lastLeftNaturalGesture.usedWorldLandmarks) "world" else "image_or_none").append('\n')
+            append("service_right_natural_gesture=").append(lastRightNaturalGesture.gesture.name).append('\n')
+            append("service_right_natural_gesture_confidence=").append(lastRightNaturalGesture.confidence).append('\n')
+            append("service_right_natural_gesture_source=").append(if (lastRightNaturalGesture.usedWorldLandmarks) "world" else "image_or_none").append('\n')
             appendLine("service_mediapipe_delegate=${snapshot.delegateName}")
             appendLine("service_mediapipe_delegate_init_thread_id=${snapshot.delegateInitThreadId}")
             appendLine("service_mediapipe_analyzer_thread_id=${snapshot.lastAnalyzeThreadId}")
@@ -453,6 +469,10 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                             if (activeOrPending && generation == cameraGeneration) {
                                 EndXrHandTrackingDiagnostics.onFrame(frame)
                                 val encoded = EndXrHandInputEncoder.encode(frame)
+                                EndXrHandTrackingDiagnostics.updateNaturalGestures(
+                                    encoded.leftGesture,
+                                    encoded.rightGesture
+                                )
                                 EndXrInputSnapshotStore.publishTrackingFrame(
                                     leftRow = encoded.leftRow,
                                     rightRow = encoded.rightRow,
