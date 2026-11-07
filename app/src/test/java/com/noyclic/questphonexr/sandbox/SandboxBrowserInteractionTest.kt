@@ -134,11 +134,22 @@ class SandboxBrowserInteractionTest {
             hand(HandSide.LEFT, tooFar),
             untrackedHand(HandSide.RIGHT)
         )
+        val farFromCorner = SandboxBrowserInteraction.toWorld(
+            SandboxBrowserInteraction.PixelPoint(920f, 24f)
+        ).let { corner ->
+            corner.copy(z = SandboxBrowserInteraction.PANEL_CENTER_Z + 1.2f)
+        }
+        val distantHover = SandboxBrowserInteraction.closeAffordance(
+            hand(HandSide.RIGHT, farFromCorner),
+            untrackedHand(HandSide.LEFT)
+        )
 
         assertFalse(lost.visible)
         assertFalse(lost.hovered)
         assertFalse(distant.visible)
         assertFalse(distant.hovered)
+        assertFalse(distantHover.visible)
+        assertFalse(distantHover.hovered)
     }
 
     private fun hand(side: HandSide, cursor: SandboxVector3) = SandboxHandState(
