@@ -23,7 +23,10 @@ data class HandTrackingMetricsSnapshot(
     /** Time spent converting landmarks, associating hands and updating gesture state. */
     val lastResultProcessingMs: Long = 0L,
     val averageResultProcessingMs: Float = 0f,
-    val delegateName: String = "CPU"
+    val delegateName: String = "CPU",
+    val delegateInitThreadId: Long = 0L,
+    val lastAnalyzeThreadId: Long = 0L,
+    val delegateThreadMatchesAnalyzer: Boolean = true
 ) {
     val droppedFrames: Long
         get() = droppedBusyFrames + droppedIntervalFrames
