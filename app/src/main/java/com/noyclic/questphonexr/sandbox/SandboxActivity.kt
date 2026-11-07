@@ -807,7 +807,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         browserPanel = SandboxBrowserPanelView(this) {
             if (sandboxBrowserVisible) toggleSandboxBrowser()
         }
-        browserPanel.visibility = View.INVISIBLE
+        // The WebView host remains attached and focusable below the full-screen
+        // GLSurfaceView; only its captured bitmap is shown in the VR scene.
         root.addView(
             browserPanel,
             FrameLayout.LayoutParams(
