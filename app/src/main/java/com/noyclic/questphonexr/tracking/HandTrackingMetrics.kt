@@ -16,7 +16,13 @@ data class HandTrackingMetricsSnapshot(
     val lastFrameRowStride: Int = 0,
     val lastFramePixelStride: Int = 0,
     val lastFrameLumaMean: Float = 0f,
-    val lastFrameLumaStdDev: Float = 0f
+    val lastFrameLumaStdDev: Float = 0f,
+    /** Approximate MediaPipe inference time, excluding conversion and result mapping. */
+    val lastInferenceMs: Long = 0L,
+    val averageInferenceMs: Float = 0f,
+    /** Time spent converting landmarks, associating hands and updating gesture state. */
+    val lastResultProcessingMs: Long = 0L,
+    val averageResultProcessingMs: Float = 0f
 ) {
     val droppedFrames: Long
         get() = droppedBusyFrames + droppedIntervalFrames
