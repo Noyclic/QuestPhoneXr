@@ -71,6 +71,9 @@ class HandLandmarkerController(
     private val lastResultProcessingMs = AtomicLong(0L)
     private val resultProcessingSamples = AtomicLong(0L)
     private val totalResultProcessingNanos = AtomicLong(0L)
+    private val lastMetricsPublishedAtMs = AtomicLong(0L)
+    // Analyzer-thread confined: this signal is diagnostic only, not part of the tracking path.
+    private var lastFrameSignalSampleAtMs = 0L
     @Volatile private var lastFrameWidthPx = 0
     @Volatile private var lastFrameHeightPx = 0
     @Volatile private var lastFrameFormat = 0
@@ -180,8 +183,16 @@ class HandLandmarkerController(
         )
     }
 
-    private fun publishMetrics() {
+    private fun publishMetrics(force: Boolean = false) {
         val callback = onMetrics ?: return
+        val nowMs = SystemClock.uptimeMillis()
+        while (true) {
+            val previous = lastMetricsPublishedAtMs.get()
+            if (!force && previous > 0L &&
+                nowMs - previous < METRICS_PUBLISH_INTERVAL_MS
+            ) return
+            if (lastMetricsPublishedAtMs.compareAndSet(previous, nowMs)) break
+        }
         runCatching { callback(metricsSnapshot()) }
     }
 
@@ -326,6 +337,12 @@ class HandLandmarkerController(
      * This is diagnostic-only and avoids allocating a second full-resolution image.
      */
     private fun updateFrameSignalMetrics(bitmap: Bitmap) {
+        val nowMs = SystemClock.uptimeMillis()
+        if (lastFrameSignalSampleAtMs > 0L &&
+            nowMs - lastFrameSignalSampleAtMs < FRAME_SIGNAL_SAMPLE_INTERVAL_MS
+        ) return
+        lastFrameSignalSampleAtMs = nowMs
+
         val columns = 8
         val rows = 6
         var sum = 0.0
@@ -592,5 +609,7 @@ class HandLandmarkerController(
         const val TRACKING_CONFIDENCE = 0.45f
         const val BYTES_PER_PIXEL = 4
         const val NANOS_PER_MILLISECOND = 1_000_000L
+        const val METRICS_PUBLISH_INTERVAL_MS = 250L
+        const val FRAME_SIGNAL_SAMPLE_INTERVAL_MS = 1_000L
     }
 }
