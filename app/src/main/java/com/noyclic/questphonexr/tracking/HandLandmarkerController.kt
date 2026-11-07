@@ -18,6 +18,7 @@ import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -37,10 +38,14 @@ class HandLandmarkerController(
     private val outputWidthPx: Int = DEFAULT_OUTPUT_WIDTH_PX,
     private val outputHeightPx: Int = DEFAULT_OUTPUT_HEIGHT_PX,
     private val onMetrics: ((HandTrackingMetricsSnapshot) -> Unit)? = null,
-    private val preferredDelegate: Delegate = Delegate.CPU
+    private val preferredDelegate: Delegate = Delegate.CPU,
+    /** The same single-thread executor used by CameraX analyzer; GPU delegates are thread-affine. */
+    private val ownerExecutor: ExecutorService? = null
 ) : AutoCloseable {
 
     private val closed = AtomicBoolean(false)
+    private val taskCreationThreadId = Thread.currentThread().id
+    private val lastAnalyzeThreadId = AtomicLong(0L)
     private val processing = AtomicBoolean(false)
     private val lastAcceptedFrameMs = AtomicLong(0L)
     private val lastSubmittedTimestampMs = AtomicLong(0L)
@@ -152,6 +157,10 @@ class HandLandmarkerController(
             lastPreprocessingMs = lastPreprocessingMs.get(),
             averagePreprocessingMs = averagePreprocessingMs,
             delegateName = selectedDelegateName,
+            delegateInitThreadId = taskCreationThreadId,
+            lastAnalyzeThreadId = lastAnalyzeThreadId.get(),
+            delegateThreadMatchesAnalyzer = lastAnalyzeThreadId.get() == 0L ||
+                lastAnalyzeThreadId.get() == taskCreationThreadId,
             lastInferenceMs = lastInferenceMs.get(),
             averageInferenceMs = if (inferenceSamples.get() == 0L) 0f else
                 totalInferenceNanos.get().toFloat() / inferenceSamples.get().toFloat() /
@@ -178,6 +187,7 @@ class HandLandmarkerController(
 
     fun analyze(imageProxy: ImageProxy) {
         receivedFrames.incrementAndGet()
+        lastAnalyzeThreadId.set(Thread.currentThread().id)
         lastFrameWidthPx = imageProxy.width
         lastFrameHeightPx = imageProxy.height
         lastFrameFormat = imageProxy.format
@@ -533,18 +543,37 @@ class HandLandmarkerController(
     }
 
     override fun close() {
-        if (closed.compareAndSet(false, true)) {
-            inFlightImage.getAndSet(null)?.close()
+        if (!closed.compareAndSet(false, true)) return
+
+        val releaseResources = Runnable {
+            inFlightImage.getAndSet(null)?.let { image -> runCatching { image.close() } }
             resetInFlightState()
             handTrackManager.reset()
-            landmarker.close()
-
+            runCatching { landmarker.close() }
+                .onFailure { Log.e(TAG, "Could not close MediaPipe task on its owner thread", it) }
             // Do not recycle bitmaps while a native callback could still hold a reference.
             sourceBitmap = null
             modelBitmap = null
             modelCanvas = null
             packedPixels = null
             rowScratch = null
+        }
+
+        val executor = ownerExecutor
+        if (executor == null || Thread.currentThread().id == taskCreationThreadId) {
+            releaseResources.run()
+            return
+        }
+
+        // GPU delegates keep EGL resources bound to their creation thread. Close them
+        // on the same CameraX executor as construction and detectAsync.
+        val future = runCatching { executor.submit(releaseResources) }.getOrNull()
+        if (future == null) {
+            Log.w(TAG, "MediaPipe owner executor is unavailable; closing task on caller thread")
+            releaseResources.run()
+        } else {
+            runCatching { future.get() }
+                .onFailure { Log.e(TAG, "MediaPipe owner-thread cleanup failed", it) }
         }
     }
 
