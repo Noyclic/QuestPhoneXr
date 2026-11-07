@@ -22,6 +22,7 @@ class SandboxHandMeshGeometryTest {
     fun palmLinksAndThumbWebFormAContinuousPalmBase() {
         val links = SandboxHandMeshGeometry.PALM_LINKS
 
+        assertEquals(listOf(2, 5), SandboxHandMeshGeometry.THUMB_WEB.toList())
         assertEquals(5, links.size)
         assertEquals(listOf(0, 5), links.first().toList())
         assertEquals(listOf(17, 0), links.last().toList())
