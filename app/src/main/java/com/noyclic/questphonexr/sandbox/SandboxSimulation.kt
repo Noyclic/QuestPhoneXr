@@ -238,7 +238,9 @@ data class SandboxHandState(
     val grabbing: Boolean,
     val connected: Boolean,
     val cameraTracked: Boolean = false,
-    val landmarks: List<SandboxVector3> = emptyList()
+    val landmarks: List<SandboxVector3> = emptyList(),
+    /** A pinch is the Sandbox browser's click/drag gesture; power grip is not a click. */
+    val pinching: Boolean = false
 )
 
 data class SandboxSceneSnapshot(
@@ -276,7 +278,8 @@ class SandboxSimulation {
         val cameraTracked: Boolean,
         val trackingLost: Boolean = false,
         val landmarks: List<SandboxVector3> = emptyList(),
-        val contactLandmarks: List<SandboxVector3> = emptyList()
+        val contactLandmarks: List<SandboxVector3> = emptyList(),
+        val pinching: Boolean = false
     )
 
     private val objects = mutableListOf<MutableObject>()
@@ -293,6 +296,8 @@ class SandboxSimulation {
     private var rightCursor = DEFAULT_RIGHT_CURSOR
     private var leftGrabbing = false
     private var rightGrabbing = false
+    private var leftPinching = false
+    private var rightPinching = false
     private var leftConnected = false
     private var rightConnected = false
     private var leftCameraTracked = false
@@ -419,6 +424,8 @@ class SandboxSimulation {
         val rightWorld = right.withWorldOffset(playerPosition)
         leftCursor = leftWorld.cursor
         rightCursor = rightWorld.cursor
+        leftPinching = left.pinching
+        rightPinching = right.pinching
         leftConnected = left.connected
         rightConnected = right.connected
         leftCameraTracked = left.cameraTracked
@@ -444,7 +451,8 @@ class SandboxSimulation {
                 leftGrabbing,
                 leftConnected,
                 leftCameraTracked,
-                leftLandmarks
+                leftLandmarks,
+                leftPinching
             ),
             rightHand = SandboxHandState(
                 HandSide.RIGHT,
@@ -452,7 +460,8 @@ class SandboxSimulation {
                 rightGrabbing,
                 rightConnected,
                 rightCameraTracked,
-                rightLandmarks
+                rightLandmarks,
+                rightPinching
             ),
             grabbedObjectCount = objects.count { it.heldBy != null },
             score = score,
@@ -585,7 +594,8 @@ class SandboxSimulation {
             connected = trackedHand != null || physical != null,
             cameraTracked = trackedHand != null,
             landmarks = renderedLandmarks,
-            contactLandmarks = cameraLandmarks
+            contactLandmarks = cameraLandmarks,
+            pinching = pinching
         )
     }
 
