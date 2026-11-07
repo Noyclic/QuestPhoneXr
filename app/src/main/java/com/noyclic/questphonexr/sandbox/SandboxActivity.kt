@@ -1975,6 +1975,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         val rightTrackedHand = diagnosticHandFrame.hands.firstOrNull {
             it.side == com.noyclic.questphonexr.tracking.HandSide.RIGHT
         }
+        val unknownTrackedHand = diagnosticHandFrame.hands.firstOrNull {
+            it.side == com.noyclic.questphonexr.tracking.HandSide.UNKNOWN
+        }
         val actualFps = renderer.measuredFps
         val fpsText = if (actualFps > 0f) {
             String.format(Locale.US, "%.1f", actualFps)
@@ -2012,6 +2015,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             append('\n')
             append("Pinch L: ").append(pinchDiagnostic(leftTrackedHand))
             append(" · R: ").append(pinchDiagnostic(rightTrackedHand))
+            if (unknownTrackedHand != null) {
+                append(" · ?: ").append(pinchDiagnostic(unknownTrackedHand))
+            }
             append('\n')
             val serviceState = EndXrHandTrackingService.diagnosticState()
             append("Фоновая камера EndXR: ")
