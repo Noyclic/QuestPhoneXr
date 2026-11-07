@@ -24,7 +24,12 @@ internal class OneEuroHandFilter(
     /** Optional image-space XY speed limit; infinity preserves the original raw samples. */
     private val maxLandmarkSpeedPerSecond: Float = Float.POSITIVE_INFINITY,
     /** Higher limit for fast-moving fingertip landmarks. */
-    private val responsiveMaxLandmarkSpeedPerSecond: Float = maxLandmarkSpeedPerSecond
+    private val responsiveMaxLandmarkSpeedPerSecond: Float = maxLandmarkSpeedPerSecond,
+    /** Additional responsive landmarks beside the two legacy fingertip slots. */
+    private val responsiveLandmarkIndices: IntArray = intArrayOf(),
+    /** Soft threshold for velocity used only by the adaptive cutoff. */
+    private val derivativeDeadzone: Float = 0f,
+    private val responsiveDerivativeDeadzone: Float = derivativeDeadzone
 ) {
     private data class AxisState(
         var previousRaw: Float,
@@ -48,6 +53,9 @@ internal class OneEuroHandFilter(
         require(responsiveMaxLandmarkSpeedPerSecond > 0f &&
             (responsiveMaxLandmarkSpeedPerSecond.isFinite() ||
                 responsiveMaxLandmarkSpeedPerSecond == Float.POSITIVE_INFINITY))
+        require(derivativeDeadzone >= 0f && derivativeDeadzone.isFinite())
+        require(responsiveDerivativeDeadzone >= 0f && responsiveDerivativeDeadzone.isFinite())
+        require(responsiveLandmarkIndices.all { it >= 0 })
     }
 
     fun update(points: List<HandPoint>, timestampMs: Long): List<HandPoint> {
@@ -82,9 +90,15 @@ internal class OneEuroHandFilter(
         for (index in points.indices) {
             val point = points[index]
             val offset = index * AXES_PER_POINT
-            val responsive = index == responsiveLandmarkA || index == responsiveLandmarkB
+            val responsive = index == responsiveLandmarkA ||
+                index == responsiveLandmarkB || responsiveLandmarkIndices.contains(index)
             val activeMinCutoff = if (responsive) responsiveMinCutoffHz else minCutoffHz
             val activeBeta = if (responsive) responsiveBeta else beta
+            val activeDerivativeDeadzone = if (responsive) {
+                responsiveDerivativeDeadzone
+            } else {
+                derivativeDeadzone
+            }
 
             // Clamp only implausibly large *image-space* sample jumps before they enter
             // the derivative estimator. This prevents a one-frame landmark teleport
@@ -125,15 +139,15 @@ internal class OneEuroHandFilter(
 
             val x = filterAxis(
                 activeState[offset], rawX, dtSeconds, derivativeAlpha,
-                activeMinCutoff, activeBeta
+                activeMinCutoff, activeBeta, activeDerivativeDeadzone
             )
             val y = filterAxis(
                 activeState[offset + 1], rawY, dtSeconds, derivativeAlpha,
-                activeMinCutoff, activeBeta
+                activeMinCutoff, activeBeta, activeDerivativeDeadzone
             )
             val z = filterAxis(
                 activeState[offset + 2], rawZ, dtSeconds, derivativeAlpha,
-                activeMinCutoff, activeBeta
+                activeMinCutoff, activeBeta, activeDerivativeDeadzone
             )
             output.add(HandPoint(x, y, z))
         }
@@ -165,11 +179,20 @@ internal class OneEuroHandFilter(
         dtSeconds: Float,
         derivativeAlpha: Float,
         activeMinCutoffHz: Float,
-        activeBeta: Float
+        activeBeta: Float,
+        activeDerivativeDeadzone: Float
     ): Float {
         val rawDerivative = (rawValue - state.previousRaw) / dtSeconds
+        // The measured coordinate still follows the input. Only the velocity estimate
+        // that raises the adaptive cutoff receives a soft deadzone, preventing tiny
+        // camera jitter from being mistaken for deliberate movement.
+        val stableDerivative = when {
+            rawDerivative > activeDerivativeDeadzone -> rawDerivative - activeDerivativeDeadzone
+            rawDerivative < -activeDerivativeDeadzone -> rawDerivative + activeDerivativeDeadzone
+            else -> 0f
+        }
         state.filteredDerivative += derivativeAlpha *
-            (rawDerivative - state.filteredDerivative)
+            (stableDerivative - state.filteredDerivative)
 
         val adaptiveCutoff = activeMinCutoffHz + activeBeta * abs(state.filteredDerivative)
         val valueAlpha = smoothingAlpha(adaptiveCutoff, dtSeconds)

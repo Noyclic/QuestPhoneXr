@@ -175,6 +175,68 @@ class OneEuroHandFilterTest {
         assertTrue("default filters must preserve existing unbounded behavior", moved.x > 0.8f)
     }
 
+
+    @Test
+    fun derivativeDeadzonePreventsStationaryJitterFromBoostingAdaptiveCutoff() {
+        val withoutDeadzone = OneEuroHandFilter(
+            minCutoffHz = 1.6f, beta = 0.8f, derivativeCutoffHz = 1.0f
+        )
+        val withDeadzone = OneEuroHandFilter(
+            minCutoffHz = 1.6f, beta = 0.8f, derivativeCutoffHz = 1.0f,
+            derivativeDeadzone = 0.35f
+        )
+        withoutDeadzone.update(listOf(HandPoint(0.5f, 0.5f, 0f)), 1_000L)
+        withDeadzone.update(listOf(HandPoint(0.5f, 0.5f, 0f)), 1_000L)
+        val without = ArrayList<Float>()
+        val with = ArrayList<Float>()
+        repeat(24) { index ->
+            val noise = if (index % 2 == 0) 0.008f else -0.008f
+            val timestamp = 1_033L + index * 33L
+            without += withoutDeadzone.update(listOf(HandPoint(0.5f + noise, 0.5f, 0f)), timestamp).single().x
+            with += withDeadzone.update(listOf(HandPoint(0.5f + noise, 0.5f, 0f)), timestamp).single().x
+        }
+        val rawJitterRange = without.maxOrNull()!! - without.minOrNull()!!
+        val dampedJitterRange = with.maxOrNull()!! - with.minOrNull()!!
+        assertTrue("stationary jitter should not raise the adaptive cutoff",
+            dampedJitterRange < rawJitterRange)
+    }
+
+    @Test
+    fun responsiveFingerTipSetIncludesMiddleRingAndPinkyTips() {
+        val ordinary = OneEuroHandFilter(minCutoffHz = 1.8f, beta = 0.25f)
+        val responsive = OneEuroHandFilter(
+            minCutoffHz = 1.8f, beta = 0.25f,
+            responsiveLandmarkIndices = intArrayOf(12, 16, 20),
+            responsiveMinCutoffHz = 3.0f, responsiveBeta = 0.72f
+        )
+        val initial = List(21) { HandPoint(0.1f, 0.5f, 0f) }
+        val moved = initial.toMutableList().also {
+            it[12] = HandPoint(0.5f, 0.5f, 0f)
+            it[16] = HandPoint(0.5f, 0.5f, 0f)
+            it[20] = HandPoint(0.5f, 0.5f, 0f)
+        }
+        ordinary.update(initial, 1_000L)
+        responsive.update(initial, 1_000L)
+        val normalPose = ordinary.update(moved, 1_016L)
+        val responsivePose = responsive.update(moved, 1_016L)
+        for (tip in intArrayOf(12, 16, 20)) {
+            assertTrue("finger tip $tip should follow articulation responsively",
+                responsivePose[tip].x > normalPose[tip].x + 0.02f)
+        }
+        assertEquals(normalPose[0].x, responsivePose[0].x, 0.0001f)
+    }
+
+    @Test
+    fun derivativeDeadzoneDoesNotSuppressFastIntentionalMovement() {
+        val filter = OneEuroHandFilter(
+            minCutoffHz = 1.65f, beta = 0.28f, derivativeCutoffHz = 0.80f,
+            derivativeDeadzone = 0.18f
+        )
+        filter.update(listOf(HandPoint(0.1f, 0.5f, 0f)), 1_000L)
+        val moved = filter.update(listOf(HandPoint(0.3f, 0.5f, 0f)), 1_033L).single()
+        assertTrue("fast hand motion must remain visible", moved.x > 0.15f)
+    }
+
     @Test
     fun timestampGapResetsInsteadOfDraggingOldPose() {
         val filter = OneEuroHandFilter()

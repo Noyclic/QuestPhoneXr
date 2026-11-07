@@ -28,8 +28,8 @@ internal class HandTrackManager(
         observation: HandObservation,
         timestampMs: Long
     ) {
-        // Keep the palm/knuckles quiet, but let the visible thumb and index tips
-        // follow fast pinch motion with a higher adaptive cutoff.
+        // Keep the palm/knuckles quiet while all five fingertips receive a faster
+        // articulation response. Pinch decisions still use fresh, unfiltered landmarks.
         private val imageFilter = OneEuroHandFilter(
             responsiveLandmarkA = THUMB_TIP_INDEX,
             responsiveLandmarkB = INDEX_TIP_INDEX,
