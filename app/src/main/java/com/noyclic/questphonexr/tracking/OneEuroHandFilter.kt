@@ -80,7 +80,7 @@ internal class OneEuroHandFilter(
     }
 
     private fun createInitialState(points: List<HandPoint>): Array<AxisState> {
-        val result = Array(points.size * AXES_PER_POINT) { axisIndex ->
+        return Array(points.size * AXES_PER_POINT) { axisIndex ->
             val point = points[axisIndex / AXES_PER_POINT]
             val raw = when (axisIndex % AXES_PER_POINT) {
                 0 -> point.x
@@ -89,7 +89,6 @@ internal class OneEuroHandFilter(
             }
             AxisState(raw, raw, 0f)
         }
-        return result
     }
 
     private fun filterAxis(
@@ -116,9 +115,11 @@ internal class OneEuroHandFilter(
 
     private companion object {
         const val AXES_PER_POINT = 3
-        const val DEFAULT_MIN_CUTOFF_HZ = 2.8f
-        const val DEFAULT_BETA = 0.65f
-        const val DEFAULT_DERIVATIVE_CUTOFF_HZ = 1.5f
+        // Lower idle cutoff damps camera/landmark jitter. A moderate beta still
+        // raises the cutoff while the hand moves, avoiding the old rubber-band lag.
+        const val DEFAULT_MIN_CUTOFF_HZ = 1.8f
+        const val DEFAULT_BETA = 0.25f
+        const val DEFAULT_DERIVATIVE_CUTOFF_HZ = 1.0f
         const val DEFAULT_RESET_AFTER_GAP_MS = 250L
         const val MIN_DT_SECONDS = 0.001f
         const val MAX_DT_SECONDS = 0.1f
