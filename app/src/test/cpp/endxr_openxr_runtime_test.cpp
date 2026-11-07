@@ -1011,22 +1011,77 @@ void testActionInputApiLifecycleAndNeutralState() {
     expect(destroyInstance(instance) == XR_SUCCESS, "destroy action test instance");
 }
 
-void testActionEntryPointsAreAdvertised() {
+void testGetInstanceProcAddrConformance() {
     XrNegotiateLoaderInfo loader{};
     XrNegotiateRuntimeRequest request{};
     setup(loader, request);
     expect(xrNegotiateLoaderRuntimeInterface(&loader, &request) == XR_SUCCESS,
-           "negotiate before action entry-point check");
+           "negotiate before GIPA conformance checks");
+
     PFN_xrVoidFunction function = nullptr;
-    expect(request.getInstanceProcAddr(XR_NULL_HANDLE, "xrCreateActionSet", &function) ==
+    expect(request.getInstanceProcAddr(
+               XR_NULL_HANDLE, "xrEnumerateInstanceExtensionProperties", &function) ==
                XR_SUCCESS && function != nullptr,
-           "advertise action-set creation");
-    expect(request.getInstanceProcAddr(XR_NULL_HANDLE, "xrSyncActions", &function) ==
+           "resolve extension enumeration without an instance");
+    expect(request.getInstanceProcAddr(
+               XR_NULL_HANDLE, "xrEnumerateApiLayerProperties", &function) ==
                XR_SUCCESS && function != nullptr,
-           "advertise action synchronization");
-    expect(request.getInstanceProcAddr(XR_NULL_HANDLE, "xrGetActionStatePose", &function) ==
+           "resolve API-layer enumeration without an instance");
+    expect(request.getInstanceProcAddr(
+               XR_NULL_HANDLE, "xrCreateInstance", &function) ==
                XR_SUCCESS && function != nullptr,
-           "advertise pose action-state query");
+           "resolve instance creation without an instance");
+
+    const char* instanceOnlyNames[] = {
+        "xrGetInstanceProcAddr",
+        "xrDestroyInstance",
+        "xrCreateActionSet",
+        "xrSyncActions",
+        "xrGetActionStatePose",
+        "xrGetOpenGLESGraphicsRequirementsKHR",
+        "xrReleaseSwapchainImage"
+    };
+    for (const char* name : instanceOnlyNames) {
+        function = reinterpret_cast<PFN_xrVoidFunction>(static_cast<std::uintptr_t>(1));
+        expect(request.getInstanceProcAddr(XR_NULL_HANDLE, name, &function) ==
+                   XR_ERROR_HANDLE_INVALID && function == nullptr,
+               "reject non-global command lookup with XR_NULL_HANDLE");
+    }
+
+    XrInstance noGlesInstance = createInstance(request.getInstanceProcAddr, false, false);
+    function = nullptr;
+    expect(request.getInstanceProcAddr(
+               noGlesInstance, "xrCreateActionSet", &function) ==
+               XR_SUCCESS && function != nullptr,
+           "resolve core action functions with a valid instance");
+    expect(request.getInstanceProcAddr(
+               noGlesInstance, "xrSyncActions", &function) ==
+               XR_SUCCESS && function != nullptr,
+           "resolve action synchronization with a valid instance");
+    expect(request.getInstanceProcAddr(
+               noGlesInstance, "xrGetActionStatePose", &function) ==
+               XR_SUCCESS && function != nullptr,
+           "resolve pose action-state query with a valid instance");
+    function = reinterpret_cast<PFN_xrVoidFunction>(static_cast<std::uintptr_t>(1));
+    expect(request.getInstanceProcAddr(
+               noGlesInstance, "xrGetOpenGLESGraphicsRequirementsKHR", &function) ==
+               XR_ERROR_FUNCTION_UNSUPPORTED && function == nullptr,
+           "hide GLES extension entry point when the extension is not enabled");
+    auto destroyNoGles = reinterpret_cast<PFN_xrDestroyInstance>(
+        resolve(request.getInstanceProcAddr, noGlesInstance, "xrDestroyInstance"));
+    expect(destroyNoGles(noGlesInstance) == XR_SUCCESS,
+           "destroy instance used for disabled-extension GIPA check");
+
+    XrInstance glesInstance = createInstance(request.getInstanceProcAddr, false, true);
+    function = nullptr;
+    expect(request.getInstanceProcAddr(
+               glesInstance, "xrGetOpenGLESGraphicsRequirementsKHR", &function) ==
+               XR_SUCCESS && function != nullptr,
+           "resolve GLES extension entry point after enabling the extension");
+    auto destroyGles = reinterpret_cast<PFN_xrDestroyInstance>(
+        resolve(request.getInstanceProcAddr, glesInstance, "xrDestroyInstance"));
+    expect(destroyGles(glesInstance) == XR_SUCCESS,
+           "destroy instance used for enabled-extension GIPA check");
 }
 }
 int main() {
@@ -1036,7 +1091,7 @@ int main() {
     testSystemDiscoveryAndGraphicsRequirements();
     testGlesSessionSwapchainAndFrameLifecycle();
     testActionInputApiLifecycleAndNeutralState();
-    testActionEntryPointsAreAdvertised();
+    testGetInstanceProcAddrConformance();
     std::cout << "EndXR OpenXR GLES session and swapchain tests: all passed.\n";
     return 0;
 }
