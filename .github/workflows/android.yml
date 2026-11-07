@@ -61,6 +61,14 @@ jobs:
           rustup component add clippy --toolchain stable
           cargo +stable clippy --manifest-path gvxrs-core/Cargo.toml --all-targets -- -D warnings
           cargo +stable test --manifest-path gvxrs-core/Cargo.toml --all-targets
+          cargo +stable build --manifest-path gvxrs-core/Cargo.toml --release
+          c++ -std=c++17 -Wall -Wextra -Werror \
+            -I gvxrs-core/include \
+            app/src/test/cpp/gvxrs_rust_ffi_test.cpp \
+            gvxrs-core/target/release/libgvxrs_core.a \
+            -ldl -lpthread -lm -lrt -lutil \
+            -o ci-results/gvxrs-rust-ffi-tests
+          ci-results/gvxrs-rust-ffi-tests
 
       - name: Run native EndXR core tests
         run: |
