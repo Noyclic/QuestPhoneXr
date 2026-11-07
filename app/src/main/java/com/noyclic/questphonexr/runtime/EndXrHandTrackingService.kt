@@ -511,8 +511,8 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
         private const val MAX_WIDTH_PX = 1280
         private const val MIN_HEIGHT_PX = 120
         private const val MAX_HEIGHT_PX = 960
-        private const val MAX_MODEL_INPUT_WIDTH_PX = 320
-        private const val MAX_MODEL_INPUT_HEIGHT_PX = 240
+        private const val MAX_MODEL_INPUT_WIDTH_PX = 480
+        private const val MAX_MODEL_INPUT_HEIGHT_PX = 360
 
         @Volatile private var activeOrPending = false
 
