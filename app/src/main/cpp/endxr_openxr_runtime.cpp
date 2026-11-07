@@ -123,6 +123,7 @@ struct XrInstance_T {
 #endif
     bool androidExtensionEnabled = false;
     bool glesExtensionEnabled = false;
+    bool handTrackingExtensionEnabled = false;
     bool glesRequirementsQueried = false;
     std::mutex eventMutex;
     std::deque<XrEventDataSessionStateChanged> pendingSessionEvents;
@@ -148,6 +149,7 @@ struct XrSession_T {
     XrDuration predictedDisplayPeriod = 0;
     std::unordered_set<XrSwapchain> swapchains;
     std::unordered_set<XrSpace> spaces;
+    std::unordered_set<XrHandTrackerEXT> handTrackers;
     bool actionSetsAttached = false;
     bool actionSyncCompleted = false;
     std::unordered_set<XrActionSet> attachedActionSets;
@@ -177,6 +179,11 @@ struct XrSpace_T {
     bool isActionSpace = false;
     XrAction action = XR_NULL_HANDLE;
     XrPath actionSubactionPath = XR_NULL_PATH;
+};
+
+struct XrHandTracker_T {
+    XrSession owner = XR_NULL_HANDLE;
+    XrHandEXT hand = XR_HAND_LEFT_EXT;
 };
 
 struct XrActionSet_T {
@@ -245,6 +252,12 @@ std::unordered_map<XrSpace, XrSpace_T*> g_spaces;
 std::uint64_t g_nextSpaceHandle = 1;
 #endif
 
+std::mutex g_handTrackerMutex;
+std::unordered_map<XrHandTrackerEXT, XrHandTracker_T*> g_handTrackers;
+#if XR_PTR_SIZE != 8
+std::uint64_t g_nextHandTrackerHandle = 1;
+#endif
+
 std::mutex g_actionMutex;
 std::unordered_map<XrActionSet, XrActionSet_T*> g_actionSets;
 std::unordered_map<XrAction, XrAction_T*> g_actions;
@@ -275,6 +288,8 @@ struct EndXrControllerInput {
     std::uint32_t buttons = 0;
     bool poseActive = false;
     XrPosef gripPose{{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f}};
+    bool handJointsActive = false;
+    std::array<float, XR_HAND_JOINT_COUNT_EXT * 8> handJoints{};
     std::chrono::steady_clock::time_point updatedAt{};
 };
 std::mutex g_controllerInputMutex;
@@ -311,6 +326,15 @@ XrSpace makeSpaceHandle(XrSpace_T* object) {
 #else
     (void)object;
     return g_nextSpaceHandle++;
+#endif
+}
+
+XrHandTrackerEXT makeHandTrackerHandle(XrHandTracker_T* object) {
+#if XR_PTR_SIZE == 8
+    return reinterpret_cast<XrHandTrackerEXT>(object);
+#else
+    (void)object;
+    return g_nextHandTrackerHandle++;
 #endif
 }
 XrActionSet makeActionSetHandle(XrActionSet_T* object) {
@@ -354,6 +378,12 @@ XrSpace_T* getSpace(XrSpace space) {
     std::lock_guard<std::mutex> lock(g_spaceMutex);
     const auto found = g_spaces.find(space);
     return found == g_spaces.end() ? nullptr : found->second;
+}
+
+XrHandTracker_T* getHandTracker(XrHandTrackerEXT tracker) {
+    std::lock_guard<std::mutex> lock(g_handTrackerMutex);
+    const auto found = g_handTrackers.find(tracker);
+    return found == g_handTrackers.end() ? nullptr : found->second;
 }
 XrActionSet_T* getActionSet(XrActionSet actionSet) {
     std::lock_guard<std::mutex> lock(g_actionMutex);
@@ -642,10 +672,13 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrEnumerateInstanceExtensionProperties(
     if (layerName != nullptr && layerName[0] != '\0') {
         return XR_ERROR_API_LAYER_NOT_PRESENT;
     }
-    constexpr std::array<const char*, 2> names{{kAndroidExtension, kGlesExtension}};
-    constexpr std::array<std::uint32_t, 2> versions{{
+    constexpr std::array<const char*, 3> names{{
+        kAndroidExtension, kGlesExtension, XR_EXT_HAND_TRACKING_EXTENSION_NAME
+    }};
+    constexpr std::array<std::uint32_t, 3> versions{{
         ENDXR_KHR_ANDROID_CREATE_INSTANCE_SPEC_VERSION,
-        ENDXR_KHR_OPENGL_ES_ENABLE_SPEC_VERSION
+        ENDXR_KHR_OPENGL_ES_ENABLE_SPEC_VERSION,
+        XR_EXT_hand_tracking_SPEC_VERSION
     }};
     *count = static_cast<std::uint32_t>(names.size());
     if (capacity == 0) return XR_SUCCESS;
@@ -670,13 +703,14 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrCreateInstance(
     if (createInfo == nullptr) return XR_ERROR_VALIDATION_FAILURE;
     if (createInfo->type != XR_TYPE_INSTANCE_CREATE_INFO) return XR_ERROR_VALIDATION_FAILURE;
     if (createInfo->enabledApiLayerCount != 0) return XR_ERROR_API_LAYER_NOT_PRESENT;
-    if (createInfo->enabledExtensionCount > 2) return XR_ERROR_EXTENSION_NOT_PRESENT;
+    if (createInfo->enabledExtensionCount > 3) return XR_ERROR_EXTENSION_NOT_PRESENT;
     if (createInfo->enabledExtensionCount > 0 && createInfo->enabledExtensionNames == nullptr) {
         return XR_ERROR_VALIDATION_FAILURE;
     }
 
     bool androidEnabled = false;
     bool glesEnabled = false;
+    bool handTrackingEnabled = false;
     for (std::uint32_t i = 0; i < createInfo->enabledExtensionCount; ++i) {
         const char* name = createInfo->enabledExtensionNames[i];
         if (name == nullptr) return XR_ERROR_VALIDATION_FAILURE;
@@ -686,6 +720,9 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrCreateInstance(
         } else if (std::strcmp(name, kGlesExtension) == 0) {
             if (glesEnabled) return XR_ERROR_NAME_DUPLICATED;
             glesEnabled = true;
+        } else if (std::strcmp(name, XR_EXT_HAND_TRACKING_EXTENSION_NAME) == 0) {
+            if (handTrackingEnabled) return XR_ERROR_NAME_DUPLICATED;
+            handTrackingEnabled = true;
         } else {
             return XR_ERROR_EXTENSION_NOT_PRESENT;
         }
@@ -713,6 +750,7 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrCreateInstance(
     created->requestedApiVersion = requested;
     created->androidExtensionEnabled = androidEnabled;
     created->glesExtensionEnabled = glesEnabled;
+    created->handTrackingExtensionEnabled = handTrackingEnabled;
     if (androidInfo != nullptr) {
 #if defined(__ANDROID__)
         created->applicationVm = reinterpret_cast<JavaVM*>(androidInfo->applicationVM);
@@ -872,6 +910,17 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrGetSystemProperties(
     properties->graphicsProperties.maxLayerCount = XR_MIN_COMPOSITION_LAYERS_SUPPORTED;
     properties->trackingProperties.orientationTracking = XR_TRUE;
     properties->trackingProperties.positionTracking = XR_FALSE;
+    auto* next = static_cast<BaseInStructure*>(properties->next);
+    while (next != nullptr) {
+        if (next->type == XR_TYPE_SYSTEM_HAND_TRACKING_PROPERTIES_EXT) {
+            auto* handProperties =
+                reinterpret_cast<XrSystemHandTrackingPropertiesEXT*>(next);
+            handProperties->supportsHandTracking =
+                getInstance(instance)->handTrackingExtensionEnabled ? XR_TRUE : XR_FALSE;
+        }
+        next = const_cast<BaseInStructure*>(
+            static_cast<const BaseInStructure*>(next->next));
+    }
     return XR_SUCCESS;
 }
 
@@ -1028,7 +1077,8 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrDestroySession(XrSession session) {
         if (found == g_sessions.end()) return XR_ERROR_HANDLE_INVALID;
         object = found->second;
         if (object->running) return XR_ERROR_SESSION_RUNNING;
-        if (!object->swapchains.empty() || !object->spaces.empty()) {
+        if (!object->swapchains.empty() || !object->spaces.empty() ||
+            !object->handTrackers.empty()) {
             return XR_ERROR_CALL_ORDER_INVALID;
         }
         g_sessions.erase(found);
@@ -1635,6 +1685,28 @@ EndXrControllerInput readControllerInput(int hand) {
     return input;
 }
 
+struct EndXrHandTrackingSample {
+    bool active = false;
+    XrPosef palmPose{{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f}};
+    std::array<float, XR_HAND_JOINT_COUNT_EXT * 8> joints{};
+};
+
+EndXrHandTrackingSample readFreshHandTrackingInput(int hand) {
+    EndXrHandTrackingSample result{};
+    if (hand < 0 || hand > 1) return result;
+    std::lock_guard<std::mutex> lock(g_controllerInputMutex);
+    const auto& input = g_controllerInputs[static_cast<std::size_t>(hand)];
+    if (!input.poseActive || !input.handJointsActive ||
+        input.updatedAt.time_since_epoch().count() == 0 ||
+        std::chrono::steady_clock::now() - input.updatedAt > std::chrono::milliseconds(300)) {
+        return result;
+    }
+    result.active = true;
+    result.palmPose = input.gripPose;
+    result.joints = input.handJoints;
+    return result;
+}
+
 #if defined(__ANDROID__)
 bool refreshExternalControllerInputImpl(XrInstance_T* instance) {
     if (instance == nullptr || !instance->androidExtensionEnabled ||
@@ -1665,7 +1737,7 @@ bool refreshExternalControllerInputImpl(XrInstance_T* instance) {
     }
 
     bool success = false;
-    if (env->PushLocalFrame(32) >= 0) {
+    if (env->PushLocalFrame(64) >= 0) {
         do {
             jclass contextClass = env->FindClass("android/content/Context");
             if (contextClass == nullptr || env->ExceptionCheck()) break;
@@ -1705,10 +1777,11 @@ bool refreshExternalControllerInputImpl(XrInstance_T* instance) {
                 cursorClass, "getColumnIndexOrThrow", "(Ljava/lang/String;)I");
             jmethodID getInt = env->GetMethodID(cursorClass, "getInt", "(I)I");
             jmethodID getFloat = env->GetMethodID(cursorClass, "getFloat", "(I)F");
+            jmethodID getBlob = env->GetMethodID(cursorClass, "getBlob", "(I)[B");
             jmethodID close = env->GetMethodID(cursorClass, "close", "()V");
             if (moveToFirst == nullptr || getColumnIndex == nullptr ||
-                getInt == nullptr || getFloat == nullptr || close == nullptr ||
-                env->ExceptionCheck()) break;
+                getInt == nullptr || getFloat == nullptr || getBlob == nullptr ||
+                close == nullptr || env->ExceptionCheck()) break;
 
             const jboolean hasRow = env->CallBooleanMethod(cursor, moveToFirst);
             if (env->ExceptionCheck() || hasRow != JNI_TRUE) {
@@ -1733,11 +1806,34 @@ bool refreshExternalControllerInputImpl(XrInstance_T* instance) {
                 *value = env->CallFloatMethod(cursor, getFloat, index);
                 return !env->ExceptionCheck();
             };
+            auto readJointBlob = [&](const char* name,
+                std::array<float, XR_HAND_JOINT_COUNT_EXT * 8>* values) -> bool {
+                if (values == nullptr) return false;
+                jstring columnName = env->NewStringUTF(name);
+                if (columnName == nullptr || env->ExceptionCheck()) return false;
+                const jint index = env->CallIntMethod(cursor, getColumnIndex, columnName);
+                if (env->ExceptionCheck()) return false;
+                auto blob = reinterpret_cast<jbyteArray>(
+                    env->CallObjectMethod(cursor, getBlob, index));
+                if (blob == nullptr || env->ExceptionCheck()) return false;
+                const jsize byteCount = env->GetArrayLength(blob);
+                if (byteCount != static_cast<jsize>(values->size() * sizeof(float))) {
+                    return false;
+                }
+                jbyte bytes[XR_HAND_JOINT_COUNT_EXT * 8 * sizeof(float)]{};
+                env->GetByteArrayRegion(blob, 0, byteCount, bytes);
+                if (env->ExceptionCheck()) return false;
+                std::memcpy(values->data(), bytes, sizeof(bytes));
+                return true;
+            };
 
             jint stale = 1;
             jint leftActive = 0, leftButtons = 0, rightActive = 0, rightButtons = 0;
             jint headActive = 0, headStale = 1;
             jint handPoseStale = 1, leftPoseActive = 0, rightPoseActive = 0;
+            jint leftJointsActive = 0, rightJointsActive = 0;
+            std::array<float, XR_HAND_JOINT_COUNT_EXT * 8> leftJoints{};
+            std::array<float, XR_HAND_JOINT_COUNT_EXT * 8> rightJoints{};
             jfloat leftTrigger = 0, leftGrip = 0, leftStickX = 0, leftStickY = 0;
             jfloat rightTrigger = 0, rightGrip = 0, rightStickX = 0, rightStickY = 0;
             jfloat headX = 0, headY = 0, headZ = 0, headW = 1;
@@ -1781,7 +1877,11 @@ bool refreshExternalControllerInputImpl(XrInstance_T* instance) {
                 readFloat("right_pose_qx", &rightPoseQx) &&
                 readFloat("right_pose_qy", &rightPoseQy) &&
                 readFloat("right_pose_qz", &rightPoseQz) &&
-                readFloat("right_pose_qw", &rightPoseQw);
+                readFloat("right_pose_qw", &rightPoseQw) &&
+                readInt("left_joints_active", &leftJointsActive) &&
+                readJointBlob("left_joints", &leftJoints) &&
+                readInt("right_joints_active", &rightJointsActive) &&
+                readJointBlob("right_joints", &rightJoints);
             if (env->ExceptionCheck()) env->ExceptionClear();
             env->CallVoidMethod(cursor, close);
             if (env->ExceptionCheck()) {
@@ -1814,6 +1914,10 @@ bool refreshExternalControllerInputImpl(XrInstance_T* instance) {
                 endxrSetHandPose(1, static_cast<std::uint32_t>(rightPoseActive != 0),
                     rightPoseX, rightPoseY, rightPoseZ,
                     rightPoseQx, rightPoseQy, rightPoseQz, rightPoseQw);
+                endxrSetHandJointData(0, static_cast<std::uint32_t>(leftJointsActive != 0),
+                    leftJoints.data(), static_cast<std::uint32_t>(leftJoints.size()));
+                endxrSetHandJointData(1, static_cast<std::uint32_t>(rightJointsActive != 0),
+                    rightJoints.data(), static_cast<std::uint32_t>(rightJoints.size()));
             }
             success = true;
         } while (false);
@@ -2849,7 +2953,7 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrStopHapticFeedback(
 
 #define ENDXR_PROC(name, fn) {name, reinterpret_cast<PFN_xrVoidFunction>(fn)}
 struct ProcEntry { const char* name; PFN_xrVoidFunction function; };
-const std::array<ProcEntry, 55> kProcTable{{
+const std::array<ProcEntry, 58> kProcTable{{
     ENDXR_PROC("xrGetInstanceProcAddr", endxrGetInstanceProcAddr),
     ENDXR_PROC("xrEnumerateApiLayerProperties", endxrEnumerateApiLayerProperties),
     ENDXR_PROC("xrEnumerateInstanceExtensionProperties", endxrEnumerateInstanceExtensionProperties),
@@ -2904,7 +3008,165 @@ const std::array<ProcEntry, 55> kProcTable{{
     ENDXR_PROC("xrGetInputSourceLocalizedName", endxrGetInputSourceLocalizedName),
     ENDXR_PROC("xrCreateActionSpace", endxrCreateActionSpace),
     ENDXR_PROC("xrApplyHapticFeedback", endxrApplyHapticFeedback),
-    ENDXR_PROC("xrStopHapticFeedback", endxrStopHapticFeedback)
+
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrCreateHandTrackerEXT(
+    XrSession session, const XrHandTrackerCreateInfoEXT* createInfo,
+    XrHandTrackerEXT* handTracker
+) {
+    if (handTracker != nullptr) *handTracker = XR_NULL_HANDLE;
+    XrSession_T* owner = getSession(session);
+    if (owner == nullptr) return XR_ERROR_HANDLE_INVALID;
+    XrInstance_T* instance = getInstance(owner->owner);
+    if (instance == nullptr || !instance->handTrackingExtensionEnabled) {
+        return XR_ERROR_FUNCTION_UNSUPPORTED;
+    }
+    if (createInfo == nullptr || handTracker == nullptr ||
+        createInfo->type != XR_TYPE_HAND_TRACKER_CREATE_INFO_EXT) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    if (createInfo->next != nullptr ||
+        (createInfo->hand != XR_HAND_LEFT_EXT && createInfo->hand != XR_HAND_RIGHT_EXT) ||
+        createInfo->handJointSet != XR_HAND_JOINT_SET_DEFAULT_EXT) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    auto* created = new (std::nothrow) XrHandTracker_T();
+    if (created == nullptr) return XR_ERROR_OUT_OF_MEMORY;
+    created->owner = session;
+    created->hand = createInfo->hand;
+    const XrHandTrackerEXT handle = makeHandTrackerHandle(created);
+    {
+        std::lock_guard<std::mutex> lock(g_handTrackerMutex);
+        g_handTrackers.emplace(handle, created);
+    }
+    owner->handTrackers.insert(handle);
+    *handTracker = handle;
+    return XR_SUCCESS;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrDestroyHandTrackerEXT(XrHandTrackerEXT handTracker) {
+    XrHandTracker_T* object = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_handTrackerMutex);
+        const auto found = g_handTrackers.find(handTracker);
+        if (found == g_handTrackers.end()) return XR_ERROR_HANDLE_INVALID;
+        object = found->second;
+        g_handTrackers.erase(found);
+    }
+    if (XrSession_T* owner = getSession(object->owner)) {
+        owner->handTrackers.erase(handTracker);
+    }
+    delete object;
+    return XR_SUCCESS;
+}
+
+XRAPI_ATTR XrResult XRAPI_CALL endxrLocateHandJointsEXT(
+    XrHandTrackerEXT handTracker,
+    const XrHandJointsLocateInfoEXT* locateInfo,
+    XrHandJointLocationsEXT* locations
+) {
+    XrHandTracker_T* tracker = getHandTracker(handTracker);
+    if (tracker == nullptr) return XR_ERROR_HANDLE_INVALID;
+    XrSession_T* session = getSession(tracker->owner);
+    if (session == nullptr) return XR_ERROR_HANDLE_INVALID;
+    XrInstance_T* instance = getInstance(session->owner);
+    if (instance == nullptr || !instance->handTrackingExtensionEnabled) {
+        return XR_ERROR_FUNCTION_UNSUPPORTED;
+    }
+    if (locateInfo == nullptr || locateInfo->type != XR_TYPE_HAND_JOINTS_LOCATE_INFO_EXT ||
+        locations == nullptr || locations->type != XR_TYPE_HAND_JOINT_LOCATIONS_EXT) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    // XR_HAND_JOINT_VELOCITIES_EXT is an optional output structure chained
+    // from XrHandJointLocationsEXT. We expose the structure but deliberately
+    // leave velocity flags unset until temporal joint-velocity estimation exists.
+    XrHandJointVelocitiesEXT* velocityOutput = nullptr;
+    auto* outputChain = static_cast<BaseInStructure*>(locations->next);
+    while (outputChain != nullptr) {
+        if (outputChain->type == XR_TYPE_HAND_JOINT_VELOCITIES_EXT) {
+            if (velocityOutput != nullptr) return XR_ERROR_VALIDATION_FAILURE;
+            velocityOutput = reinterpret_cast<XrHandJointVelocitiesEXT*>(outputChain);
+        }
+        outputChain = const_cast<BaseInStructure*>(
+            static_cast<const BaseInStructure*>(outputChain->next));
+    }
+    if (velocityOutput != nullptr) {
+        if (velocityOutput->jointCount != XR_HAND_JOINT_COUNT_EXT ||
+            velocityOutput->jointVelocities == nullptr) {
+            return XR_ERROR_VALIDATION_FAILURE;
+        }
+        for (std::uint32_t index = 0; index < XR_HAND_JOINT_COUNT_EXT; ++index) {
+            auto& velocity = velocityOutput->jointVelocities[index];
+            velocity.velocityFlags = 0;
+            velocity.linearVelocity = {0.0f, 0.0f, 0.0f};
+            velocity.angularVelocity = {0.0f, 0.0f, 0.0f};
+        }
+    }
+    if (locateInfo->next != nullptr) return XR_ERROR_VALIDATION_FAILURE;
+    if (locateInfo->time <= 0) return XR_ERROR_TIME_INVALID;
+    if (locations->jointCount != XR_HAND_JOINT_COUNT_EXT ||
+        locations->jointLocations == nullptr) {
+        return XR_ERROR_VALIDATION_FAILURE;
+    }
+    XrSpace_T* base = getSpace(locateInfo->baseSpace);
+    if (base == nullptr || base->owner != tracker->owner || base->isActionSpace) {
+        return XR_ERROR_HANDLE_INVALID;
+    }
+    if (base->type != XR_REFERENCE_SPACE_TYPE_LOCAL &&
+        base->type != XR_REFERENCE_SPACE_TYPE_VIEW) {
+        return XR_ERROR_REFERENCE_SPACE_UNSUPPORTED;
+    }
+
+    const int handIndex = tracker->hand == XR_HAND_LEFT_EXT ? 0 : 1;
+    const EndXrHandTrackingSample sample = readFreshHandTrackingInput(handIndex);
+    XrQuaternionf headOrientation{};
+    if (sample.active && base->type == XR_REFERENCE_SPACE_TYPE_LOCAL &&
+        !readFreshHeadOrientation(&headOrientation)) {
+        locations->isActive = XR_FALSE;
+    } else {
+        locations->isActive = sample.active ? XR_TRUE : XR_FALSE;
+    }
+
+    for (std::uint32_t index = 0; index < XR_HAND_JOINT_COUNT_EXT; ++index) {
+        XrHandJointLocationEXT& output = locations->jointLocations[index];
+        output.locationFlags = 0;
+        output.pose.orientation = {0.0f, 0.0f, 0.0f, 1.0f};
+        output.pose.position = {0.0f, 0.0f, 0.0f};
+        output.radius = 0.0f;
+        if (locations->isActive != XR_TRUE) continue;
+
+        const std::size_t offset = static_cast<std::size_t>(index) * 8u;
+        XrPosef localJointPose{};
+        localJointPose.position = {
+            sample.joints[offset], sample.joints[offset + 1], sample.joints[offset + 2]
+        };
+        localJointPose.orientation = normalizedQuaternion({
+            sample.joints[offset + 4], sample.joints[offset + 5],
+            sample.joints[offset + 6], sample.joints[offset + 7]
+        });
+        XrPosef locatedPose = composePose(sample.palmPose, localJointPose);
+        if (base->type == XR_REFERENCE_SPACE_TYPE_LOCAL) {
+            XrPosef headPose{};
+            headPose.orientation = headOrientation;
+            headPose.position = {0.0f, 0.0f, 0.0f};
+            locatedPose = composePose(headPose, locatedPose);
+        }
+        locatedPose = composePose(inversePose(base->poseInReferenceSpace), locatedPose);
+        output.pose = locatedPose;
+        output.radius = sample.joints[offset + 3];
+        // MediaPipe positions are useful, but the phone camera does not provide
+        // independently tracked metric 6DoF joint poses.
+        output.locationFlags =
+            XR_SPACE_LOCATION_POSITION_VALID_BIT |
+            XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+    }
+    return XR_SUCCESS;
+}
+
+    ENDXR_PROC("xrStopHapticFeedback", endxrStopHapticFeedback),
+    ENDXR_PROC("xrCreateHandTrackerEXT", endxrCreateHandTrackerEXT),
+    ENDXR_PROC("xrDestroyHandTrackerEXT", endxrDestroyHandTrackerEXT),
+    ENDXR_PROC("xrLocateHandJointsEXT", endxrLocateHandJointsEXT)
 }};
 #undef ENDXR_PROC
 
@@ -2933,6 +3195,16 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrGetInstanceProcAddr(
         if (std::strcmp(name, entry.name) == 0) {
             if (std::strcmp(name, "xrGetOpenGLESGraphicsRequirementsKHR") == 0 &&
                 (owner == nullptr || !owner->glesExtensionEnabled)) {
+                return owner == nullptr
+                    ? XR_ERROR_HANDLE_INVALID
+                    : XR_ERROR_FUNCTION_UNSUPPORTED;
+            }
+            const bool isHandTrackingCommand =
+                std::strcmp(name, "xrCreateHandTrackerEXT") == 0 ||
+                std::strcmp(name, "xrDestroyHandTrackerEXT") == 0 ||
+                std::strcmp(name, "xrLocateHandJointsEXT") == 0;
+            if (isHandTrackingCommand &&
+                (owner == nullptr || !owner->handTrackingExtensionEnabled)) {
                 return owner == nullptr
                     ? XR_ERROR_HANDLE_INVALID
                     : XR_ERROR_FUNCTION_UNSUPPORTED;
@@ -3015,6 +3287,7 @@ extern "C" __attribute__((visibility("default"))) void endxrSetHandPose(
     std::lock_guard<std::mutex> lock(g_controllerInputMutex);
     auto& input = g_controllerInputs[hand];
     input.poseActive = active != 0;
+    input.updatedAt = std::chrono::steady_clock::now();
     if (input.poseActive) {
         input.gripPose.orientation = {
             static_cast<float>(qx / magnitude),
@@ -3025,12 +3298,59 @@ extern "C" __attribute__((visibility("default"))) void endxrSetHandPose(
         input.gripPose.position = {x, y, z};
     } else {
         input.gripPose = {{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f}};
+        input.handJointsActive = false;
+        input.handJoints = {};
     }
+}
+extern "C" __attribute__((visibility("default"))) void endxrSetHandJointData(
+    std::uint32_t hand, std::uint32_t active,
+    const float* values, std::uint32_t floatCount
+) {
+    if (hand > 1) return;
+    constexpr std::uint32_t expectedCount = XR_HAND_JOINT_COUNT_EXT * 8u;
+    std::lock_guard<std::mutex> lock(g_controllerInputMutex);
+    auto& input = g_controllerInputs[hand];
+    input.updatedAt = std::chrono::steady_clock::now();
+    input.handJointsActive = false;
+    input.handJoints = {};
+    if (active == 0 || !input.poseActive || values == nullptr ||
+        floatCount != expectedCount) return;
+
+    std::array<float, XR_HAND_JOINT_COUNT_EXT * 8u> sanitized{};
+    for (std::uint32_t joint = 0; joint < XR_HAND_JOINT_COUNT_EXT; ++joint) {
+        const std::uint32_t offset = joint * 8u;
+        for (std::uint32_t component = 0; component < 8u; ++component) {
+            if (!std::isfinite(values[offset + component])) return;
+        }
+        if (std::abs(values[offset]) > 0.24f ||
+            std::abs(values[offset + 1]) > 0.24f ||
+            std::abs(values[offset + 2]) > 0.24f ||
+            values[offset + 3] < 0.001f || values[offset + 3] > 0.04f) return;
+        const double magnitude = std::sqrt(
+            static_cast<double>(values[offset + 4]) * values[offset + 4] +
+            static_cast<double>(values[offset + 5]) * values[offset + 5] +
+            static_cast<double>(values[offset + 6]) * values[offset + 6] +
+            static_cast<double>(values[offset + 7]) * values[offset + 7]
+        );
+        if (!std::isfinite(magnitude) || magnitude < 0.5 || magnitude > 1.5) return;
+        for (std::uint32_t component = 0; component < 4u; ++component) {
+            sanitized[offset + component] = values[offset + component];
+        }
+        for (std::uint32_t component = 0; component < 4u; ++component) {
+            sanitized[offset + 4u + component] = static_cast<float>(
+                values[offset + 4u + component] / magnitude
+            );
+        }
+    }
+    input.handJoints = sanitized;
+    input.handJointsActive = true;
 }
 extern "C" __attribute__((visibility("default"))) void endxrClearHandPoses() {
     std::lock_guard<std::mutex> lock(g_controllerInputMutex);
     for (auto& input : g_controllerInputs) {
         input.poseActive = false;
+        input.handJointsActive = false;
+        input.handJoints = {};
         input.gripPose = {{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f}};
     }
 }

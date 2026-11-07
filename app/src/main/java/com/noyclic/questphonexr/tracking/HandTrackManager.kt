@@ -28,10 +28,38 @@ internal class HandTrackManager(
         observation: HandObservation,
         timestampMs: Long
     ) {
-        private val imageFilter = OneEuroHandFilter()
+        // Keep the palm/knuckles quiet while all five fingertips receive a faster
+        // articulation response. Pinch decisions still use fresh, unfiltered landmarks.
+        private val imageFilter = OneEuroHandFilter(
+            minCutoffHz = IMAGE_MIN_CUTOFF_HZ,
+            beta = IMAGE_BETA,
+            derivativeCutoffHz = IMAGE_DERIVATIVE_CUTOFF_HZ,
+            responsiveLandmarkA = THUMB_TIP_INDEX,
+            responsiveLandmarkB = INDEX_TIP_INDEX,
+            responsiveLandmarkIndices = FINGER_TIP_INDICES,
+            responsiveMinCutoffHz = RESPONSIVE_TIP_MIN_CUTOFF_HZ,
+            responsiveBeta = RESPONSIVE_TIP_BETA,
+            derivativeDeadzone = IMAGE_DERIVATIVE_DEADZONE,
+            responsiveDerivativeDeadzone = RESPONSIVE_TIP_DERIVATIVE_DEADZONE,
+            maxLandmarkSpeedPerSecond = IMAGE_LANDMARK_MAX_SPEED,
+            responsiveMaxLandmarkSpeedPerSecond = FINGERTIP_MAX_SPEED
+        )
+        // World landmarks are used for displayed pose mapping, not for gesture decisions.
+        // A bounded metric-space filter contains occasional world-pose jumps while leaving
+        // raw world samples available to PinchEstimator below.
         private val worldFilter = OneEuroHandFilter(
             minCutoffHz = WORLD_MIN_CUTOFF_HZ,
-            beta = WORLD_BETA
+            beta = WORLD_BETA,
+            derivativeCutoffHz = WORLD_DERIVATIVE_CUTOFF_HZ,
+            responsiveLandmarkA = THUMB_TIP_INDEX,
+            responsiveLandmarkB = INDEX_TIP_INDEX,
+            responsiveLandmarkIndices = FINGER_TIP_INDICES,
+            responsiveMinCutoffHz = WORLD_TIP_MIN_CUTOFF_HZ,
+            responsiveBeta = WORLD_TIP_BETA,
+            derivativeDeadzone = WORLD_DERIVATIVE_DEADZONE,
+            responsiveDerivativeDeadzone = WORLD_TIP_DERIVATIVE_DEADZONE,
+            maxLandmarkSpeedPerSecond = WORLD_LANDMARK_MAX_SPEED,
+            responsiveMaxLandmarkSpeedPerSecond = WORLD_TIP_MAX_SPEED
         )
         private val pinchEstimator = PinchEstimator()
 
@@ -41,6 +69,7 @@ internal class HandTrackManager(
         private var sideCandidateCount = 0
         private var lastRawCenter = centerOf(observation.points)
         private var center = lastRawCenter
+        private var lastPalmWidth = palmWidthOf(observation.points)
         private var velocityX = 0f
         private var velocityY = 0f
         var lastSeenTimestampMs: Long = timestampMs
@@ -70,7 +99,22 @@ internal class HandTrackManager(
                 observation.observedSide == side -> -SIDE_MATCH_BONUS
                 else -> SIDE_MISMATCH_PENALTY
             }
-            return distance + sideAdjustment
+            // Palm scale is a weak shape cue, not a hard identity rule: a hand can
+            // approach the camera and change apparent size, so the penalty is bounded.
+            val observedPalmWidth = palmWidthOf(observation.points)
+            val scaleAdjustment = if (
+                lastPalmWidth.isFinite() && observedPalmWidth.isFinite() &&
+                lastPalmWidth > MIN_ASSOCIATION_PALM_WIDTH &&
+                observedPalmWidth > MIN_ASSOCIATION_PALM_WIDTH
+            ) {
+                val scaleRatio = maxOf(lastPalmWidth, observedPalmWidth) /
+                    minOf(lastPalmWidth, observedPalmWidth)
+                (kotlin.math.ln(scaleRatio.toDouble()).toFloat() * PALM_SCALE_COST_WEIGHT)
+                    .coerceIn(0f, MAX_PALM_SCALE_COST)
+            } else {
+                0f
+            }
+            return distance + sideAdjustment + scaleAdjustment
         }
 
         fun accept(observation: HandObservation, timestampMs: Long) {
@@ -85,11 +129,22 @@ internal class HandTrackManager(
                 velocityX += (measuredVelocityX - velocityX) * VELOCITY_RESPONSE
                 velocityY += (measuredVelocityY - velocityY) * VELOCITY_RESPONSE
             } else if (elapsedMs > VELOCITY_RESET_GAP_MS) {
-                resetMotionAndGesture()
+                // Motion and gesture state become stale after a medium dropout.
+                velocityX = 0f
+                velocityY = 0f
+                pinchEstimator.reset()
+                // Keep the mesh filter warm for short/medium gaps, but do not blend
+                // a pose across a long disappearance: reacquisition must snap to the
+                // fresh hand pose once the gap exceeds the visual reset threshold.
+                if (elapsedMs > FILTER_RESET_GAP_MS) {
+                    imageFilter.reset()
+                    worldFilter.reset()
+                }
             }
 
             lastRawCenter = nextCenter
             center = nextCenter
+            lastPalmWidth = palmWidthOf(observation.points)
             lastMeasurementTimestampMs = timestampMs
             lastSeenTimestampMs = timestampMs
             pinchWasReleasedForLoss = false
@@ -102,26 +157,62 @@ internal class HandTrackManager(
                 worldFilter.reset()
                 emptyList()
             }
-            val pinch = pinchEstimator.update(filteredPoints, timestampMs)
+            // The render mesh is filtered for visual stability, but gestures use the
+            // freshest MediaPipe tips. Running pinch through the One Euro mesh and then
+            // through its own time filter adds two stages of lag to the same finger motion.
+            val pinch = pinchEstimator.update(
+                points = observation.points,
+                timestampMs = timestampMs,
+                worldPoints = observation.worldPoints
+            )
             output = TrackedHand(
                 points = filteredPoints,
                 pinchStrength = pinch.strength,
                 isPinching = pinch.isPinching,
+                pinchDistanceRatio = pinch.normalizedDistanceRatio,
+                pinchUsesWorldLandmarks = pinch.usedWorldLandmarks,
                 side = side,
                 worldPoints = filteredWorldPoints,
                 trackingId = id
             )
         }
 
-        fun visibleOutput(timestampMs: Long): TrackedHand? =
-            output.takeIf { timestampMs - lastSeenTimestampMs <= MAX_OUTPUT_HOLD_MS }
+        fun visibleOutput(timestampMs: Long): TrackedHand? {
+            val ageMs = timestampMs - lastSeenTimestampMs
+            if (ageMs > MAX_OUTPUT_HOLD_MS) return null
+            if (ageMs <= 0L || output.points.isEmpty()) return output
+
+            // Bridge a brief detector miss with a small, decelerating translation.
+            // The displacement is always measured from the last real pose (never
+            // accumulated), capped, and limited to image landmarks; hand-local world
+            // landmarks and discrete pinch state are not predicted.
+            val elapsedMs = ageMs.coerceAtMost(MAX_OCCLUSION_PREDICTION_MS).toFloat()
+            val effectivePredictionMs = elapsedMs -
+                elapsedMs * elapsedMs / (2f * MAX_OCCLUSION_PREDICTION_MS.toFloat())
+            val predictionSeconds = effectivePredictionMs / 1_000f
+            val dx = (velocityX * predictionSeconds)
+                .coerceIn(-MAX_OCCLUSION_SHIFT, MAX_OCCLUSION_SHIFT)
+            val dy = (velocityY * predictionSeconds)
+                .coerceIn(-MAX_OCCLUSION_SHIFT, MAX_OCCLUSION_SHIFT)
+            if (dx == 0f && dy == 0f) return output
+            return output.copy(
+                points = output.points.map { point ->
+                    point.copy(x = point.x + dx, y = point.y + dy)
+                }
+            )
+        }
 
         fun markMissing(timestampMs: Long) {
             if (!pinchWasReleasedForLoss &&
                 timestampMs - lastSeenTimestampMs >= pinchReleaseDelayMs
             ) {
                 pinchEstimator.reset()
-                output = output.copy(pinchStrength = 0f, isPinching = false)
+                output = output.copy(
+                    pinchStrength = 0f,
+                    isPinching = false,
+                    pinchDistanceRatio = Float.POSITIVE_INFINITY,
+                    pinchUsesWorldLandmarks = false
+                )
                 pinchWasReleasedForLoss = true
             }
         }
@@ -349,14 +440,42 @@ internal class HandTrackManager(
         return Center(sumX / PALM_CENTER_INDICES.size, sumY / PALM_CENTER_INDICES.size)
     }
 
+    private fun palmWidthOf(points: List<HandPoint>): Float {
+        val indexMcp = points[5]
+        val pinkyMcp = points[17]
+        val dx = indexMcp.x - pinkyMcp.x
+        val dy = indexMcp.y - pinkyMcp.y
+        return sqrt(dx * dx + dy * dy)
+    }
+
     private companion object {
         val PALM_CENTER_INDICES = intArrayOf(0, 5, 9, 13, 17)
         const val LANDMARK_COUNT = 21
+        const val THUMB_TIP_INDEX = 4
+        const val INDEX_TIP_INDEX = 8
+        const val IMAGE_MIN_CUTOFF_HZ = 1.65f
+        const val IMAGE_BETA = 0.28f
+        const val IMAGE_DERIVATIVE_CUTOFF_HZ = 0.80f
+        const val IMAGE_DERIVATIVE_DEADZONE = 0.18f
+        const val RESPONSIVE_TIP_MIN_CUTOFF_HZ = 3.0f
+        const val RESPONSIVE_TIP_BETA = 0.72f
+        const val RESPONSIVE_TIP_DERIVATIVE_DEADZONE = 0.10f
+        val FINGER_TIP_INDICES = intArrayOf(12, 16, 20)
+        const val IMAGE_LANDMARK_MAX_SPEED = 18f
+        const val FINGERTIP_MAX_SPEED = 28f
         const val MAX_TRACKS = 2
         const val DEFAULT_RETENTION_MS = 350L
         const val DEFAULT_PINCH_RELEASE_DELAY_MS = 120L
-        const val MAX_OUTPUT_HOLD_MS = 80L
+        // The persistent EndXR service may run inference at 10 Hz (100 ms intervals).
+        // Keep a missed result visible long enough for the next inference to reacquire it.
+        const val MAX_OUTPUT_HOLD_MS = 140L
+        const val MAX_OCCLUSION_PREDICTION_MS = 100L
+        const val MAX_OCCLUSION_SHIFT = 0.08f
+        const val MIN_ASSOCIATION_PALM_WIDTH = 0.015f
+        const val PALM_SCALE_COST_WEIGHT = 0.12f
+        const val MAX_PALM_SCALE_COST = 0.18f
         const val VELOCITY_RESET_GAP_MS = 120L
+        const val FILTER_RESET_GAP_MS = 180L
         const val REPLACE_STALE_TRACK_MS = 180L
         const val MAX_IMAGE_VELOCITY = 3.0f
         const val VELOCITY_RESPONSE = 0.45f
@@ -368,7 +487,14 @@ internal class HandTrackManager(
         const val SIDE_CORRECTION_FRAMES = 3
         const val SIDE_MATCH_BONUS = 0.10f
         const val SIDE_MISMATCH_PENALTY = 0.36f
-        const val WORLD_MIN_CUTOFF_HZ = 1.7f
-        const val WORLD_BETA = 0.18f
+        const val WORLD_MIN_CUTOFF_HZ = 1.55f
+        const val WORLD_BETA = 0.20f
+        const val WORLD_DERIVATIVE_CUTOFF_HZ = 0.75f
+        const val WORLD_DERIVATIVE_DEADZONE = 0.012f
+        const val WORLD_TIP_MIN_CUTOFF_HZ = 2.6f
+        const val WORLD_TIP_BETA = 0.34f
+        const val WORLD_TIP_DERIVATIVE_DEADZONE = 0.006f
+        const val WORLD_LANDMARK_MAX_SPEED = 2.4f
+        const val WORLD_TIP_MAX_SPEED = 4.0f
     }
 }

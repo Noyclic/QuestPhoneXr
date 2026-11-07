@@ -11,7 +11,7 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
-import kotlin.math.acos
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -40,6 +40,9 @@ class SandboxRenderer : GLSurfaceView.Renderer {
     private lateinit var leftHandMesh: Mesh
     private lateinit var rightHandMesh: Mesh
     private lateinit var pinchAccentMesh: Mesh
+    /** Reused interleaved world-space vertex buffer for both hands and both stereo eyes. */
+    private lateinit var handBatchBuffer: FloatBuffer
+    private var handBatchVertexCount = 0
     private var program = 0
     private var positionHandle = 0
     private var colorHandle = 0
@@ -93,9 +96,25 @@ class SandboxRenderer : GLSurfaceView.Renderer {
         ballMesh = createSphereMesh(0.95f, 0.42f, 0.18f)
         leftCursorMesh = createSphereMesh(0.16f, 0.88f, 0.62f)
         rightCursorMesh = createSphereMesh(0.95f, 0.58f, 0.25f)
-        leftHandMesh = createSphereMesh(0.12f, 0.76f, 0.72f)
-        rightHandMesh = createSphereMesh(1.0f, 0.52f, 0.22f)
-        pinchAccentMesh = createSphereMesh(1.0f, 0.88f, 0.38f)
+        // Hand primitives use a compact sphere tessellation; batching them into one draw
+        // call is cheaper than issuing a GLES call for every bone and knuckle.
+        leftHandMesh = createSphereMesh(
+            0.12f, 0.76f, 0.72f,
+            HAND_SPHERE_LATITUDE_SEGMENTS, HAND_SPHERE_LONGITUDE_SEGMENTS
+        )
+        rightHandMesh = createSphereMesh(
+            1.0f, 0.52f, 0.22f,
+            HAND_SPHERE_LATITUDE_SEGMENTS, HAND_SPHERE_LONGITUDE_SEGMENTS
+        )
+        pinchAccentMesh = createSphereMesh(
+            1.0f, 0.88f, 0.38f,
+            HAND_SPHERE_LATITUDE_SEGMENTS, HAND_SPHERE_LONGITUDE_SEGMENTS
+        )
+        val handVertexCapacity = MAX_TRACKED_HANDS * MAX_HAND_PRIMITIVES *
+            leftHandMesh.vertexCount * FLOATS_PER_VERTEX
+        handBatchBuffer = ByteBuffer.allocateDirect(handVertexCapacity * BYTES_PER_FLOAT)
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
         startedAtNanos = System.nanoTime()
         frameRateCounter.reset()
         measuredFramesPerSecond = 0f
@@ -132,6 +151,8 @@ class SandboxRenderer : GLSurfaceView.Renderer {
 
         val elapsed = (System.nanoTime() - startedAtNanos) / 1_000_000_000f
         val ambientBob = sin(elapsed * 1.4f) * 0.015f
+        // Hand geometry is identical for both eyes; build it once per phone frame.
+        buildHandBatch(snapshot)
 
         for (eye in 0..1) {
             val viewportX = eye * eyeWidth
@@ -208,20 +229,17 @@ class SandboxRenderer : GLSurfaceView.Renderer {
 
             val leftHand = snapshot.leftHand
             val rightHand = snapshot.rightHand
-            if (leftHand.cameraTracked && leftHand.landmarks.size >= HAND_LANDMARK_COUNT) {
-                drawHand(leftHand.landmarks, leftHandMesh, leftHand.grabbing)
-            } else {
+            if (!(leftHand.cameraTracked && leftHand.landmarks.size >= HAND_LANDMARK_COUNT)) {
                 val cursor = leftHand.cursor
                 val size = if (leftHand.grabbing) 0.13f else 0.09f
                 drawMesh(leftCursorMesh, cursor.x, cursor.y, cursor.z, size, size, size)
             }
-            if (rightHand.cameraTracked && rightHand.landmarks.size >= HAND_LANDMARK_COUNT) {
-                drawHand(rightHand.landmarks, rightHandMesh, rightHand.grabbing)
-            } else {
+            if (!(rightHand.cameraTracked && rightHand.landmarks.size >= HAND_LANDMARK_COUNT)) {
                 val cursor = rightHand.cursor
                 val size = if (rightHand.grabbing) 0.13f else 0.09f
                 drawMesh(rightCursorMesh, cursor.x, cursor.y, cursor.z, size, size, size)
             }
+            drawHandBatch()
         }
         frameRateCounter.onFrame(System.nanoTime())?.let { measured ->
             measuredFramesPerSecond = measured
@@ -257,102 +275,248 @@ class SandboxRenderer : GLSurfaceView.Renderer {
         drawTransformedMesh(mesh, model)
     }
 
-    private fun drawHand(
+    /**
+     * Builds one interleaved triangle batch for all visible hands. The old path submitted
+     * a draw call for each palm link, finger bone and knuckle sphere, repeated for both eyes.
+     * This path expands compact rounded primitives into one reusable CPU buffer per frame;
+     * the same finished batch is then drawn once for each stereo eye.
+     */
+    private fun buildHandBatch(snapshot: SandboxSceneSnapshot) {
+        handBatchBuffer.clear()
+        val left = snapshot.leftHand
+        if (left.cameraTracked && left.landmarks.size >= HAND_LANDMARK_COUNT) {
+            appendHandGeometry(left.landmarks, leftHandMesh, left.grabbing)
+        }
+        val right = snapshot.rightHand
+        if (right.cameraTracked && right.landmarks.size >= HAND_LANDMARK_COUNT) {
+            appendHandGeometry(right.landmarks, rightHandMesh, right.grabbing)
+        }
+        handBatchVertexCount = handBatchBuffer.position() / FLOATS_PER_VERTEX
+        handBatchBuffer.flip()
+    }
+
+    private fun appendHandGeometry(
         points: List<SandboxVector3>,
         handMesh: Mesh,
         isPinching: Boolean
     ) {
-        if (points.size < HAND_LANDMARK_COUNT) return
         val palmWidth = distance(points[5], points[17]).coerceIn(0.12f, 0.62f)
         val palmLength = distance(points[0], points[9]).coerceIn(0.10f, 0.62f)
-        val palmIndices = intArrayOf(0, 5, 9, 13, 17)
-        val palmCenter = SandboxVector3(
-            palmIndices.map { points[it].x }.average().toFloat(),
-            palmIndices.map { points[it].y }.average().toFloat(),
-            palmIndices.map { points[it].z }.average().toFloat()
-        )
+        var centerX = 0f
+        var centerY = 0f
+        var centerZ = 0f
+        for (index in PALM_CENTER_INDICES) {
+            centerX += points[index].x
+            centerY += points[index].y
+            centerZ += points[index].z
+        }
+        centerX /= PALM_CENTER_INDICES.size
+        centerY /= PALM_CENTER_INDICES.size
+        centerZ /= PALM_CENTER_INDICES.size
 
-        // A softly flattened palm plus connected, rounded finger segments gives a
-        // real 3D volume instead of drawing the 21 tracking points as a wire skeleton.
-        drawMesh(
+        // Ellipsoidal palm with a little extra thickness for a more solid dorsal surface.
+        appendEllipsoid(
             handMesh,
-            palmCenter.x,
-            palmCenter.y,
-            palmCenter.z,
-            palmWidth * 0.58f,
-            palmLength * 0.50f,
-            0.045f
+            centerX, centerY, centerZ,
+            1f, 0f, 0f,
+            0f, 1f, 0f,
+            0f, 0f, 1f,
+            palmWidth * 0.56f,
+            palmLength * 0.48f,
+            (palmWidth * 0.18f).coerceIn(0.035f, 0.075f)
         )
 
-        val palmLinks = arrayOf(
-            intArrayOf(0, 5), intArrayOf(5, 9), intArrayOf(9, 13),
-            intArrayOf(13, 17), intArrayOf(17, 0)
-        )
-        val palmRadius = (palmWidth * 0.045f).coerceIn(0.014f, 0.03f)
-        palmLinks.forEach { link ->
-            drawSegment(handMesh, points[link[0]], points[link[1]], palmRadius)
+        val palmLinkRadius = SandboxHandMeshGeometry.palmLinkRadius(palmWidth)
+        for (link in SandboxHandMeshGeometry.PALM_LINKS) {
+            val start = points[link[0]]
+            val end = points[link[1]]
+            appendBone(handMesh, start, end, palmLinkRadius)
         }
 
-        FINGER_CHAINS.forEach { chain ->
-            for (index in 0 until chain.size - 1) {
-                val taper = 1f - index * 0.09f
-                val radius = (palmWidth * 0.052f * taper).coerceIn(0.012f, 0.029f)
-                drawSegment(handMesh, points[chain[index]], points[chain[index + 1]], radius)
-            }
-        }
-
-        val jointRadius = (palmWidth * 0.034f).coerceIn(0.014f, 0.024f)
-        drawMesh(
+        // The thumb web is a common visual gap in landmark-driven hands. A short rounded
+        // bridge from thumb MCP to index MCP gives the palm a continuous silhouette.
+        appendBone(
             handMesh,
-            points[0].x, points[0].y, points[0].z,
-            jointRadius * 1.35f, jointRadius * 1.35f, 0.026f
+            points[SandboxHandMeshGeometry.THUMB_WEB[0]],
+            points[SandboxHandMeshGeometry.THUMB_WEB[1]],
+            (palmLinkRadius * 0.82f).coerceAtLeast(0.012f)
         )
-        FINGER_CHAINS.forEach { chain ->
-            chain.forEachIndexed { index, landmarkIndex ->
-                val size = jointRadius * if (index == chain.lastIndex) 0.88f else 1.0f
-                val point = points[landmarkIndex]
-                drawMesh(handMesh, point.x, point.y, point.z, size, size, size)
-            }
-        }
-        if (isPinching) {
-            listOf(points[4], points[8]).forEach { point ->
-                drawMesh(
-                    pinchAccentMesh,
-                    point.x, point.y, point.z,
-                    jointRadius * 1.55f, jointRadius * 1.55f, jointRadius * 1.55f
+
+        val chains = SandboxHandMeshGeometry.FINGER_CHAINS
+        for (digitIndex in chains.indices) {
+            val chain = chains[digitIndex]
+            for (segmentIndex in 0 until chain.size - 1) {
+                val radius = SandboxHandMeshGeometry.fingerSegmentRadius(
+                    palmWidth, digitIndex, segmentIndex
+                )
+                appendBone(
+                    handMesh,
+                    points[chain[segmentIndex]],
+                    points[chain[segmentIndex + 1]],
+                    radius
                 )
             }
         }
+
+        // Every bone is an overlapping rounded capsule, so its ends also form the joint
+        // transitions. Separate full-size joint balls were removed to avoid a "beads on
+        // a wire" appearance and to reduce the amount of geometry.
+        if (isPinching) {
+            val accentRadius = (palmWidth * 0.034f).coerceIn(0.014f, 0.024f) * 1.22f
+            appendEllipsoid(
+                pinchAccentMesh,
+                points[4].x, points[4].y, points[4].z,
+                1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f,
+                accentRadius, accentRadius, accentRadius
+            )
+            appendEllipsoid(
+                pinchAccentMesh,
+                points[8].x, points[8].y, points[8].z,
+                1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f,
+                accentRadius, accentRadius, accentRadius
+            )
+        }
     }
 
-    private fun drawSegment(mesh: Mesh, start: SandboxVector3, end: SandboxVector3, radius: Float) {
+    /** Appends a rounded capsule aligned from start to end using one shared sphere mesh. */
+    private fun appendBone(
+        mesh: Mesh,
+        start: SandboxVector3,
+        end: SandboxVector3,
+        radius: Float
+    ) {
         val dx = end.x - start.x
         val dy = end.y - start.y
         val dz = end.z - start.z
         val length = sqrt(dx * dx + dy * dy + dz * dz)
-        if (length < 0.0001f) return
+        if (!length.isFinite() || length < MIN_BONE_LENGTH) return
 
-        Matrix.setIdentityM(model, 0)
-        Matrix.translateM(
-            model, 0,
+        val directionX = dx / length
+        val directionY = dy / length
+        val directionZ = dz / length
+
+        // Build an orthonormal frame with local +Y following the bone direction.
+        // Choosing a different reference near the Z poles prevents a zero cross product.
+        val axisXx: Float
+        val axisXy: Float
+        val axisXz: Float
+        if (abs(directionZ) < 0.90f) {
+            val basisLength = sqrt(directionX * directionX + directionY * directionY)
+                .coerceAtLeast(MIN_BONE_LENGTH)
+            axisXx = -directionY / basisLength
+            axisXy = directionX / basisLength
+            axisXz = 0f
+        } else {
+            val basisLength = sqrt(directionY * directionY + directionZ * directionZ)
+                .coerceAtLeast(MIN_BONE_LENGTH)
+            axisXx = 0f
+            axisXy = -directionZ / basisLength
+            axisXz = directionY / basisLength
+        }
+        // Local X × local Y must equal local Z; keep the basis right-handed.
+        val axisZx = axisXy * directionZ - axisXz * directionY
+        val axisZy = axisXz * directionX - axisXx * directionZ
+        val axisZz = axisXx * directionY - axisXy * directionX
+
+        appendEllipsoid(
+            mesh,
             (start.x + end.x) * 0.5f,
             (start.y + end.y) * 0.5f,
-            (start.z + end.z) * 0.5f
+            (start.z + end.z) * 0.5f,
+            axisXx, axisXy, axisXz,
+            directionX, directionY, directionZ,
+            axisZx, axisZy, axisZz,
+            radius,
+            length * 0.5f + radius,
+            radius
         )
+    }
 
-        // Unit spheres are aligned along local +Y. Rotate that axis onto the bone.
-        val axisX = dz
-        val axisZ = -dx
-        val axisLength = sqrt(axisX * axisX + axisZ * axisZ)
-        val cosine = (dy / length).coerceIn(-1f, 1f)
-        val angleDegrees = Math.toDegrees(acos(cosine).toDouble()).toFloat()
-        if (axisLength > 0.00001f) {
-            Matrix.rotateM(model, 0, angleDegrees, axisX / axisLength, 0f, axisZ / axisLength)
-        } else if (dy < 0f) {
-            Matrix.rotateM(model, 0, 180f, 1f, 0f, 0f)
+    /**
+     * Expands one shaded ellipsoid into the reusable interleaved batch. Vertex normals are
+     * approximated from the unit sphere and inverse-scaled before a soft directional light
+     * is applied to the vertex color; no new GLES shader attributes or per-bone draw calls.
+     */
+    private fun appendEllipsoid(
+        mesh: Mesh,
+        centerX: Float,
+        centerY: Float,
+        centerZ: Float,
+        axisXx: Float, axisXy: Float, axisXz: Float,
+        axisYx: Float, axisYy: Float, axisYz: Float,
+        axisZx: Float, axisZy: Float, axisZz: Float,
+        radiusX: Float,
+        radiusY: Float,
+        radiusZ: Float
+    ) {
+        val source = mesh.vertices
+        val safeRadiusX = radiusX.coerceAtLeast(MIN_ELLIPSOID_RADIUS)
+        val safeRadiusY = radiusY.coerceAtLeast(MIN_ELLIPSOID_RADIUS)
+        val safeRadiusZ = radiusZ.coerceAtLeast(MIN_ELLIPSOID_RADIUS)
+        for (vertex in 0 until mesh.vertexCount) {
+            val offset = vertex * FLOATS_PER_VERTEX
+            val localX = source.get(offset)
+            val localY = source.get(offset + 1)
+            val localZ = source.get(offset + 2)
+            val worldX = centerX + axisXx * localX * safeRadiusX +
+                axisYx * localY * safeRadiusY + axisZx * localZ * safeRadiusZ
+            val worldY = centerY + axisXy * localX * safeRadiusX +
+                axisYy * localY * safeRadiusY + axisZy * localZ * safeRadiusZ
+            val worldZ = centerZ + axisXz * localX * safeRadiusX +
+                axisYz * localY * safeRadiusY + axisZz * localZ * safeRadiusZ
+
+            val normalX = axisXx * (localX / safeRadiusX) +
+                axisYx * (localY / safeRadiusY) + axisZx * (localZ / safeRadiusZ)
+            val normalY = axisXy * (localX / safeRadiusX) +
+                axisYy * (localY / safeRadiusY) + axisZy * (localZ / safeRadiusZ)
+            val normalZ = axisXz * (localX / safeRadiusX) +
+                axisYz * (localY / safeRadiusY) + axisZz * (localZ / safeRadiusZ)
+            val normalLength = sqrt(
+                normalX * normalX + normalY * normalY + normalZ * normalZ
+            ).coerceAtLeast(MIN_ELLIPSOID_RADIUS)
+            val diffuse = (
+                normalX * LIGHT_DIRECTION_X +
+                    normalY * LIGHT_DIRECTION_Y +
+                    normalZ * LIGHT_DIRECTION_Z
+                ) / normalLength
+            val shade = (AMBIENT_LIGHT + DIFFUSE_LIGHT * diffuse.coerceAtLeast(0f))
+                .coerceIn(AMBIENT_LIGHT, 1f)
+
+            handBatchBuffer.put(worldX)
+            handBatchBuffer.put(worldY)
+            handBatchBuffer.put(worldZ)
+            handBatchBuffer.put(source.get(offset + 3) * shade)
+            handBatchBuffer.put(source.get(offset + 4) * shade)
+            handBatchBuffer.put(source.get(offset + 5) * shade)
         }
-        Matrix.scaleM(model, 0, radius, length * 0.5f + radius, radius)
-        drawTransformedMesh(mesh, model)
+    }
+
+    /** One GLES draw call per eye for both complete hands. */
+    private fun drawHandBatch() {
+        if (handBatchVertexCount <= 0) return
+        Matrix.multiplyMM(mvp, 0, projection, 0, view, 0)
+        GLES20.glUseProgram(program)
+        GLES20.glUniformMatrix4fv(mvpHandle, 1, false, mvp, 0)
+
+        val batch = handBatchBuffer
+        val floatCount = handBatchVertexCount * FLOATS_PER_VERTEX
+        batch.position(0)
+        batch.limit(floatCount)
+        GLES20.glEnableVertexAttribArray(positionHandle)
+        GLES20.glVertexAttribPointer(
+            positionHandle, 3, GLES20.GL_FLOAT, false,
+            FLOATS_PER_VERTEX * BYTES_PER_FLOAT, batch
+        )
+        batch.position(3)
+        GLES20.glEnableVertexAttribArray(colorHandle)
+        GLES20.glVertexAttribPointer(
+            colorHandle, 3, GLES20.GL_FLOAT, false,
+            FLOATS_PER_VERTEX * BYTES_PER_FLOAT, batch
+        )
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, handBatchVertexCount)
+        GLES20.glDisableVertexAttribArray(positionHandle)
+        GLES20.glDisableVertexAttribArray(colorHandle)
+        batch.clear()
     }
 
     private fun drawTransformedMesh(mesh: Mesh, transform: FloatArray) {
@@ -479,10 +643,14 @@ class SandboxRenderer : GLSurfaceView.Renderer {
         return mesh(values)
     }
 
-    private fun createSphereMesh(r: Float, g: Float, b: Float): Mesh {
+    private fun createSphereMesh(
+        r: Float,
+        g: Float,
+        b: Float,
+        latitudeSegments: Int = 12,
+        longitudeSegments: Int = 18
+    ): Mesh {
         val values = ArrayList<Float>()
-        val latitudeSegments = 12
-        val longitudeSegments = 18
         for (latitude in 0 until latitudeSegments) {
             val lat0 = Math.PI * (-0.5 + latitude.toDouble() / latitudeSegments)
             val lat1 = Math.PI * (-0.5 + (latitude + 1).toDouble() / latitudeSegments)
@@ -554,13 +722,19 @@ class SandboxRenderer : GLSurfaceView.Renderer {
         private const val FLOATS_PER_VERTEX = 6
         private const val CUBE_VERTEX_COUNT = 36
         private const val HAND_LANDMARK_COUNT = 21
-        private val FINGER_CHAINS = arrayOf(
-            intArrayOf(1, 2, 3, 4),
-            intArrayOf(5, 6, 7, 8),
-            intArrayOf(9, 10, 11, 12),
-            intArrayOf(13, 14, 15, 16),
-            intArrayOf(17, 18, 19, 20)
-        )
+        private const val MAX_TRACKED_HANDS = 2
+        // 1 palm + 5 palm links + 1 thumb web + 15 digit bones + 2 pinch accents.
+        private const val MAX_HAND_PRIMITIVES = SandboxHandMeshGeometry.MAX_PRIMITIVES_PER_HAND
+        private const val HAND_SPHERE_LATITUDE_SEGMENTS = 8
+        private const val HAND_SPHERE_LONGITUDE_SEGMENTS = 12
+        private const val MIN_BONE_LENGTH = 0.0001f
+        private const val MIN_ELLIPSOID_RADIUS = 0.0001f
+        private const val LIGHT_DIRECTION_X = -0.32f
+        private const val LIGHT_DIRECTION_Y = 0.76f
+        private const val LIGHT_DIRECTION_Z = 0.57f
+        private const val AMBIENT_LIGHT = 0.60f
+        private const val DIFFUSE_LIGHT = 0.40f
+        private val PALM_CENTER_INDICES = intArrayOf(0, 5, 9, 13, 17)
 
         private const val VERTEX_SHADER = """
             uniform mat4 uMvp;

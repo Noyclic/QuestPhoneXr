@@ -132,6 +132,38 @@ class SandboxSimulationTest {
     }
 
     @Test
+    fun curledThreeFingerPowerGripGrabsWithoutPinching() {
+        val simulation = SandboxSimulation()
+        val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+        points[0] = HandPoint(0.51f, 0.73f, 0f)
+        val fingers = listOf(
+            5 to HandPoint(0.44f, 0.52f, 0f),
+            9 to HandPoint(0.48f, 0.50f, 0f),
+            13 to HandPoint(0.53f, 0.50f, 0f),
+            17 to HandPoint(0.58f, 0.52f, 0f)
+        )
+        for ((mcpIndex, mcp) in fingers) {
+            points[mcpIndex] = mcp
+            points[mcpIndex + 1] = HandPoint(mcp.x, mcp.y - 0.025f, 0f)
+            points[mcpIndex + 2] = HandPoint(mcp.x + 0.01f, mcp.y - 0.01f, 0f)
+            points[mcpIndex + 3] = HandPoint(mcp.x + 0.015f, mcp.y, 0f)
+        }
+        val hand = TrackedHand(
+            points = points,
+            pinchStrength = 0.1f,
+            isPinching = false,
+            side = HandSide.LEFT
+        )
+
+        simulation.update(emptyList(), HandTrackingFrame(150L, listOf(hand)), 1f / 30f)
+
+        val snapshot = simulation.snapshot()
+        assertTrue(snapshot.leftHand.grabbing)
+        assertEquals(1, snapshot.grabbedObjectCount)
+        assertEquals(HandSide.LEFT, snapshot.objects.single { it.heldBy != null }.heldBy)
+    }
+
+    @Test
     fun openTrackedHandMovesItsCursorWithoutGrabbing() {
         val simulation = SandboxSimulation()
         val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
@@ -156,6 +188,36 @@ class SandboxSimulationTest {
         assertEquals(0.22f * 2.55f * 2.4f, snapshot.rightHand.cursor.x, 0.002f)
         assertEquals(0.28f * 2.55f * 1.8f, snapshot.rightHand.cursor.y, 0.002f)
         assertEquals(0, snapshot.grabbedObjectCount)
+    }
+
+    @Test
+    fun openFingertipCanPushBallWithoutGrabbingIt() {
+        val simulation = SandboxSimulation()
+        val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+        points[0] = HandPoint(0.5f, 0.55f, 0f)
+        points[5] = HandPoint(0.57f, 0.46f, 0f)
+        points[17] = HandPoint(0.43f, 0.46f, 0f)
+        // The index fingertip maps close to the starter ball at (0, 0.25, -3.15).
+        points[8] = HandPoint(0.5f, 0.4576f, 0f)
+        val openHand = TrackedHand(
+            points = points,
+            pinchStrength = 0.1f,
+            isPinching = false,
+            side = HandSide.LEFT
+        )
+
+        simulation.update(
+            emptyList(),
+            HandTrackingFrame(175L, listOf(openHand)),
+            1f / 30f
+        )
+
+        val snapshot = simulation.snapshot()
+        val ball = snapshot.objects.single { it.type == SandboxObjectType.BALL }
+        assertTrue(snapshot.leftHand.cameraTracked)
+        assertFalse(snapshot.leftHand.grabbing)
+        assertEquals(0, snapshot.grabbedObjectCount)
+        assertTrue("fingertip contact should push the free ball", ball.position.z > -3.15f)
     }
 
     @Test

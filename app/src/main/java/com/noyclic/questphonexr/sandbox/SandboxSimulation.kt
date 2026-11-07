@@ -29,6 +29,58 @@ internal fun isSandboxHandFrameStale(
 
 
 /**
+ * Small jitter-aware presentation buffer. Stable inference cadence uses a shorter delay;
+ * irregular callback spacing grows the buffer temporarily so interpolation has a usable
+ * pair of samples. This affects rendered landmarks only, never pinch/grip input.
+ */
+internal class HandPresentationDelayEstimator {
+    private var previousIntervalMs = 0f
+    private var smoothedIntervalMs = 0f
+    private var smoothedJitterMs = 0f
+    private var hasSample = false
+
+    fun observe(intervalMs: Long) {
+        val interval = intervalMs.toFloat().coerceIn(MIN_INTERVAL_MS, MAX_INTERVAL_MS)
+        if (!hasSample) {
+            previousIntervalMs = interval
+            smoothedIntervalMs = interval
+            smoothedJitterMs = 0f
+            hasSample = true
+            return
+        }
+        val deviation = kotlin.math.abs(interval - previousIntervalMs)
+        smoothedJitterMs += JITTER_ALPHA * (deviation - smoothedJitterMs)
+        smoothedIntervalMs += INTERVAL_ALPHA * (interval - smoothedIntervalMs)
+        previousIntervalMs = interval
+    }
+
+    fun delayMs(fallbackIntervalMs: Long): Long {
+        val interval = if (hasSample) smoothedIntervalMs else
+            fallbackIntervalMs.toFloat().coerceIn(MIN_INTERVAL_MS, MAX_INTERVAL_MS)
+        val target = interval * BASE_DELAY_RATIO + smoothedJitterMs * JITTER_MULTIPLIER
+        return target.toLong().coerceIn(MIN_DELAY_MS, MAX_DELAY_MS)
+    }
+
+    fun reset() {
+        previousIntervalMs = 0f
+        smoothedIntervalMs = 0f
+        smoothedJitterMs = 0f
+        hasSample = false
+    }
+
+    private companion object {
+        const val MIN_INTERVAL_MS = 16f
+        const val MAX_INTERVAL_MS = 220f
+        const val INTERVAL_ALPHA = 0.20f
+        const val JITTER_ALPHA = 0.25f
+        const val BASE_DELAY_RATIO = 0.30f
+        const val JITTER_MULTIPLIER = 1.25f
+        const val MIN_DELAY_MS = 18L
+        const val MAX_DELAY_MS = 64L
+    }
+}
+
+/**
  * Produces a render-time hand pose between MediaPipe observations.
  *
  * Gesture state is copied from the newest observation and is never interpolated.
@@ -38,6 +90,7 @@ internal fun isSandboxHandFrameStale(
 internal class SandboxHandPoseInterpolator {
     private data class Sample(val timestampMs: Long, val hand: TrackedHand)
 
+    private val presentationDelay = HandPresentationDelayEstimator()
     private var previous: Sample? = null
     private var current: Sample? = null
     private var lastFrameTimestampMs = Long.MIN_VALUE
@@ -53,6 +106,7 @@ internal class SandboxHandPoseInterpolator {
             if (hand == null) {
                 previous = null
                 current = null
+                presentationDelay.reset()
                 return null
             }
 
@@ -66,8 +120,10 @@ internal class SandboxHandPoseInterpolator {
                 oldCurrent.hand.points.size == hand.points.size
             ) {
                 previous = oldCurrent
+                presentationDelay.observe(sampleTime - oldCurrent.timestampMs)
             } else {
                 previous = null
+                presentationDelay.reset()
             }
             current = Sample(sampleTime, hand)
         }
@@ -75,9 +131,7 @@ internal class SandboxHandPoseInterpolator {
         val newest = current ?: return null
         val older = previous ?: return newest.hand
         val sampleDurationMs = (newest.timestampMs - older.timestampMs).coerceAtLeast(1L)
-        val presentationDelayMs = (sampleDurationMs * PRESENTATION_DELAY_RATIO)
-            .toLong()
-            .coerceIn(MIN_PRESENTATION_DELAY_MS, MAX_PRESENTATION_DELAY_MS)
+        val presentationDelayMs = presentationDelay.delayMs(sampleDurationMs)
         val presentationTimeMs = renderTimeMs - presentationDelayMs
 
         val interpolationAmount = if (presentationTimeMs <= newest.timestampMs) {
@@ -98,6 +152,7 @@ internal class SandboxHandPoseInterpolator {
     fun reset() {
         previous = null
         current = null
+        presentationDelay.reset()
         lastFrameTimestampMs = Long.MIN_VALUE
     }
 
@@ -139,10 +194,7 @@ internal class SandboxHandPoseInterpolator {
 
     private companion object {
         const val MAX_SAMPLE_GAP_MS = 220L
-        const val MIN_PRESENTATION_DELAY_MS = 18L
-        const val MAX_PRESENTATION_DELAY_MS = 48L
         const val MAX_PREDICTION_MS = 26L
-        const val PRESENTATION_DELAY_RATIO = 0.55f
         const val MAX_PREDICTION_RATIO = 0.35f
     }
 }
@@ -222,7 +274,8 @@ class SandboxSimulation {
         val connected: Boolean,
         val cameraTracked: Boolean,
         val trackingLost: Boolean = false,
-        val landmarks: List<SandboxVector3> = emptyList()
+        val landmarks: List<SandboxVector3> = emptyList(),
+        val contactLandmarks: List<SandboxVector3> = emptyList()
     )
 
     private val objects = mutableListOf<MutableObject>()
@@ -232,6 +285,9 @@ class SandboxSimulation {
     private val rightDepthEstimator = MonocularHandDepthEstimator()
     private val leftPoseInterpolator = SandboxHandPoseInterpolator()
     private val rightPoseInterpolator = SandboxHandPoseInterpolator()
+    // These smooth only the mapped 3D display landmarks. Interaction cursors remain raw.
+    private val leftWorldPoseSmoother = SandboxWorldHandPoseSmoother()
+    private val rightWorldPoseSmoother = SandboxWorldHandPoseSmoother()
     private var leftCursor = DEFAULT_LEFT_CURSOR
     private var rightCursor = DEFAULT_RIGHT_CURSOR
     private var leftGrabbing = false
@@ -275,6 +331,8 @@ class SandboxSimulation {
         rightCursorSmoother.reset()
         leftPoseInterpolator.reset()
         rightPoseInterpolator.reset()
+        leftWorldPoseSmoother.reset()
+        rightWorldPoseSmoother.reset()
     }
 
     @Synchronized
@@ -284,6 +342,8 @@ class SandboxSimulation {
         rightCursorSmoother.reset()
         leftPoseInterpolator.reset()
         rightPoseInterpolator.reset()
+        leftWorldPoseSmoother.reset()
+        rightWorldPoseSmoother.reset()
         leftLandmarks = emptyList()
         rightLandmarks = emptyList()
     }
@@ -330,10 +390,10 @@ class SandboxSimulation {
             rightTrackedHand, handFrame.timestampMs, handFrameReceivedAtMs, renderTimeMs
         )
         val leftRaw = controllerFor(
-            HandSide.LEFT, controllers, leftTrackedHand, leftDisplayHand, cameraToWorldRotation
+            HandSide.LEFT, controllers, leftTrackedHand, leftDisplayHand, cameraToWorldRotation, dt
         )
         val rightRaw = controllerFor(
-            HandSide.RIGHT, controllers, rightTrackedHand, rightDisplayHand, cameraToWorldRotation
+            HandSide.RIGHT, controllers, rightTrackedHand, rightDisplayHand, cameraToWorldRotation, dt
         )
         val leftTrackingLost = leftCameraTracked && !leftRaw.cameraTracked &&
             leftGrabbing && !leftRaw.grabbing
@@ -367,6 +427,8 @@ class SandboxSimulation {
 
         updateGrab(HandSide.LEFT, left.grabbing, leftWorld.cursor, dt, left.trackingLost)
         updateGrab(HandSide.RIGHT, right.grabbing, rightWorld.cursor, dt, right.trackingLost)
+        applyFingerContacts(leftWorld, dt)
+        applyFingerContacts(rightWorld, dt)
         updatePhysics(dt)
     }
 
@@ -422,7 +484,8 @@ class SandboxSimulation {
         if (offset.x == 0f && offset.y == 0f && offset.z == 0f) return this
         return copy(
             cursor = cursor + offset,
-            landmarks = landmarks.map { it + offset }
+            landmarks = landmarks.map { it + offset },
+            contactLandmarks = contactLandmarks.map { it + offset }
         )
     }
 
@@ -434,7 +497,8 @@ class SandboxSimulation {
         controllers: List<PhysicalControllerSnapshot>,
         trackedHand: TrackedHand?,
         displayHand: TrackedHand?,
-        cameraToWorldRotation: FloatArray?
+        cameraToWorldRotation: FloatArray?,
+        renderDeltaSeconds: Float
     ): ControllerState {
         val physical = controllers.firstOrNull { it.hand == hand }
         val depthEstimator = if (hand == HandSide.LEFT) leftDepthEstimator else rightDepthEstimator
@@ -462,7 +526,9 @@ class SandboxSimulation {
             }
         }.orEmpty()
         if (trackedHand == null) depthEstimator.reset()
-        val cameraCursor = interactionCursor(cameraLandmarks, trackedHand?.isPinching == true)
+        val pinching = trackedHand?.isPinching == true
+        val powerGripping = trackedHand?.let(::isPowerGrip) == true
+        val cameraCursor = interactionCursor(cameraLandmarks, pinching, powerGripping)
         // A deflected Joy-Con stick takes temporary control of the virtual hand.
         // Releasing the stick returns control to MediaPipe (or the default hand pose).
         val gamepadCursor = physical
@@ -479,7 +545,27 @@ class SandboxSimulation {
         val cursor = cameraCursor ?: gamepadCursor ?: fallbackCursor
         // Locomotion must never translate a camera-tracked hand. The gamepad cursor
         // remains available only as a fallback when MediaPipe is not tracking this hand.
-        val renderedLandmarks = displayLandmarks
+        // Smooth after mapping into the actual Sandbox world. This stabilizes the 3D
+        // hand's depth/position as well as its silhouette, without delaying the cursor,
+        // pinch/grab state, or the controller pose sent to EndXR.
+        val worldPoseSmoother = if (hand == HandSide.LEFT) {
+            leftWorldPoseSmoother
+        } else {
+            rightWorldPoseSmoother
+        }
+        val renderedLandmarks = if (trackedHand != null && displayHand != null &&
+            displayLandmarks.isNotEmpty()
+        ) {
+            worldPoseSmoother.update(
+                target = displayLandmarks,
+                deltaSeconds = renderDeltaSeconds,
+                hand = hand,
+                trackingId = displayHand.trackingId
+            )
+        } else {
+            worldPoseSmoother.reset()
+            emptyList()
+        }
         val digitalGrab = physical?.pressedKeyCodes?.any {
             it == GamepadButtonCodes.BUTTON_L1 ||
                 it == GamepadButtonCodes.BUTTON_R1 ||
@@ -489,24 +575,111 @@ class SandboxSimulation {
         val analogGrab = physical?.let {
             it.leftTrigger > GRAB_THRESHOLD || it.rightTrigger > GRAB_THRESHOLD
         } ?: false
-        val grabbing = trackedHand?.isPinching == true || digitalGrab || analogGrab
+        // A closed three-or-more-finger power grip is a natural grab fallback.
+        // Pinch remains supported as a precision grip, and physical controllers remain available.
+        val grabbing = pinching || powerGripping || digitalGrab || analogGrab
         return ControllerState(
             cursor = cursor,
             grabbing = grabbing,
             connected = trackedHand != null || physical != null,
             cameraTracked = trackedHand != null,
-            landmarks = renderedLandmarks
+            landmarks = renderedLandmarks,
+            contactLandmarks = cameraLandmarks
         )
+    }
+
+    private fun isPowerGrip(hand: TrackedHand): Boolean {
+        // MediaPipe world landmarks are preferred for rotation/scale robustness.
+        // Fall back to normalized image landmarks if the 3D chain is incomplete.
+        val worldGrip = curledFingerCount(hand.worldPoints)
+        val curledFingers = worldGrip ?: curledFingerCount(hand.points) ?: return false
+        return curledFingers >= POWER_GRIP_MIN_FINGERS
+    }
+
+    private fun curledFingerCount(points: List<HandPoint>): Int? {
+        if (points.size < 21) return null
+        val wrist = points[0]
+        var completeFingers = 0
+        var curledFingers = 0
+        for (mcpIndex in FINGER_MCP_INDICES) {
+            val mcp = points[mcpIndex]
+            val pip = points[mcpIndex + 1]
+            val dip = points[mcpIndex + 2]
+            val tip = points[mcpIndex + 3]
+            val palmLength = distance(wrist, mcp)
+            if (!palmLength.isFinite() || palmLength < MIN_PALM_FINGER_LENGTH) continue
+
+            val segments = floatArrayOf(
+                distance(mcp, pip),
+                distance(pip, dip),
+                distance(dip, tip)
+            )
+            // Scale all validity checks to that hand's palm so distant hands
+            // are not rejected by a fixed pixel/world-unit threshold.
+            if (segments.any { !it.isFinite() || it / palmLength < MIN_FINGER_SEGMENT_RATIO }) {
+                continue
+            }
+            completeFingers++
+            val foldedLength = distance(mcp, tip)
+            if (foldedLength.isFinite() &&
+                foldedLength / palmLength < POWER_GRIP_FOLD_RATIO
+            ) curledFingers++
+        }
+        // Too few complete chains is not sufficient evidence of a fist.
+        return curledFingers.takeIf { completeFingers >= POWER_GRIP_MIN_FINGERS }
+    }
+    private fun distance(a: HandPoint, b: HandPoint): Float {
+        val dx = a.x - b.x
+        val dy = a.y - b.y
+        val dz = a.z - b.z
+        return sqrt(dx * dx + dy * dy + dz * dz)
     }
 
     private fun interactionCursor(
         landmarks: List<SandboxVector3>,
-        isPinching: Boolean
+        isPinching: Boolean,
+        isPowerGripping: Boolean
     ): SandboxVector3? {
         val indexTip = landmarks.getOrNull(8) ?: landmarks.firstOrNull() ?: return null
-        if (!isPinching) return indexTip
-        val thumbTip = landmarks.getOrNull(4) ?: return indexTip
-        return (thumbTip + indexTip) * 0.5f
+        if (isPinching) {
+            val thumbTip = landmarks.getOrNull(4) ?: return indexTip
+            return (thumbTip + indexTip) * 0.5f
+        }
+        if (isPowerGripping) {
+            val palmPoints = PALM_MCP_INDICES.mapNotNull(landmarks::getOrNull)
+            if (palmPoints.isNotEmpty()) {
+                return palmPoints.reduce { total, point -> total + point } *
+                    (1f / palmPoints.size.toFloat())
+            }
+        }
+        return indexTip
+    }
+
+    private fun applyFingerContacts(hand: ControllerState, deltaSeconds: Float) {
+        if (!hand.cameraTracked || hand.grabbing) return
+        val fingertips = FINGERTIP_INDICES.mapNotNull(hand.contactLandmarks::getOrNull)
+        if (fingertips.isEmpty()) return
+        for (item in objects) {
+            if (item.heldBy != null || item.type == SandboxObjectType.TARGET) continue
+            val contactRadius = if (item.type == SandboxObjectType.BALL) {
+                BALL_CONTACT_RADIUS
+            } else {
+                CUBE_CONTACT_RADIUS
+            }
+            val contact = fingertips
+                .map { tip -> tip to (item.position - tip) }
+                .minByOrNull { it.second.length() } ?: continue
+            val distance = contact.second.length()
+            if (distance >= contactRadius) continue
+            val normal = if (distance > 0.0001f) {
+                contact.second * (1f / distance)
+            } else {
+                SandboxVector3(0f, 0.35f, -0.94f)
+            }
+            val penetration = (contactRadius - distance).coerceAtLeast(0f)
+            item.velocity = item.velocity +
+                normal * (FINGER_CONTACT_ACCELERATION * deltaSeconds + penetration * CONTACT_SEPARATION_GAIN)
+        }
     }
 
     private fun updateGrab(
@@ -592,6 +765,17 @@ class SandboxSimulation {
         private const val GAMEPAD_REACH_HEIGHT = 2.15f
         private const val GRAB_THRESHOLD = 0.45f
         private const val MAX_GRAB_DISTANCE = 1.2f
+        private const val MIN_PALM_FINGER_LENGTH = 0.025f
+        private const val MIN_FINGER_SEGMENT_RATIO = 0.055f
+        private const val POWER_GRIP_FOLD_RATIO = 0.92f
+        private const val POWER_GRIP_MIN_FINGERS = 3
+        private const val FINGER_CONTACT_ACCELERATION = 5.5f
+        private const val CONTACT_SEPARATION_GAIN = 7.0f
+        private const val BALL_CONTACT_RADIUS = 0.25f
+        private const val CUBE_CONTACT_RADIUS = 0.30f
+        private val FINGER_MCP_INDICES = intArrayOf(5, 9, 13, 17)
+        private val PALM_MCP_INDICES = intArrayOf(5, 9, 13, 17)
+        private val FINGERTIP_INDICES = intArrayOf(4, 8, 12, 16, 20)
         private const val MAX_THROW_SPEED = 4.5f
         private const val GRAVITY = 3.2f
         private const val FLOOR_Y = -1.18f

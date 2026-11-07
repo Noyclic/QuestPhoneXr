@@ -27,8 +27,15 @@ class EndXrHandInputEncoderTest {
 
         assertTrue(encoded.leftPose.active)
         assertTrue(encoded.rightPose.active)
+        assertTrue(encoded.leftJoints.active)
+        assertTrue(encoded.rightJoints.active)
+        assertEquals(EndXrHandJointSample.FLOAT_COUNT, encoded.leftJoints.values.size)
+        assertEquals(EndXrHandJointSample.BLOB_SIZE, encoded.leftJoints.toBlob().size)
+        val restored = EndXrHandJointSample.fromBlob(encoded.leftJoints.toBlob())
+        assertTrue(restored.active)
+        assertEquals(encoded.leftJoints.values.toList(), restored.values.toList())
         val estimatedDistance = 2.55f * 0.18f / 0.20f
-        val expectedLeftX = (0.49f - 0.5f) * estimatedDistance * 2.4f
+        val expectedLeftX = (0.4875f - 0.5f) * estimatedDistance * 2.4f
         assertEquals(expectedLeftX, encoded.leftPose.x, 0.002f)
         assertTrue(encoded.rightPose.x > encoded.leftPose.x)
         assertTrue(encoded.leftPose.z < -0.25f)
@@ -61,6 +68,8 @@ class EndXrHandInputEncoderTest {
         val lost = EndXrHandInputEncoder.encode(HandTrackingFrame(4L, emptyList()))
         assertFalse(lost.leftPose.active)
         assertFalse(lost.rightPose.active)
+        assertFalse(lost.leftJoints.active)
+        assertFalse(lost.rightJoints.active)
     }
 
     private fun trackedHand(side: HandSide, centerX: Float): TrackedHand {

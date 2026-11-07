@@ -2,6 +2,7 @@ package com.noyclic.questphonexr.tracking
 
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 /**
  * Allocation-light One Euro filter for a fixed MediaPipe landmark set.
@@ -14,7 +15,21 @@ internal class OneEuroHandFilter(
     private val minCutoffHz: Float = DEFAULT_MIN_CUTOFF_HZ,
     private val beta: Float = DEFAULT_BETA,
     private val derivativeCutoffHz: Float = DEFAULT_DERIVATIVE_CUTOFF_HZ,
-    private val resetAfterGapMs: Long = DEFAULT_RESET_AFTER_GAP_MS
+    private val resetAfterGapMs: Long = DEFAULT_RESET_AFTER_GAP_MS,
+    /** Optional landmark indices that should react faster in the visible hand mesh. */
+    private val responsiveLandmarkA: Int = -1,
+    private val responsiveLandmarkB: Int = -1,
+    private val responsiveMinCutoffHz: Float = minCutoffHz * RESPONSIVE_CUTOFF_MULTIPLIER,
+    private val responsiveBeta: Float = beta * RESPONSIVE_BETA_MULTIPLIER,
+    /** Optional image-space XY speed limit; infinity preserves the original raw samples. */
+    private val maxLandmarkSpeedPerSecond: Float = Float.POSITIVE_INFINITY,
+    /** Higher limit for fast-moving fingertip landmarks. */
+    private val responsiveMaxLandmarkSpeedPerSecond: Float = maxLandmarkSpeedPerSecond,
+    /** Additional responsive landmarks beside the two legacy fingertip slots. */
+    private val responsiveLandmarkIndices: IntArray = intArrayOf(),
+    /** Soft threshold for velocity used only by the adaptive cutoff. */
+    private val derivativeDeadzone: Float = 0f,
+    private val responsiveDerivativeDeadzone: Float = derivativeDeadzone
 ) {
     private data class AxisState(
         var previousRaw: Float,
@@ -30,6 +45,17 @@ internal class OneEuroHandFilter(
         require(beta >= 0f && beta.isFinite())
         require(derivativeCutoffHz > 0f && derivativeCutoffHz.isFinite())
         require(resetAfterGapMs > 0L)
+        require(responsiveLandmarkA >= -1 && responsiveLandmarkB >= -1)
+        require(responsiveMinCutoffHz > 0f && responsiveMinCutoffHz.isFinite())
+        require(responsiveBeta >= 0f && responsiveBeta.isFinite())
+        require(maxLandmarkSpeedPerSecond > 0f &&
+            (maxLandmarkSpeedPerSecond.isFinite() || maxLandmarkSpeedPerSecond == Float.POSITIVE_INFINITY))
+        require(responsiveMaxLandmarkSpeedPerSecond > 0f &&
+            (responsiveMaxLandmarkSpeedPerSecond.isFinite() ||
+                responsiveMaxLandmarkSpeedPerSecond == Float.POSITIVE_INFINITY))
+        require(derivativeDeadzone >= 0f && derivativeDeadzone.isFinite())
+        require(responsiveDerivativeDeadzone >= 0f && responsiveDerivativeDeadzone.isFinite())
+        require(responsiveLandmarkIndices.all { it >= 0 })
     }
 
     fun update(points: List<HandPoint>, timestampMs: Long): List<HandPoint> {
@@ -64,9 +90,65 @@ internal class OneEuroHandFilter(
         for (index in points.indices) {
             val point = points[index]
             val offset = index * AXES_PER_POINT
-            val x = filterAxis(activeState[offset], point.x, dtSeconds, derivativeAlpha)
-            val y = filterAxis(activeState[offset + 1], point.y, dtSeconds, derivativeAlpha)
-            val z = filterAxis(activeState[offset + 2], point.z, dtSeconds, derivativeAlpha)
+            val responsive = index == responsiveLandmarkA ||
+                index == responsiveLandmarkB || responsiveLandmarkIndices.contains(index)
+            val activeMinCutoff = if (responsive) responsiveMinCutoffHz else minCutoffHz
+            val activeBeta = if (responsive) responsiveBeta else beta
+            val activeDerivativeDeadzone = if (responsive) {
+                responsiveDerivativeDeadzone
+            } else {
+                derivativeDeadzone
+            }
+
+            // Clamp only implausibly large *image-space* sample jumps before they enter
+            // the derivative estimator. This prevents a one-frame landmark teleport
+            // from making the adaptive cutoff spike and dragging the whole visible hand.
+            // World-space filters leave this disabled because their units are metres.
+            val speedLimit = if (responsive) {
+                responsiveMaxLandmarkSpeedPerSecond
+            } else {
+                maxLandmarkSpeedPerSecond
+            }
+            var rawX = point.x
+            var rawY = point.y
+            var rawZ = point.z
+            if (speedLimit.isFinite()) {
+                val previousX = activeState[offset].previousRaw
+                val previousY = activeState[offset + 1].previousRaw
+                val dx = rawX - previousX
+                val dy = rawY - previousY
+                val distance = sqrt(dx * dx + dy * dy)
+                val maximumStep = speedLimit * dtSeconds
+                if (!distance.isFinite()) {
+                    // Finite coordinates can still overflow when subtracted/squared.
+                    // Hold the last raw XY sample rather than producing NaN via Inf * 0.
+                    rawX = previousX
+                    rawY = previousY
+                } else if (distance > maximumStep) {
+                    val scale = maximumStep / distance
+                    rawX = previousX + dx * scale
+                    rawY = previousY + dy * scale
+                }
+                val previousZ = activeState[offset + 2].previousRaw
+                val maximumDepthStep = maximumStep * MAX_DEPTH_STEP_MULTIPLIER
+                rawZ = previousZ + (rawZ - previousZ).coerceIn(
+                    -maximumDepthStep,
+                    maximumDepthStep
+                )
+            }
+
+            val x = filterAxis(
+                activeState[offset], rawX, dtSeconds, derivativeAlpha,
+                activeMinCutoff, activeBeta, activeDerivativeDeadzone
+            )
+            val y = filterAxis(
+                activeState[offset + 1], rawY, dtSeconds, derivativeAlpha,
+                activeMinCutoff, activeBeta, activeDerivativeDeadzone
+            )
+            val z = filterAxis(
+                activeState[offset + 2], rawZ, dtSeconds, derivativeAlpha,
+                activeMinCutoff, activeBeta, activeDerivativeDeadzone
+            )
             output.add(HandPoint(x, y, z))
         }
 
@@ -95,13 +177,24 @@ internal class OneEuroHandFilter(
         state: AxisState,
         rawValue: Float,
         dtSeconds: Float,
-        derivativeAlpha: Float
+        derivativeAlpha: Float,
+        activeMinCutoffHz: Float,
+        activeBeta: Float,
+        activeDerivativeDeadzone: Float
     ): Float {
         val rawDerivative = (rawValue - state.previousRaw) / dtSeconds
+        // The measured coordinate still follows the input. Only the velocity estimate
+        // that raises the adaptive cutoff receives a soft deadzone, preventing tiny
+        // camera jitter from being mistaken for deliberate movement.
+        val stableDerivative = when {
+            rawDerivative > activeDerivativeDeadzone -> rawDerivative - activeDerivativeDeadzone
+            rawDerivative < -activeDerivativeDeadzone -> rawDerivative + activeDerivativeDeadzone
+            else -> 0f
+        }
         state.filteredDerivative += derivativeAlpha *
-            (rawDerivative - state.filteredDerivative)
+            (stableDerivative - state.filteredDerivative)
 
-        val adaptiveCutoff = minCutoffHz + beta * abs(state.filteredDerivative)
+        val adaptiveCutoff = activeMinCutoffHz + activeBeta * abs(state.filteredDerivative)
         val valueAlpha = smoothingAlpha(adaptiveCutoff, dtSeconds)
         state.filtered += valueAlpha * (rawValue - state.filtered)
         state.previousRaw = rawValue
@@ -121,7 +214,10 @@ internal class OneEuroHandFilter(
         const val DEFAULT_BETA = 0.25f
         const val DEFAULT_DERIVATIVE_CUTOFF_HZ = 1.0f
         const val DEFAULT_RESET_AFTER_GAP_MS = 250L
+        const val RESPONSIVE_CUTOFF_MULTIPLIER = 1.75f
+        const val RESPONSIVE_BETA_MULTIPLIER = 2.4f
         const val MIN_DT_SECONDS = 0.001f
         const val MAX_DT_SECONDS = 0.1f
+        const val MAX_DEPTH_STEP_MULTIPLIER = 1.5f
     }
 }

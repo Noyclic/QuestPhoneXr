@@ -556,7 +556,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         val cameraInput = EndXrHandInputEncoder.encode(handFrame)
         endXrRuntime.setControllerInput(left, right)
         EndXrInputSnapshotStore.publish(left, right)
-        EndXrInputSnapshotStore.publishHandPoses(cameraInput.leftPose, cameraInput.rightPose)
+        EndXrInputSnapshotStore.publishHandPoses(
+            cameraInput.leftPose, cameraInput.rightPose,
+            cameraInput.leftJoints, cameraInput.rightJoints
+        )
     }
 
     private fun launchExternalOpenXrProbe() {
@@ -1963,6 +1966,21 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             it.hand == com.noyclic.questphonexr.tracking.HandSide.RIGHT
         }
         val scene = simulation.snapshot()
+        val serviceRunning = EndXrHandTrackingService.isRunning()
+        val diagnosticHandFrame = if (serviceRunning) {
+            EndXrHandTrackingService.latestFrame()
+        } else {
+            latestHandFrame
+        }
+        val leftTrackedHand = diagnosticHandFrame.hands.firstOrNull {
+            it.side == com.noyclic.questphonexr.tracking.HandSide.LEFT
+        }
+        val rightTrackedHand = diagnosticHandFrame.hands.firstOrNull {
+            it.side == com.noyclic.questphonexr.tracking.HandSide.RIGHT
+        }
+        val unknownTrackedHand = diagnosticHandFrame.hands.firstOrNull {
+            it.side == com.noyclic.questphonexr.tracking.HandSide.UNKNOWN
+        }
         val actualFps = renderer.measuredFps
         val fpsText = if (actualFps > 0f) {
             String.format(Locale.US, "%.1f", actualFps)
@@ -1996,9 +2014,14 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             append(" · ").append(handTrackingPreset.maxTrackedHands).append(" рук · MediaPipe ")
                 .append(inferenceRateLabel)
             append('\n')
-            append(cameraStatusMessage).append(" · рук: ").append(latestHandFrame.handCount)
+            append(cameraStatusMessage).append(" · рук: ").append(diagnosticHandFrame.handCount)
             append('\n')
-            val serviceRunning = EndXrHandTrackingService.isRunning()
+            append("Pinch L: ").append(pinchDiagnostic(leftTrackedHand))
+            append(" · R: ").append(pinchDiagnostic(rightTrackedHand))
+            if (unknownTrackedHand != null) {
+                append(" · ?: ").append(pinchDiagnostic(unknownTrackedHand))
+            }
+            append('\n')
             val serviceState = EndXrHandTrackingService.diagnosticState()
             append("Фоновая камера EndXR: ")
             append(
@@ -2051,6 +2074,16 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             append('\n')
             append("Щипок пальцами или кнопки Joy-Con захватывают предметы")
         }
+    }
+
+    private fun pinchDiagnostic(hand: com.noyclic.questphonexr.tracking.TrackedHand?): String {
+        if (hand == null) return "—"
+        val percent = (hand.pinchStrength * 100f).toInt().coerceIn(0, 100)
+        val ratio = hand.pinchDistanceRatio.takeIf { it.isFinite() }
+            ?.let { String.format(Locale.US, "%.2f", it) } ?: "—"
+        val source = if (hand.pinchUsesWorldLandmarks) "3D" else "2D"
+        return "$percent% · разрыв $ratio× · $source · " +
+            if (hand.isPinching) "ON" else "off"
     }
 
     private fun updateStatus() {

@@ -156,6 +156,43 @@ class EndXrInputSnapshotTest {
     }
 
     @Test
+    fun handJointBufferRoundTripsAndExpiresWithItsPalmPose() {
+        val pose = EndXrHandPoseSample.fromCameraPose(
+            x = 0.1f, y = 0.05f, z = -2.5f,
+            qx = 0f, qy = 0f, qz = 0f, qw = 1f
+        )
+        val values = FloatArray(EndXrHandJointSample.FLOAT_COUNT)
+        for (joint in 0 until EndXrHandJointSample.JOINT_COUNT) {
+            val offset = joint * EndXrHandJointSample.FLOATS_PER_JOINT
+            values[offset] = joint * 0.001f
+            values[offset + 1] = 0.01f
+            values[offset + 2] = -0.005f
+            values[offset + 3] = 0.009f
+            values[offset + 7] = 1f
+        }
+        val joints = EndXrHandJointSample.fromValues(values)
+        assertTrue(joints.active)
+        assertEquals(832, joints.toBlob().size)
+        val decoded = EndXrHandJointSample.fromBlob(joints.toBlob())
+        assertTrue(decoded.active)
+        assertEquals(joints.values.toList(), decoded.values.toList())
+
+        EndXrInputSnapshotStore.publishHandPoses(
+            pose, EndXrHandPoseSample.EMPTY, joints, EndXrHandJointSample.EMPTY,
+            nowElapsedRealtimeNanos = clock.now
+        )
+        val fresh = EndXrInputSnapshotStore.snapshotForIpc(clock.now)
+        assertTrue(fresh.leftHandPose.active)
+        assertTrue(fresh.leftHandJoints.active)
+        assertFalse(fresh.rightHandJoints.active)
+
+        clock.advance(EndXrInputSnapshotStore.MAX_SAMPLE_AGE_NANOS + 1L)
+        val stale = EndXrInputSnapshotStore.snapshotForIpc(clock.now)
+        assertFalse(stale.leftHandPose.active)
+        assertFalse(stale.leftHandJoints.active)
+    }
+
+    @Test
     fun rejectsNonFiniteOrUnboundedEstimatedHandPose() {
         assertEquals(
             EndXrHandPoseSample.EMPTY,

@@ -16,26 +16,31 @@ This document describes the Android camera-to-hand-input path and its current sa
 2. The image is rotated, optionally mirrored for the explicitly selected front camera, scaled and letterboxed to the model input.
 3. MediaPipe returns image landmarks, world landmarks and handedness metadata.
 4. `HandTrackManager` associates each result with a persistent track before filtering.
-5. Each track independently filters image landmarks and world landmarks, then estimates pinch from the filtered image landmarks.
+5. Each track independently filters image landmarks and world landmarks for presentation, while pinch is estimated from the newest raw image landmarks with its own time-aware smoothing. Gesture input is not delayed by the render mesh filter.
 6. The current visible detections are published to Sandbox / GVXRS input. Missing detections are not emitted as stale visible hands.
 
 ## Identity and recovery
 
-- Association uses a predicted palm center (wrist plus the four palm MCP landmarks) and MediaPipe handedness confidence.
+- Association uses a predicted palm center (wrist plus the four palm MCP landmarks), MediaPipe handedness confidence, and a weak bounded palm-width continuity cue. Palm scale is not a hard identity constraint because apparent size legitimately changes as a hand moves toward or away from the camera.
 - For two detections, both complete track assignments are compared instead of letting an early greedy match consume the wrong track.
 - Each track owns its One Euro filter state and pinch estimator. Reordering MediaPipe's result list therefore does not transfer gesture state between hands.
-- A dropout can retain identity for up to 350 ms. The last pose is held for at most 80 ms to cover an isolated missed result, then hidden until the detector reacquires it.
-- Pinch is released after 120 ms without a detection. Motion filters and velocity are reset after a longer gap so a returning hand does not slide from an obsolete pose.
+- A dropout can retain identity for up to 350 ms. The last pose is held for at most 80 ms to cover an isolated missed result, then hidden until the detector reacquires it. During that short visible hold, image landmarks receive a small, non-accumulating translation prediction from recent palm-center velocity. Its integrated prediction horizon is capped at 50 ms and each axis is limited to 0.08 normalized units; hand-local world landmarks and discrete pinch state are not predicted.
+- Pinch is released after 120 ms without a detection, and the motion estimate is reset after 120 ms. Visual image/world filters stay warm through a medium dropout and apply their own 250 ms hard-reset policy; this avoids an unnecessary cold-start snap on reacquisition while still preventing stale velocity or pinch from surviving.
 - Track IDs are diagnostic identity tokens only; they are not hardware IDs or persistent identities across application restarts.
 
 ## Filtering and pinch
 
 - Image landmarks and world landmarks use independent One Euro filters.
-- Low-speed landmark noise is damped with a lower idle cutoff (image: 1.8 Hz; world: 1.7 Hz); the cutoff rises moderately with movement speed (image beta: 0.25; world beta: 0.18). Velocity is measured from the previous raw sample, avoiding the extra lag caused by estimating speed from an already filtered pose. These are conservative software defaults and still need physical-device tuning.
-- Sandbox uses MediaPipe's adaptive landmark filter as the single camera-pose smoothing stage; it no longer double-smooths hands at render rate. Camera-space mapping validates the rotation matrix once per hand instead of allocating temporary rotation-check lists for every landmark.
+- Low-speed landmark noise is damped with a lower idle cutoff (image: 1.8 Hz; world: 1.7 Hz); the cutoff rises moderately with movement speed (image beta: 0.25; world beta: 0.18). The visible thumb/index tips use a separate faster One Euro response (3.2 Hz minimum cutoff, beta 0.65) while palm and knuckle landmarks keep the quieter default filter. Velocity is measured from the previous raw sample, avoiding the extra lag caused by estimating speed from an already filtered pose. These are conservative software defaults and still need physical-device tuning.
+- MediaPipe's One Euro filters stabilize camera-space landmarks. After calibration and camera-to-world mapping, Sandbox adds a separate critically damped world-space presentation filter for the displayed 3D hand. This second stage does not touch the interaction cursor or pinch input. Camera-space mapping validates the rotation matrix once per hand instead of allocating temporary rotation-check lists for every landmark.
 - The filter uses MediaPipe callback timestamps, not an assumed fixed frame rate. Large or invalid timestamp gaps reset filter state.
+- The visible image-space filter applies a bounded XY movement budget before derivative estimation (18 normalized image units/s for palm/joint landmarks and 28 for thumb/index tips). A separate metric-space budget limits displayed world-landmark XY jumps to 2.4 m/s, with a 4.0 m/s budget for thumb/index articulation. These limits affect only the filtered presentation pose: pinch continues to use the newest raw world/image observations. Generic filters retain their unrestricted defaults. The caps are intended to contain isolated landmark teleports without imposing a low-speed limit on ordinary hand motion.
 - Pinch distance is normalized by palm width so the gesture is less sensitive to how close the hand is to the camera.
-- Pinch uses separate activation and release thresholds (hysteresis) and time-aware smoothing. Missing or invalid key landmarks clear the gesture rather than leaving a stuck pinch.
+- Pinch uses the newest raw thumb/index/palm landmarks rather than the already-filtered render mesh, avoiding two serial smoothing stages on fingertip motion. When MediaPipe supplies plausible world landmarks, thumb/index distance and palm width are measured in 3D; edge-on 2D projection otherwise makes the apparent palm width too small. Missing or implausible world geometry safely falls back to normalized image-space distance. Its own time-aware smoother uses separate activation and release thresholds (0.62 / 0.40) to respond to deliberate partial closure without treating a relaxed open hand as a pinch. A high-confidence near-closed pinch uses a faster attack alpha (0.82) so a clear gesture can activate on one observation; partial closures retain the normal multi-sample smoothing. Missing, non-finite or overflowed key landmarks clear the gesture rather than leaving a stuck pinch.
+- The gesture hot path validates the four required landmarks directly without creating a temporary list.
+- The latest normalized thumb/index distance ratio and whether it came from world or image landmarks are carried with each tracked hand. Sandbox diagnostics show strength, normalized gap, measurement source and ON/OFF state so real-device threshold tuning can distinguish landmark quality from downstream input mapping.
+- World-space presentation filtering has a separate, higher fingertip response budget. The pinch estimator still reads the newest raw MediaPipe landmarks, so a smoothed 3D hand mesh cannot delay a valid trigger press.
+- While pinching, an isolated noisy open-hand estimate does not immediately release a grab. Release requires 24 ms of continuously low pinch strength; a renewed pinch cancels the pending release. Missing/non-finite required landmarks still clear the signal immediately.
 
 ## Device tuning and limits
 
@@ -50,7 +55,8 @@ The JVM suite covers:
 - MediaPipe result reordering and hand crossing;
 - per-hand pinch-state ownership;
 - short dropouts, the 80 ms pose hold, long-gap pinch release and filter reset;
-- stale-track expiration, invalid landmarks and non-monotonic timestamps.
+- stale-track expiration, invalid landmarks and non-monotonic timestamps;
+- extreme image-space landmark jumps, the larger fingertip motion budget, short-gap bounded pose prediction, and palm-scale-assisted association when handedness is unknown.
 
 Physical-device checks are still required for latency, occlusion behavior, low-light recovery, sustained temperature and battery draw.
 
@@ -58,9 +64,9 @@ Physical-device checks are still required for latency, occlusion behavior, low-l
 
 The Sandbox keeps interaction input and rendered hand geometry on separate paths:
 
-- Pinch/grip state and the interaction cursor use the newest MediaPipe observation immediately.
+- Pinch/grip state and the interaction cursor use the newest MediaPipe observation immediately; pinch has its own short time-aware smoothing and does not wait for the visual One Euro filter.
 - The 21 displayed landmarks are interpolated between the previous and newest per-hand observation using callback-arrival uptime timestamps.
-- Presentation delay adapts to the observed sample interval (55% of the interval, clamped to 18–48 ms). Forward prediction is limited to 26 ms and 35% of the sample interval.
+- Presentation delay adapts to the observed sample interval and callback jitter (clamped to 18–64 ms). Forward prediction is limited to 26 ms and 35% of the sample interval.
 - Interpolation is reset on tracking loss, calibration changes, or a hand identity change. Discrete gesture state is never interpolated.
 
 This stage is intentionally limited to Sandbox rendering. It does not change the MediaPipe filter, the OpenXR input snapshot, or the hand-tracking service output. Physical-device latency and perceived smoothness still need to be checked on the Redmi.
@@ -83,3 +89,57 @@ A new **Быстро · 1 рука** preset uses one-hand inference and no addit
 A separate **Турбо · 1 рука** preset keeps CameraX capture at 640×480 but scales the model bitmap to 320×240. This reduces model-input pixels to one quarter of the 640×480 source size while retaining the higher-resolution camera image for preprocessing. It is a speed/detail tradeoff, not a prediction of a fourfold inference speedup. The selected model dimensions are preserved when tracking moves into the foreground service.
 
 Diagnostics now split preprocessing, approximate inference, and result-processing time. Compare these values alongside result FPS, dropped-busy frames, dropped-interval frames, and result age. If inference dominates, test GPU versus CPU and one-hand mode. If preprocessing dominates, inspect CameraX stride/format and source dimensions. Do not claim a performance gain until the same scene and lighting are measured on the physical Redmi Note 13 4G. The diagnostic callback snapshots are throttled to 4 Hz, and the optional frame-luma sample runs at 1 Hz; error events still force an immediate metrics publish. A 0 ms inference interval means no added software throttle, not a guaranteed 1000 FPS target; the adaptive governor only adds delay after measured overload.
+
+## Adaptive presentation timing
+
+Sandbox render interpolation now estimates both the recent MediaPipe callback interval and its
+short-term absolute interval jitter. Stable cadence uses a 30% interval presentation delay
+(clamped to 18–64 ms); irregular callback spacing adds a bounded jitter margin. The estimator
+resets when a hand disappears, changes identity, or the sample gap is too large. Forward
+prediction remains capped at 26 ms / 35% of the sample interval. This changes rendered landmark
+timing only: pinch/grip and the interaction cursor continue to use the newest observation.
+
+
+## Occlusion and unstable-landmark hardening
+
+The latest tracking increment adds three bounded safeguards:
+
+1. Extreme image-landmark jumps are limited before entering the One Euro derivative estimator. Thumb and index tips have a larger movement budget than the palm so a legitimate fast pinch remains more responsive. This is not a general speed cap on the world-space pose or the controller input.
+2. During the existing 80 ms visibility hold, a missed hand may continue along its recent image-space direction for a very short, decelerating interval. Prediction is based on the last real pose on every render (it never accumulates), stops after a 50 ms integration horizon, and is capped to 0.08 normalized units per axis. It does not synthesize world-space motion or hold a pinch after the manager's existing loss-release deadline.
+3. When handedness is unavailable or weak, assignment uses palm width as a small, bounded continuity cue alongside predicted center distance. This can help distinguish two similarly positioned hands with different apparent sizes, but it deliberately does not override a strong handedness signal or assume palm size is constant.
+
+These safeguards are regression-tested in the JVM suite. They still need physical Redmi testing with fast movement, partial occlusion, hands crossing, and near/far depth changes; no measured latency or FPS improvement is claimed.
+
+
+## Medium-dropout reacquisition and metric pose stability
+
+The next hardening increment separates motion confidence from visual filter continuity. After a detection gap longer than 120 ms, palm velocity and pinch state are reset immediately, but image/world presentation filters are allowed to remain warm until their own 250 ms hard-reset threshold. A returning hand can therefore blend back into the visible pose instead of always snapping to the first raw sample; discrete pinch state does not carry across that gap.
+
+The world-landmark presentation filter now has a metric-space jump budget (2.4 m/s for palm/joint landmarks and 4.0 m/s for thumb/index tips). This is only for the displayed hand pose. Pinch measurement remains on raw world landmarks, and a regression test explicitly verifies that a pinch can activate immediately while the displayed world fingertip mesh is still smoothing.
+
+
+## 3D Sandbox hand-pose presentation
+
+After the MediaPipe display landmarks are mapped through calibration and the camera-to-world rotation, Sandbox applies a separate render-only 3D pose smoother to the 21 world-space landmarks:
+
+- It uses an exact critically damped spring step rather than a fixed per-frame lerp. The time-based integration keeps its response consistent across the selected 20–60 FPS render rates.
+- One response frequency is shared across the complete hand. Palm, knuckles and fingertips therefore settle together instead of each joint acquiring a different smoothing delay.
+- The response adapts to palm-center motion: low-speed micro-jitter is damped more strongly, while faster hand movement raises the response frequency to reduce visual lag.
+- The smoother runs after 3D mapping, so it stabilizes world X/Y and depth Z together. It resets on hand identity changes, calibration changes, tracking loss, or invalid pose data.
+- It is strictly a presentation layer. Interaction cursor, pinch/grab state and OpenXR input continue to use the newest tracked observation; this additional smoothing does not delay trigger input or the controller snapshot.
+
+The JVM regression suite covers convergence without overshoot, faster response at higher palm speed, shared whole-hand response, depth smoothing, identity resets, missing-hand resets and invalid-coordinate recovery. Physical Redmi testing is still required to tune the response frequency against actual perceived hand motion and rendering cadence.
+
+
+## Continuous 3D hand mesh and mobile rendering
+
+Sandbox now builds the visible 3D hand as one reusable stereo render batch instead of issuing a separate GLES draw for every finger segment and joint:
+
+- The palm remains an ellipsoid, but finger bones are overlapping rounded capsules with per-digit width and distal taper. The thumb web receives a short bridge to the index MCP so the base of the thumb does not look detached from the palm.
+- Separate large joint beads were removed. The rounded ends of adjacent capsules provide the joint transitions and keep the silhouette more continuous.
+- The visible pinch accent remains a small pair of fingertip highlights; it is not part of gesture measurement.
+- Hand-only spheres use an 8×12 tessellation instead of the general 12×18 scene sphere. A soft vertex-color light is calculated from the ellipsoid normal before upload, giving palm and fingers readable volume without extra shader attributes or a more expensive fragment shader.
+- Both tracked hands are expanded into one interleaved direct FloatBuffer once per phone render frame. The same buffer is drawn once for each stereo eye, replacing up to 44 individual hand draw calls per hand per eye with one combined hand draw per eye. The buffer is reused and no per-frame direct-buffer allocation is performed.
+- The 3D mesh remains presentation-only. Cursor movement, pinch/grab logic and EndXR input are still driven by the tracking path and do not depend on the mesh batch.
+
+The new JVM tests cover all five four-point finger chains, the 15 bone links, palm/web topology, the maximum batch primitive count, and bounded per-digit radii/taper. The draw-call and vertex-count reduction is a code-level estimate; sustained FPS and visual quality still require measurement on the Redmi Note 13 4G.
