@@ -8,7 +8,7 @@ This document describes the Android camera-to-hand-input path and its current sa
 - If front-camera use is not explicitly enabled, the tracker selects the rear camera. It does not silently fall back to the front camera when the rear camera is unavailable.
 - CameraX analysis uses `STRATEGY_KEEP_ONLY_LATEST`; stale queued frames are not accumulated.
 - MediaPipe runs in `LIVE_STREAM` mode with one submitted frame in flight. Camera buffers and model bitmaps are reused.
-- The current MediaPipe delegate is CPU. This is a compatibility baseline, not a claim that CPU is fastest on every phone.
+- The tracker prefers the MediaPipe GPU delegate when the pipeline can keep the delegate on its owner thread; it falls back to CPU if GPU initialization fails. The selected delegate and thread match are exposed in diagnostics.
 
 ## Per-frame processing
 
