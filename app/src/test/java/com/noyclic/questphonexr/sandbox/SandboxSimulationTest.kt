@@ -385,14 +385,18 @@ class SandboxSimulationTest {
         )
         simulation.update(emptyList(), HandTrackingFrame(100L, listOf(pinching)), 1f / 30f)
 
+        // The held ball keeps its initial palm-relative offset (0, +0.25, -0.60).
+        // Move the palm anchor so the ball, not the hand origin, reaches the target.
         val targetPoints = pickupPoints.toMutableList()
-        targetPoints[4] = HandPoint(0.5f, 0.895f, 0f)
-        targetPoints[8] = HandPoint(0.5f, 0.895f, 0f)
+        listOf(0, 4, 5, 8, 9, 13, 17).forEach { index ->
+            targetPoints[index] = HandPoint(0.5f, 0.74f, 0f)
+        }
+        val targetWorldPoints = List(21) { HandPoint(0.5f, 0.5f, 0.45f) }
         simulation.update(
             emptyList(),
             HandTrackingFrame(
                 133L,
-                listOf(pinching.copy(points = targetPoints))
+                listOf(pinching.copy(points = targetPoints, worldPoints = targetWorldPoints))
             ),
             1f / 30f
         )
@@ -400,7 +404,11 @@ class SandboxSimulationTest {
             emptyList(),
             HandTrackingFrame(
                 166L,
-                listOf(pinching.copy(points = targetPoints, isPinching = false))
+                listOf(pinching.copy(
+                    points = targetPoints,
+                    worldPoints = targetWorldPoints,
+                    isPinching = false
+                ))
             ),
             1f / 30f
         )
