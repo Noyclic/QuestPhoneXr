@@ -474,6 +474,12 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             append("sandbox_camera_frame_rotation=").append(sandboxMetrics?.lastFrameRotationDegrees ?: 0).append('\n')
             append("sandbox_camera_luma_mean=").append(sandboxMetrics?.lastFrameLumaMean ?: 0f).append('\n')
             append("sandbox_camera_luma_stddev=").append(sandboxMetrics?.lastFrameLumaStdDev ?: 0f).append('\n')
+            appendLine("sandbox_mediapipe_delegate=${sandboxMetrics?.delegateName ?: "unknown"}")
+            appendLine("sandbox_mediapipe_delegate_init_thread_id=${sandboxMetrics?.delegateInitThreadId ?: 0L}")
+            appendLine("sandbox_mediapipe_analyzer_thread_id=${sandboxMetrics?.lastAnalyzeThreadId ?: 0L}")
+            appendLine("sandbox_mediapipe_delegate_thread_matches_analyzer=${sandboxMetrics?.delegateThreadMatchesAnalyzer ?: false}")
+            appendLine("sandbox_average_inference_ms=${sandboxMetrics?.averageInferenceMs ?: 0f}")
+            appendLine("sandbox_average_result_processing_ms=${sandboxMetrics?.averageResultProcessingMs ?: 0f}")
             append("sandbox_last_preprocessing_ms=").append(sandboxMetrics?.lastPreprocessingMs ?: 0L).append('\n')
             append("sandbox_last_frame_received_age_ms=").append(
                 if (latestHandFrameReceivedAtMs > 0L) {
