@@ -178,11 +178,11 @@ internal class SandboxWorldHandPoseSmoother(
     private companion object {
         const val NO_TRACKING_ID = Long.MIN_VALUE
         val PALM_CENTER_INDICES = intArrayOf(0, 5, 9, 13, 17)
-        const val DEFAULT_MIN_RESPONSE = 40f
+        const val DEFAULT_MIN_RESPONSE = 34f
         const val DEFAULT_MAX_RESPONSE = 72f
         const val DEFAULT_MOTION_RESPONSE_GAIN = 8f
         const val DEFAULT_RESPONSE_ADAPTATION_SECONDS = 0.045f
-        const val DEFAULT_STATIONARY_SPEED_DEADZONE = 0.06f
+        const val DEFAULT_STATIONARY_SPEED_DEADZONE = 0.08f
         const val MIN_STEP_SECONDS = 1f / 240f
         const val MAX_STEP_SECONDS = 0.05f
     }

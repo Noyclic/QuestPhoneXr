@@ -120,6 +120,33 @@ class SandboxWorldHandPoseSmootherTest {
         assertEquals(valid, smoother.update(valid, 1f / 30f, HandSide.LEFT, 4L))
     }
 
+    @Test
+    fun subMillimeterStationaryJitterIsDampedWithoutDelayingInteractionInput() {
+        val smoother = SandboxWorldHandPoseSmoother()
+        val origin = handPose(0f)
+        smoother.update(origin, 1f / 30f, HandSide.RIGHT, 12L)
+
+        var maximumRenderedOffset = 0f
+        repeat(40) { index ->
+            val jitter = if (index % 2 == 0) 0.0005f else -0.0005f
+            val rendered = smoother.update(
+                handPose(jitter),
+                1f / 30f,
+                HandSide.RIGHT,
+                12L
+            )
+            maximumRenderedOffset = maxOf(
+                maximumRenderedOffset,
+                kotlin.math.abs(rendered[0].x)
+            )
+        }
+
+        assertTrue(
+            "sub-millimeter camera jitter should be attenuated in the rendered hand",
+            maximumRenderedOffset < 0.0005f
+        )
+    }
+
     private fun handPose(x: Float, depth: Float = -2.5f): List<SandboxVector3> =
         List(21) { index ->
             SandboxVector3(
