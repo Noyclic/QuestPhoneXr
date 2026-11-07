@@ -58,6 +58,8 @@ import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
 import com.noyclic.questphonexr.input.XrTrackingUdpSender
 import com.noyclic.questphonexr.vr.ViewerProfile
 import com.noyclic.questphonexr.vr.ViewerProfileStore
+import com.noyclic.questphonexr.ui.applyNextVreraStyle
+import com.noyclic.questphonexr.ui.nextVreraToneFor
 import com.noyclic.questphonexr.performance.AndroidDeviceProfiler
 import com.noyclic.questphonexr.performance.AdaptivePerformanceController
 import com.noyclic.questphonexr.performance.AdaptivePerformanceState
@@ -226,7 +228,16 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 publishOpenXrInput(hands, snapshot)
                 val cameraToWorldRotation = renderer.cameraToWorldRotation()
                 glView.queueEvent {
-                    simulation.update(snapshot, hands, deltaSeconds, cameraToWorldRotation)
+                    // Use GL-thread time for presentation so interpolation follows actual rendering.
+                    val renderTimeMs = SystemClock.uptimeMillis()
+                    simulation.update(
+                        snapshot,
+                        hands,
+                        deltaSeconds,
+                        cameraToWorldRotation,
+                        receivedAtMs,
+                        renderTimeMs
+                    )
                     renderer.updateScene(simulation.snapshot())
                     glView.requestRender()
                 }
@@ -880,9 +891,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             copyEndXrOpenXrDiagnostic()
         }.apply {
             textSize = 13f
-            setTextColor(Color.WHITE)
             contentDescription = "Скопировать диагностику EndXR"
-            backgroundTintList = android.content.res.ColorStateList.valueOf(0xFF176B4A.toInt())
             setPadding(dp(12), dp(5), dp(12), dp(5))
             minHeight = dp(42)
             elevation = dp(6).toFloat()
@@ -1848,7 +1857,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             else -> "Включить фоновую камеру рук для Quest-игр"
         }
         persistentHandTrackingButton?.let { button ->
-            if (button.text.toString() != label) button.text = label
+            if (button.text.toString() != label) {
+                button.text = label
+                button.applyNextVreraStyle(nextVreraToneFor(label))
+            }
             button.contentDescription = label
         }
     }
@@ -1856,7 +1868,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private fun controlButton(label: String, action: () -> Unit): Button =
         Button(this).apply {
             text = label
-            isAllCaps = false
+            applyNextVreraStyle(nextVreraToneFor(label))
             setOnClickListener { action() }
         }
 

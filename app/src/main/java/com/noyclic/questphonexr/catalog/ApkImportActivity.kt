@@ -22,6 +22,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import com.noyclic.questphonexr.runtime.EndXrInputContentProvider
+import com.noyclic.questphonexr.ui.applyNextVreraStyle
+import com.noyclic.questphonexr.ui.nextVreraToneFor
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -62,11 +64,11 @@ class ApkImportActivity : ComponentActivity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(14), dp(18), dp(12))
-            setBackgroundColor(Color.rgb(14, 17, 23))
+            setBackgroundResource(com.noyclic.questphonexr.R.drawable.bg_nextvrera_atmosphere)
         }
         root.addView(button("← Библиотека").apply { setOnClickListener { finish() } },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        root.addView(text("QuestPhoneXR  /  ФАЙЛЫ ИГР", 12f, 0xFF9CA9BC.toInt(), Typeface.BOLD))
+        root.addView(text("NextVRera  /  ФАЙЛЫ ИГР", 12f, 0xFF9CA9BC.toInt(), Typeface.BOLD))
         root.addView(text("Импорт APK", 28f, Color.WHITE, Typeface.BOLD))
         root.addView(text(
             "Выбери APK через системный файловый менеджер. QuestPhoneXR скопирует его в своё закрытое хранилище и прочитает метаданные.",
@@ -467,8 +469,7 @@ class ApkImportActivity : ComponentActivity() {
     private fun button(label: String): Button = Button(this).apply {
         text = label
         isAllCaps = false
-        setTextColor(Color.WHITE)
-        background = rounded(0xFF303B4B.toInt(), dp(9).toFloat())
+        applyNextVreraStyle(nextVreraToneFor(label))
     }
 
     private fun text(
