@@ -502,6 +502,8 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                 newTracker = null
                 analysisUseCase = analysis
                 provider.bindToLifecycle(this, selector, analysis)
+                // Start the inference-stall window only after CameraX is actually bound.
+                cameraStartAttemptAtMs = SystemClock.uptimeMillis()
                 EndXrHandTrackingDiagnostics.markRunning()
 
                 Log.i(
