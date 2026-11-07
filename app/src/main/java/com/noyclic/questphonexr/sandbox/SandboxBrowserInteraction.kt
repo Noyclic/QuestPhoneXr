@@ -33,8 +33,8 @@ internal object SandboxBrowserInteraction {
     fun closeAffordance(left: SandboxHandState, right: SandboxHandState): CloseAffordance {
         val visible = (left.cameraTracked && isNearPanel(left.cursor)) ||
             (right.cameraTracked && isNearPanel(right.cursor))
-        val hovered = (left.cameraTracked && isCloseButton(left.cursor)) ||
-            (right.cameraTracked && isCloseButton(right.cursor))
+        val hovered = (left.cameraTracked && isNearPanel(left.cursor) && isCloseButton(left.cursor)) ||
+            (right.cameraTracked && isNearPanel(right.cursor) && isCloseButton(right.cursor))
         return CloseAffordance(visible = visible, hovered = hovered)
     }
 
