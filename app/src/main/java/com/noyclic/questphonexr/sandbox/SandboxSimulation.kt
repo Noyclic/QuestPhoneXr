@@ -634,7 +634,7 @@ class SandboxSimulation {
             contactLandmarks = cameraLandmarks,
             pinching = pinching,
             naturalGripping = powerGripping,
-            graspCursor = if (pinching) cameraCursor else palmAnchor(cameraLandmarks)
+            graspCursor = palmAnchor(cameraLandmarks)
         )
     }
 
