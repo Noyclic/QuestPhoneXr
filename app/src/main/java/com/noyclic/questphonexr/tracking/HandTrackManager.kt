@@ -207,7 +207,7 @@ internal class HandTrackManager(
 
         candidates.forEach { candidate ->
             if (candidate.observationIndex !in assignedObservations &&
-                candidate.track.id !in assignedTracks
+                candidate.trackId !in assignedTracks
             ) {
                 val track = availableTracks.first { it.id == candidate.trackId }
                 track.accept(validObservations[candidate.observationIndex], timestampMs)
