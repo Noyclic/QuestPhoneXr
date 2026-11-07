@@ -75,7 +75,15 @@ class PinchEstimator(
         }
         val rawStrength = ((OPEN_RATIO - normalizedPinchDistance) / RATIO_RANGE)
             .coerceIn(0f, 1f)
-        val alpha = smoothingAlpha(timestampMs)
+        val timeAlpha = smoothingAlpha(timestampMs)
+        // A near-closed fingertip pair is a high-confidence gesture. Let a clear
+        // full pinch cross the press threshold on this observation instead of
+        // adding another inference interval; partial closure still uses normal smoothing.
+        val alpha = if (!isPinching && rawStrength >= FAST_PRESS_RAW_STRENGTH) {
+            maxOf(timeAlpha, FAST_PRESS_ALPHA)
+        } else {
+            timeAlpha
+        }
         filteredStrength += (rawStrength - filteredStrength) * alpha
 
         if (!isPinching && filteredStrength >= pinchOnThreshold) {
@@ -115,6 +123,8 @@ class PinchEstimator(
         const val MIN_PALM_WIDTH = 0.015f
         const val OPEN_RATIO = 0.72f
         const val RATIO_RANGE = 0.52f
+        const val FAST_PRESS_RAW_STRENGTH = 0.90f
+        const val FAST_PRESS_ALPHA = 0.82f
         const val REFERENCE_INTERVAL_MS = 16.667
         const val MAX_PINCH_SAMPLE_GAP_MS = 200L
     }
