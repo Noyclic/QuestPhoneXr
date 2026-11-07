@@ -30,13 +30,20 @@ internal class StereoPreviewView(context: Context) : View(context) {
         setBackgroundColor(Color.BLACK)
     }
 
+    /** Takes ownership of [bitmap] and releases the previous displayed frame. */
     fun setFrame(bitmap: Bitmap) {
+        val previous = currentFrame
         currentFrame = bitmap
+        if (previous !== bitmap && previous != null && !previous.isRecycled) {
+            previous.recycle()
+        }
         invalidate()
     }
 
     fun clearFrame() {
+        val previous = currentFrame
         currentFrame = null
+        if (previous != null && !previous.isRecycled) previous.recycle()
         invalidate()
     }
 
@@ -44,8 +51,8 @@ internal class StereoPreviewView(context: Context) : View(context) {
         super.onDraw(canvas)
         canvas.drawColor(Color.BLACK)
         val bitmap = currentFrame
-        if (bitmap == null || bitmap.width < 2 || bitmap.height < 1) {
-            canvas.drawText("Waiting for EndVR host…", width / 2f, height / 2f, textPaint)
+        if (bitmap == null || bitmap.isRecycled || bitmap.width < 2 || bitmap.height < 1) {
+            canvas.drawText("Waiting for GVXRS Link host…", width / 2f, height / 2f, textPaint)
             return
         }
         val split = bitmap.width / 2
@@ -58,7 +65,8 @@ internal class StereoPreviewView(context: Context) : View(context) {
 
     private fun drawEye(canvas: Canvas, bitmap: Bitmap, source: Rect, destination: RectF) {
         if (source.width() <= 0 || source.height() <= 0 ||
-            destination.width() <= 0f || destination.height() <= 0f) return
+            destination.width() <= 0f || destination.height() <= 0f
+        ) return
         val scale = min(
             destination.width() / source.width().toFloat(),
             destination.height() / source.height().toFloat()
