@@ -44,9 +44,17 @@ internal object EndXrHandInputEncoder {
     @Synchronized
     fun encode(frame: HandTrackingFrame): EndXrEncodedHandInput {
         val mapped = mapper.map(frame, emptyList())
-        val hands = frame.hands.filter { it.side != HandSide.UNKNOWN }.associateBy { it.side }
-        val left = hands[HandSide.LEFT]
-        val right = hands[HandSide.RIGHT]
+        // There are at most two useful hand sides. Select them in one pass instead
+        // of building a filtered list and a temporary map on every camera result.
+        var left: TrackedHand? = null
+        var right: TrackedHand? = null
+        for (hand in frame.hands) {
+            when (hand.side) {
+                HandSide.LEFT -> left = hand
+                HandSide.RIGHT -> right = hand
+                HandSide.UNKNOWN -> Unit
+            }
+        }
 
         val leftPose = encodePose(left, leftDepthEstimator)
         val rightPose = encodePose(right, rightDepthEstimator)
@@ -90,14 +98,22 @@ internal object EndXrHandInputEncoder {
     }
 
     private fun average(points: List<HandPoint>, indices: IntArray): Vec3? {
-        if (indices.any { it !in points.indices }) return null
-        val selected = indices.map { points[it] }
-        if (selected.any { !it.x.isFinite() || !it.y.isFinite() || !it.z.isFinite() }) return null
-        val count = selected.size.toFloat()
+        if (indices.isEmpty()) return null
+        var sumX = 0.0
+        var sumY = 0.0
+        var sumZ = 0.0
+        for (index in indices) {
+            val point = points.getOrNull(index) ?: return null
+            if (!point.x.isFinite() || !point.y.isFinite() || !point.z.isFinite()) return null
+            sumX += point.x.toDouble()
+            sumY += point.y.toDouble()
+            sumZ += point.z.toDouble()
+        }
+        val count = indices.size.toDouble()
         return Vec3(
-            selected.sumOf { it.x.toDouble() }.toFloat() / count,
-            selected.sumOf { it.y.toDouble() }.toFloat() / count,
-            selected.sumOf { it.z.toDouble() }.toFloat() / count
+            (sumX / count).toFloat(),
+            (sumY / count).toFloat(),
+            (sumZ / count).toFloat()
         )
     }
 

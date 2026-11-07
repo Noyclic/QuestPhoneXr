@@ -42,6 +42,8 @@ import com.noyclic.questphonexr.input.VirtualControllerMapper
 import com.noyclic.questphonexr.tracking.HandLandmarkerController
 import com.noyclic.questphonexr.tracking.HandCameraPreference
 import com.noyclic.questphonexr.tracking.HandSide
+import com.noyclic.questphonexr.ui.NextVreraButtonTone
+import com.noyclic.questphonexr.ui.applyNextVreraStyle
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import java.util.Locale
 import java.util.concurrent.ExecutorService
@@ -67,7 +69,7 @@ class MainActivity : ComponentActivity(), InputManager.InputDeviceListener {
     private var selectedProfile: GameInputProfile? = BuiltInGameInputProfiles.all.firstOrNull()
     private var selectedGameAdapter: GameInputAdapter? =
         selectedProfile?.let(::ProfiledVrGameInputAdapter)
-    private var cameraStatusMessage = "QuestPhoneXR · диагностика отслеживания"
+    private var cameraStatusMessage = "NextVRera · диагностика отслеживания"
     private var latestHandCount = 0
     private var latestPinchDistance = "—"
     private var cameraProvider: ProcessCameraProvider? = null
@@ -125,7 +127,7 @@ class MainActivity : ComponentActivity(), InputManager.InputDeviceListener {
 
         val backButton = Button(this).apply {
             text = "← Библиотека"
-            isAllCaps = false
+            applyNextVreraStyle(NextVreraButtonTone.SECONDARY)
             setOnClickListener {
                 startActivity(Intent(this@MainActivity, GameLibraryActivity::class.java))
                 finish()
@@ -161,7 +163,7 @@ class MainActivity : ComponentActivity(), InputManager.InputDeviceListener {
         }
         val assignmentButton = Button(this).apply {
             text = "Найти / назначить контроллеры"
-            isAllCaps = false
+            applyNextVreraStyle(NextVreraButtonTone.BLUE)
             setOnClickListener { showControllerAssignmentDialog() }
         }
         val controlsRow = LinearLayout(this).apply {
@@ -259,14 +261,17 @@ class MainActivity : ComponentActivity(), InputManager.InputDeviceListener {
                 val useFrontCamera = cameraSelection.isFrontCamera
 
                 if (handTracker == null) {
-                    handTracker = HandLandmarkerController(
-                        context = applicationContext,
-                        mirrorFrontCamera = useFrontCamera,
-                        onFrame = ::onHandFrame,
-                        onError = { message ->
-                            runOnUiThread { showStatus("MediaPipe: " + message) }
-                        }
-                    )
+                    handTracker = cameraExecutor.submit<HandLandmarkerController> {
+                        HandLandmarkerController(
+                            context = applicationContext,
+                            mirrorFrontCamera = useFrontCamera,
+                            onFrame = ::onHandFrame,
+                            onError = { message ->
+                                runOnUiThread { showStatus("MediaPipe: " + message) }
+                            },
+                            ownerExecutor = cameraExecutor
+                        )
+                    }.get()
                 }
 
                 val preview = Preview.Builder().build().also {

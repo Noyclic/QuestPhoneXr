@@ -16,14 +16,22 @@ class VirtualControllerMapper {
         handFrame: HandTrackingFrame,
         physicalControllers: List<PhysicalControllerSnapshot>
     ): VirtualControllerFrame {
-        val handsBySide = handFrame.hands
-            .filter { it.side != HandSide.UNKNOWN }
-            .associateBy { it.side }
+        // A tracked frame contains at most two usable sides. Select them directly
+        // rather than allocating a filtered list and temporary map on every result.
+        var leftHand: TrackedHand? = null
+        var rightHand: TrackedHand? = null
+        for (hand in handFrame.hands) {
+            when (hand.side) {
+                HandSide.LEFT -> leftHand = hand
+                HandSide.RIGHT -> rightHand = hand
+                HandSide.UNKNOWN -> Unit
+            }
+        }
 
         return VirtualControllerFrame(
             timestampMs = handFrame.timestampMs,
-            left = mapSide(HandSide.LEFT, handsBySide[HandSide.LEFT], physicalControllers),
-            right = mapSide(HandSide.RIGHT, handsBySide[HandSide.RIGHT], physicalControllers)
+            left = mapSide(HandSide.LEFT, leftHand, physicalControllers),
+            right = mapSide(HandSide.RIGHT, rightHand, physicalControllers)
         )
     }
 
@@ -102,15 +110,17 @@ class VirtualControllerMapper {
         val wrist = points.getOrNull(0) ?: return 0f
         val middleMcp = points.getOrNull(9) ?: return 0f
         val palmLength = distance(wrist, middleMcp).coerceAtLeast(MIN_PALM_LENGTH)
-        val tipIndices = intArrayOf(8, 12, 16, 20)
-        val tipDistances = tipIndices
-            .map { points.getOrNull(it) }
-            .filterNotNull()
-            .map { distance(wrist, it) / palmLength }
-        if (tipDistances.size != tipIndices.size) return 0f
-
-        val averageRatio = tipDistances.average().toFloat()
-        return ((OPEN_HAND_RATIO - averageRatio) / GRIP_RANGE).coerceIn(0f, 1f)
+        val thumbTip = points.getOrNull(8) ?: return 0f
+        val indexTip = points.getOrNull(12) ?: return 0f
+        val middleTip = points.getOrNull(16) ?: return 0f
+        val pinkyTip = points.getOrNull(20) ?: return 0f
+        val averageRatio = (
+            (distance(wrist, thumbTip) / palmLength).toDouble() +
+                (distance(wrist, indexTip) / palmLength).toDouble() +
+                (distance(wrist, middleTip) / palmLength).toDouble() +
+                (distance(wrist, pinkyTip) / palmLength).toDouble()
+            ) / FINGER_TIP_COUNT
+        return ((OPEN_HAND_RATIO - averageRatio.toFloat()) / GRIP_RANGE).coerceIn(0f, 1f)
     }
 
     private fun vector(point: HandPoint) = Vector3f(point.x, point.y, point.z)
@@ -127,5 +137,6 @@ class VirtualControllerMapper {
         const val MIN_PALM_LENGTH = 0.0001f
         const val OPEN_HAND_RATIO = 2.05f
         const val GRIP_RANGE = 1.15f
+        const val FINGER_TIP_COUNT = 4
     }
 }

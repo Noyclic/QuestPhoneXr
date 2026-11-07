@@ -22,6 +22,7 @@ import org.junit.runner.RunWith
 import org.junit.runners.MethodSorters
 import org.junit.FixMethodOrder
 import java.io.File
+import java.util.regex.Pattern
 
 /**
  * End-to-end smoke test for the app entry flow.
@@ -212,6 +213,18 @@ class AppNavigationSmokeTest {
         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         context.startActivity(sandboxIntent)
 
+        // Android 15 shows a one-time immersive-mode education overlay the first
+        // time this fullscreen Activity is opened. It sits above the app and steals
+        // taps even though UiAutomator can still see the underlying Sandbox views.
+        val immersiveModePrompt = By.text("Got it")
+        if (device.wait(Until.hasObject(immersiveModePrompt), 5_000)) {
+            device.findObject(immersiveModePrompt).click()
+            assertTrue(
+                "Android immersive-mode education overlay did not dismiss",
+                device.wait(Until.gone(immersiveModePrompt), 2_000)
+            )
+        }
+
         // The status label includes a human-readable summary after the PASS prefix.
         // Match the prefix rather than requiring the whole TextView to equal it.
         val probePassed = device.wait(
@@ -265,6 +278,55 @@ class AppNavigationSmokeTest {
             device.wait(Until.hasObject(diagnosticsButton), 5_000)
         )
         saveScreenshot(context, device, "sandbox-diagnostics-button.png")
+
+        val externalProbeButton = By.text("Внешний OpenXR тест")
+        assertTrue(
+            "External OpenXR probe launcher is missing from Sandbox",
+            device.wait(Until.hasObject(externalProbeButton), 5_000)
+        )
+        device.findObject(externalProbeButton).click()
+
+        // The probe may already be installed on a developer/emulator image. In that
+        // case the correct behavior is to open its separate APK, not show the
+        // missing-APK dialog. Accept and verify either valid branch.
+        val missingProbeDialog = By.textContains("Внешний OpenXR тест не установлен")
+        val externalProbeReport = By.textContains("Khronos OpenXR Android Loader probe")
+        val launchDeadline = android.os.SystemClock.uptimeMillis() + 8_000
+        var missingProbeShown = false
+        var externalProbeOpened = false
+        while (
+            android.os.SystemClock.uptimeMillis() < launchDeadline &&
+            !missingProbeShown &&
+            !externalProbeOpened
+        ) {
+            missingProbeShown = device.wait(Until.hasObject(missingProbeDialog), 250)
+            externalProbeOpened = device.currentPackageName == "com.noyclic.xrclientprobe" ||
+                device.wait(Until.hasObject(externalProbeReport), 250)
+            if (!missingProbeShown && !externalProbeOpened) {
+                android.os.SystemClock.sleep(100)
+            }
+        }
+        assertTrue(
+            "External probe tap produced neither the missing-APK explanation nor the separate probe UI. " +
+                "Current package: ${device.currentPackageName}",
+            missingProbeShown || externalProbeOpened
+        )
+        if (missingProbeShown) {
+            // AlertDialog buttons may be exposed in uppercase by the active Android theme.
+            // Match the visible close action case-insensitively instead of assuming title case.
+            val closeAction = By.text(Pattern.compile("(?i)^закрыть$"))
+            assertTrue(
+                "Missing external probe dialog has no close action",
+                device.wait(Until.hasObject(closeAction), 2_000)
+            )
+            device.findObject(closeAction).click()
+        } else {
+            device.pressBack()
+            assertTrue(
+                "Returning from the external probe did not restore Sandbox",
+                device.wait(Until.hasObject(By.text("Показать настройки")), 5_000)
+            )
+        }
 
         // Android 15 may suppress or expose toast overlays inconsistently to UiAutomator.
         // Verify the app's own post-setPrimaryClip log instead of reading another process's clipboard.

@@ -159,6 +159,35 @@ class SandboxSimulationTest {
     }
 
     @Test
+    fun cameraTrackedInteractionCursorStaysImmediateWhileRenderPoseInterpolates() {
+        val simulation = SandboxSimulation()
+        fun trackedHand(indexX: Float): TrackedHand {
+            val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+            points[5] = HandPoint(0.59f, 0.4f, 0f)
+            points[17] = HandPoint(0.41f, 0.4f, 0f)
+            points[8] = HandPoint(indexX, 0.5f, 0f)
+            return TrackedHand(points = points, side = HandSide.RIGHT)
+        }
+
+        simulation.update(
+            emptyList(),
+            HandTrackingFrame(100L, listOf(trackedHand(0.6f))),
+            1f / 30f
+        )
+        simulation.update(
+            emptyList(),
+            HandTrackingFrame(133L, listOf(trackedHand(0.8f))),
+            1f / 30f
+        )
+
+        val expectedX = (0.8f - 0.5f) * 2.55f * 2.4f
+        val handSnapshot = simulation.snapshot().rightHand
+        assertEquals(expectedX, handSnapshot.cursor.x, 0.002f)
+        assertTrue(handSnapshot.landmarks[8].x > (0.6f - 0.5f) * 2.55f * 2.4f)
+        assertTrue(handSnapshot.landmarks[8].x < expectedX)
+    }
+
+    @Test
     fun joyConStickMovesPlayerWhileCameraTrackedHandRemainsIndependent() {
         val simulation = SandboxSimulation()
         val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
@@ -297,6 +326,81 @@ class SandboxSimulationTest {
         }
 
         assertTrue(simulation.snapshot().objects.all { it.position.y >= -1.181f })
+    }
+
+
+    @Test
+    fun handPoseInterpolatorBlendsLandmarksBetweenCameraSamples() {
+        val interpolator = SandboxHandPoseInterpolator()
+        fun hand(x: Float, pinching: Boolean = false) = TrackedHand(
+            points = MutableList(21) { HandPoint(x, x, x) },
+            pinchStrength = if (pinching) 0.9f else 0.1f,
+            isPinching = pinching,
+            side = HandSide.RIGHT,
+            trackingId = 7L
+        )
+
+        val first = hand(0.1f)
+        val second = hand(0.3f, pinching = true)
+        assertEquals(0.1f, interpolator.sample(first, 100L, 100L, 100L)!!.points[8].x, 0.0001f)
+
+        val rendered = interpolator.sample(second, 166L, 166L, 166L)!!
+
+        assertTrue(rendered.points[8].x > 0.1f)
+        assertTrue(rendered.points[8].x < 0.3f)
+        assertTrue(rendered.isPinching)
+        assertEquals(0.9f, rendered.pinchStrength, 0.0001f)
+        assertEquals(0.3f, second.points[8].x, 0.0001f)
+    }
+
+    @Test
+    fun handPoseKeepsAdvancingAcrossRenderTicksWithoutNewCameraResult() {
+        val interpolator = SandboxHandPoseInterpolator()
+        fun hand(x: Float) = TrackedHand(
+            points = MutableList(21) { HandPoint(x, 0f, 0f) },
+            side = HandSide.RIGHT,
+            trackingId = 9L
+        )
+
+        interpolator.sample(hand(0.1f), 100L, 100L, 100L)
+        val cameraResult = hand(0.3f)
+        val firstRender = interpolator.sample(cameraResult, 166L, 166L, 166L)!!
+        val nextRender = interpolator.sample(cameraResult, 166L, 166L, 182L)!!
+
+        assertTrue(nextRender.points[0].x > firstRender.points[0].x)
+        assertTrue(nextRender.points[0].x < cameraResult.points[0].x)
+    }
+
+    @Test
+    fun handPoseInterpolatorBoundsForwardPrediction() {
+        val interpolator = SandboxHandPoseInterpolator()
+        fun hand(x: Float) = TrackedHand(
+            points = MutableList(21) { HandPoint(x, 0f, 0f) },
+            side = HandSide.LEFT,
+            trackingId = 4L
+        )
+
+        interpolator.sample(hand(0.1f), 100L, 100L, 100L)
+        val predicted = interpolator.sample(hand(0.3f), 200L, 200L, 1_000L)!!
+
+        assertTrue(predicted.points[0].x > 0.3f)
+        assertTrue(predicted.points[0].x <= 0.38f)
+    }
+
+    @Test
+    fun handPoseInterpolatorDoesNotBlendAcrossHandIdentityChanges() {
+        val interpolator = SandboxHandPoseInterpolator()
+        fun hand(x: Float, id: Long) = TrackedHand(
+            points = MutableList(21) { HandPoint(x, 0f, 0f) },
+            side = HandSide.RIGHT,
+            trackingId = id
+        )
+
+        interpolator.sample(hand(0.1f, 1L), 100L, 100L, 100L)
+        val replacement = hand(0.8f, 2L)
+        val rendered = interpolator.sample(replacement, 140L, 140L, 140L)!!
+
+        assertEquals(0.8f, rendered.points[0].x, 0.0001f)
     }
 
     private fun controller(

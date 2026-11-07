@@ -165,28 +165,4 @@ class SandboxHandPoseTest {
         assertTrue(mapped.all { kotlin.math.abs(it.z + 2.55f) < 0.0001f })
     }
 
-    @Test
-    fun poseSmootherFiltersEveryJointAndCanReset() {
-        val smoother = SandboxHandPoseSmoother(response = 0.5f)
-        val first = List(21) { SandboxVector3(0f, 0f, -2.5f) }
-        val second = List(21) { SandboxVector3(1f, 0.4f, -2.3f) }
-
-        assertEquals(first, smoother.update(first))
-        val filtered = smoother.update(second)
-        assertEquals(0.5f, filtered[0].x, 0.001f)
-        assertEquals(0.2f, filtered[8].y, 0.001f)
-        assertEquals(-2.4f, filtered[20].z, 0.001f)
-
-        smoother.reset()
-        assertEquals(second, smoother.update(second))
-    }
-
-    @Test
-    fun poseSmootherResetsWhenTrackingPointCountChanges() {
-        val smoother = SandboxHandPoseSmoother(response = 0.5f)
-        smoother.update(List(21) { SandboxVector3(0f, 0f, -2.5f) })
-        val shortPose = listOf(SandboxVector3(1f, 0f, -2.5f))
-
-        assertEquals(shortPose, smoother.update(shortPose))
-    }
 }

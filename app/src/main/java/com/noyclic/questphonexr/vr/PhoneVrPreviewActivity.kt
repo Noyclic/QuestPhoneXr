@@ -20,6 +20,8 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
+import com.noyclic.questphonexr.ui.applyNextVreraStyle
+import com.noyclic.questphonexr.ui.nextVreraToneFor
 
 /**
  * VR Shinecon diagnostic mode: side-by-side stereo + phone rotation-vector tracking (3DoF).
@@ -136,7 +138,7 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
 
         val exitButton = Button(this).apply {
             text = "Выйти из VR-теста"
-            isAllCaps = false
+            applyNextVreraStyle(nextVreraToneFor(text))
             setOnClickListener { finish() }
         }
         root.addView(
@@ -289,7 +291,7 @@ class PhoneVrPreviewActivity : Activity(), SensorEventListener {
     private fun controlButton(label: String, action: () -> Unit): Button =
         Button(this).apply {
             text = label
-            isAllCaps = false
+            applyNextVreraStyle(nextVreraToneFor(label))
             setOnClickListener { action() }
         }
 

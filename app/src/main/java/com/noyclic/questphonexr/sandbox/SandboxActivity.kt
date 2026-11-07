@@ -18,9 +18,11 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
+import androidx.core.app.NotificationManagerCompat
 import android.opengl.GLSurfaceView
 import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.os.Handler
 import android.os.Looper
@@ -49,15 +51,19 @@ import com.noyclic.questphonexr.input.VirtualControllerMapper
 import com.noyclic.questphonexr.input.VirtualControllerState
 import com.noyclic.questphonexr.input.ControllerInputSource
 import com.noyclic.questphonexr.tracking.HandLandmarkerController
+import com.google.mediapipe.tasks.core.Delegate
 import com.noyclic.questphonexr.tracking.HandCameraPreference
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.HandTrackingMetricsSnapshot
 import com.noyclic.questphonexr.tracking.HandTrackingPreset
+import com.noyclic.questphonexr.tracking.HandTrackingDelegatePreference
 import com.noyclic.questphonexr.tracking.HandTrackingPresetStore
 import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
 import com.noyclic.questphonexr.input.XrTrackingUdpSender
 import com.noyclic.questphonexr.vr.ViewerProfile
 import com.noyclic.questphonexr.vr.ViewerProfileStore
+import com.noyclic.questphonexr.ui.applyNextVreraStyle
+import com.noyclic.questphonexr.ui.nextVreraToneFor
 import com.noyclic.questphonexr.performance.AndroidDeviceProfiler
 import com.noyclic.questphonexr.performance.AdaptivePerformanceController
 import com.noyclic.questphonexr.performance.AdaptivePerformanceState
@@ -119,6 +125,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private lateinit var adaptivePerformance: AdaptivePerformanceController
     private lateinit var handTrackingPresetStore: HandTrackingPresetStore
     private var handTrackingPreset = HandTrackingPreset.BALANCED
+    private var handTrackingDelegatePreference = HandTrackingDelegatePreference.GPU_PREFERRED
     private var adaptivePerformanceState = AdaptivePerformanceState(30, 66L, 0)
     private var handCalibration = SandboxHandCalibration.DEFAULT
     private var viewerProfile = ViewerProfile()
@@ -150,6 +157,19 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         openPcBridgeDialogIfRequested()
     }
 
+    private val notificationPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted && NotificationManagerCompat.from(this).areNotificationsEnabled()) {
+            startPersistentHandTrackingService()
+        } else {
+            cameraStatusMessage =
+                "Уведомления EndXR отключены · разреши их в настройках Android"
+            updateStatus()
+            showNotificationPermissionSettingsDialog()
+        }
+    }
+
     private val frameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
             if (isFinishing || !::glView.isInitialized) return
@@ -170,9 +190,16 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             )
             if (updatedAdaptiveState != adaptivePerformanceState) {
                 adaptivePerformanceState = updatedAdaptiveState
-                handTracker?.updateMinimumInferenceIntervalMs(
-                    updatedAdaptiveState.minimumInferenceIntervalMs
-                )
+                if (serviceActive) {
+                    EndXrHandTrackingService.updateInferenceInterval(
+                        this@SandboxActivity,
+                        updatedAdaptiveState.minimumInferenceIntervalMs
+                    )
+                } else {
+                    handTracker?.updateMinimumInferenceIntervalMs(
+                        updatedAdaptiveState.minimumInferenceIntervalMs
+                    )
+                }
                 updateStatus()
             }
 
@@ -226,7 +253,16 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 publishOpenXrInput(hands, snapshot)
                 val cameraToWorldRotation = renderer.cameraToWorldRotation()
                 glView.queueEvent {
-                    simulation.update(snapshot, hands, deltaSeconds, cameraToWorldRotation)
+                    // Use GL-thread time for presentation so interpolation follows actual rendering.
+                    val renderTimeMs = SystemClock.uptimeMillis()
+                    simulation.update(
+                        snapshot,
+                        hands,
+                        deltaSeconds,
+                        cameraToWorldRotation,
+                        receivedAtMs,
+                        renderTimeMs
+                    )
                     renderer.updateScene(simulation.snapshot())
                     glView.requestRender()
                 }
@@ -258,6 +294,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         handTrackingPreset = handTrackingPresetStore.load(
             HandTrackingPreset.recommend(performancePreset.tier)
         )
+        handTrackingDelegatePreference = handTrackingPresetStore.loadDelegatePreference()
         val trackingPerformancePreset = performancePreset.copy(
             minimumInferenceIntervalMs = handTrackingPreset.minimumInferenceIntervalMs
         )
@@ -440,6 +477,12 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             append("sandbox_camera_frame_rotation=").append(sandboxMetrics?.lastFrameRotationDegrees ?: 0).append('\n')
             append("sandbox_camera_luma_mean=").append(sandboxMetrics?.lastFrameLumaMean ?: 0f).append('\n')
             append("sandbox_camera_luma_stddev=").append(sandboxMetrics?.lastFrameLumaStdDev ?: 0f).append('\n')
+            appendLine("sandbox_mediapipe_delegate=${sandboxMetrics?.delegateName ?: "unknown"}")
+            appendLine("sandbox_mediapipe_delegate_init_thread_id=${sandboxMetrics?.delegateInitThreadId ?: 0L}")
+            appendLine("sandbox_mediapipe_analyzer_thread_id=${sandboxMetrics?.lastAnalyzeThreadId ?: 0L}")
+            appendLine("sandbox_mediapipe_delegate_thread_matches_analyzer=${sandboxMetrics?.delegateThreadMatchesAnalyzer ?: false}")
+            appendLine("sandbox_average_inference_ms=${sandboxMetrics?.averageInferenceMs ?: 0f}")
+            appendLine("sandbox_average_result_processing_ms=${sandboxMetrics?.averageResultProcessingMs ?: 0f}")
             append("sandbox_last_preprocessing_ms=").append(sandboxMetrics?.lastPreprocessingMs ?: 0L).append('\n')
             append("sandbox_last_frame_received_age_ms=").append(
                 if (latestHandFrameReceivedAtMs > 0L) {
@@ -514,6 +557,49 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         endXrRuntime.setControllerInput(left, right)
         EndXrInputSnapshotStore.publish(left, right)
         EndXrInputSnapshotStore.publishHandPoses(cameraInput.leftPose, cameraInput.rightPose)
+    }
+
+    private fun launchExternalOpenXrProbe() {
+        val probePackage = "com.noyclic.xrclientprobe"
+        val launchIntent = packageManager.getLaunchIntentForPackage(probePackage)
+        if (launchIntent != null) {
+            runCatching { startActivity(launchIntent) }
+                .onFailure { error ->
+                    Toast.makeText(
+                        this,
+                        "Не удалось открыть внешний тест: ${error.message ?: "ошибка запуска"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Внешний OpenXR тест не установлен")
+            .setMessage(
+                "Для независимой проверки нужен отдельный APK EndXR External Client Probe. " +
+                    "Скачай QuestPhoneXR-debug-apk и QuestPhoneXR-external-client-probe-apk " +
+                    "из одного и того же запуска GitHub Actions и установи оба. " +
+                    "Одинаковая подпись нужна диагностическому клиенту для проверки защищённого IPC."
+            )
+            .setPositiveButton("Открыть GitHub Actions") { _, _ ->
+                runCatching {
+                    startActivity(
+                        Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse("https://github.com/Noyclic/QuestPhoneXr/actions")
+                        )
+                    )
+                }.onFailure { error ->
+                    Toast.makeText(
+                        this,
+                        "Не удалось открыть GitHub Actions: ${error.message ?: "ошибка"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            .setNegativeButton("Закрыть", null)
+            .show()
     }
 
     private fun showRuntimeBrokerDiagnostic() {
@@ -798,6 +884,13 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 )
             )
             addView(
+                controlButton("Движок MediaPipe: GPU / CPU") { showHandTrackingDelegateDialog() },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+            addView(
                 controlButton("Диагностика рук (4 с)") { runHandDiagnostics() },
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -880,9 +973,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             copyEndXrOpenXrDiagnostic()
         }.apply {
             textSize = 13f
-            setTextColor(Color.WHITE)
             contentDescription = "Скопировать диагностику EndXR"
-            backgroundTintList = android.content.res.ColorStateList.valueOf(0xFF176B4A.toInt())
             setPadding(dp(12), dp(5), dp(12), dp(5))
             minHeight = dp(42)
             elevation = dp(6).toFloat()
@@ -916,6 +1007,27 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             ).apply {
                 bottomMargin = dp(62)
                 marginStart = dp(12)
+            }
+        )
+
+        val externalProbeButton = controlButton("Внешний OpenXR тест") {
+            launchExternalOpenXrProbe()
+        }.apply {
+            textSize = 13f
+            contentDescription = "Запустить отдельное приложение для проверки OpenXR Loader и EndXR"
+            setPadding(dp(12), dp(5), dp(12), dp(5))
+            minHeight = dp(40)
+            elevation = dp(6).toFloat()
+        }
+        root.addView(
+            externalProbeButton,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.END
+            ).apply {
+                bottomMargin = dp(158)
+                marginEnd = dp(12)
             }
         )
 
@@ -1012,25 +1124,30 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 val useFrontCamera = cameraSelection.isFrontCamera
                 val selector = cameraSelection.selector
 
-                val tracker = HandLandmarkerController(
-                    context = applicationContext,
-                    mirrorFrontCamera = useFrontCamera,
-                    onFrame = ::onHandFrame,
-                    onError = { message ->
-                        runOnUiThread {
-                            cameraStatusMessage = "MediaPipe: " + message
-                            updateStatus()
-                        }
-                    },
-                    maxHands = handTrackingPreset.maxTrackedHands,
-                    minimumInferenceIntervalMs = adaptivePerformanceState.minimumInferenceIntervalMs,
-                    // Keep the camera source at 640×480, but feed a bounded 480×360
-                    // bitmap to the CPU model. This avoids paying full camera-resolution
-                    // inference cost while retaining enough detail for hand landmarks.
-                    outputWidthPx = minOf(effectiveCameraWidthPx(), MODEL_INPUT_WIDTH_PX),
-                    outputHeightPx = minOf(effectiveCameraHeightPx(), MODEL_INPUT_HEIGHT_PX),
-                    onMetrics = { snapshot -> latestSandboxTrackingMetrics = snapshot }
-                )
+                // The GPU delegate is thread-affine: create it on the same single-thread
+                // executor that CameraX uses for analyze()/detectAsync().
+                val tracker = cameraExecutor.submit<HandLandmarkerController> {
+                    HandLandmarkerController(
+                        context = applicationContext,
+                        mirrorFrontCamera = useFrontCamera,
+                        onFrame = ::onHandFrame,
+                        onError = { message ->
+                            runOnUiThread {
+                                cameraStatusMessage = "MediaPipe: " + message
+                                updateStatus()
+                            }
+                        },
+                        maxHands = handTrackingPreset.maxTrackedHands,
+                        minimumInferenceIntervalMs = adaptivePerformanceState.minimumInferenceIntervalMs,
+                        // The selected preset can use a smaller model bitmap than the
+                        // CameraX source to trade landmark detail for inference workload.
+                        outputWidthPx = minOf(effectiveCameraWidthPx(), handTrackingPreset.modelInputWidthPx),
+                        outputHeightPx = minOf(effectiveCameraHeightPx(), handTrackingPreset.modelInputHeightPx),
+                        onMetrics = { snapshot -> latestSandboxTrackingMetrics = snapshot },
+                        preferredDelegate = handTrackingDelegatePreference.delegate,
+                        ownerExecutor = cameraExecutor
+                    )
+                }.get()
                 handTracker = tracker
                 val analysis = ImageAnalysis.Builder()
                     .setTargetResolution(
@@ -1090,6 +1207,30 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             return
         }
 
+        // Android 13+ requires a runtime grant before the ongoing tracking notification
+        // can be shown in the notification drawer. Older versions can still have
+        // app/channel notifications disabled manually, so check that as well.
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) {
+            cameraStatusMessage =
+                "Уведомления EndXR отключены · включи их в настройках Android"
+            updateStatus()
+            showNotificationPermissionSettingsDialog()
+            return
+        }
+
+        startPersistentHandTrackingService()
+    }
+
+    private fun startPersistentHandTrackingService() {
+        if (EndXrHandTrackingService.isRunning()) return
+
         // Transfer CameraX ownership while the Activity is still visible.
         cameraProvider?.unbindAll()
         handTracker?.close()
@@ -1102,12 +1243,15 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             effectiveCameraWidthPx(),
             effectiveCameraHeightPx(),
             handTrackingPreset.maxTrackedHands,
-            adaptivePerformanceState.minimumInferenceIntervalMs
+            adaptivePerformanceState.minimumInferenceIntervalMs,
+            minOf(effectiveCameraWidthPx(), handTrackingPreset.modelInputWidthPx),
+            minOf(effectiveCameraHeightPx(), handTrackingPreset.modelInputHeightPx),
+            preferGpuDelegate = handTrackingDelegatePreference.delegate == Delegate.GPU
         )
         runCatching {
             ContextCompat.startForegroundService(this, serviceIntent)
             cameraStatusMessage =
-                "EndXR: запускаем фоновую камеру рук. Оставь уведомление активным перед запуском игры."
+                "EndXR: фоновая камера рук запущена · уведомление должно оставаться активным"
         }.onFailure { error ->
             EndXrHandTrackingService.markStartFailed(
                 error.message ?: error.javaClass.simpleName
@@ -1117,6 +1261,31 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             startHandTracking()
         }
         updateStatus()
+    }
+
+    private fun showNotificationPermissionSettingsDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Разреши уведомления EndXR")
+            .setMessage(
+                "Android скрывает уведомление фонового отслеживания, пока уведомления " +
+                    "для QuestPhoneXR запрещены. Открой настройки приложения и включи " +
+                    "«Разрешить уведомления», затем снова запусти фоновую камеру рук."
+            )
+            .setPositiveButton("Открыть настройки") { _, _ ->
+                val settingsIntent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                    putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                }
+                runCatching { startActivity(settingsIntent) }.onFailure {
+                    startActivity(
+                        Intent(
+                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            android.net.Uri.parse("package:$packageName")
+                        )
+                    )
+                }
+            }
+            .setNegativeButton("Позже", null)
+            .show()
     }
 
     // Keep enough source detail for reliable palm/landmark detection. The phone
@@ -1344,6 +1513,39 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             .show()
     }
 
+    private fun showHandTrackingDelegateDialog() {
+        val preferences = HandTrackingDelegatePreference.entries.toTypedArray()
+        var selectedIndex = preferences.indexOf(handTrackingDelegatePreference).coerceAtLeast(0)
+        val labels = preferences.map { it.label }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("Движок MediaPipe")
+            .setMessage(
+                "GPU может ускорить обработку, но результат зависит от драйвера Adreno. " +
+                    "Режим GPU автоматически использует CPU, если GPU-делегат не запускается. " +
+                    "Режим CPU позволяет сравнить производительность на том же телефоне."
+            )
+            .setSingleChoiceItems(labels, selectedIndex) { _, which ->
+                selectedIndex = which
+            }
+            .setPositiveButton("Применить") { _, _ ->
+                val selected = preferences[selectedIndex]
+                if (selected != handTrackingDelegatePreference) {
+                    handTrackingDelegatePreference = selected
+                    handTrackingPresetStore.saveDelegatePreference(selected)
+                    val wasTracking = handTracker != null ||
+                        handTrackingStartPending || EndXrHandTrackingService.isRunning()
+                    if (wasTracking) {
+                        restartHandTracking()
+                    } else {
+                        updateStatus()
+                    }
+                }
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
     private fun showHandCalibrationDialog() {
         val current = handCalibration.normalized()
         val content = LinearLayout(this).apply {
@@ -1532,7 +1734,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 effectiveCameraWidthPx(),
                 effectiveCameraHeightPx(),
                 handTrackingPreset.maxTrackedHands,
-                adaptivePerformanceState.minimumInferenceIntervalMs
+                adaptivePerformanceState.minimumInferenceIntervalMs,
+                minOf(effectiveCameraWidthPx(), handTrackingPreset.modelInputWidthPx),
+                minOf(effectiveCameraHeightPx(), handTrackingPreset.modelInputHeightPx),
+                preferGpuDelegate = handTrackingDelegatePreference.delegate == Delegate.GPU
             )
             runCatching {
                 ContextCompat.startForegroundService(this, intent)
@@ -1769,8 +1974,12 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         } else {
             "—"
         }
-        val inferenceFps =
-            1000L / adaptivePerformanceState.minimumInferenceIntervalMs.coerceAtLeast(1L)
+        val inferenceIntervalMs = adaptivePerformanceState.minimumInferenceIntervalMs
+        val inferenceRateLabel = if (inferenceIntervalMs == 0L) {
+            "без искусственного ограничения"
+        } else {
+            "до ${1000L / inferenceIntervalMs} кадров/с"
+        }
 
         return buildString {
             append("QUESTPHONEXR · VR-ПЕСОЧНИЦА · СТЕРЕО 3DoF")
@@ -1784,8 +1993,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             append(" · ").append(adaptivePerformanceState.label)
             append(" · камера ").append(effectiveCameraWidthPx())
             append('×').append(effectiveCameraHeightPx())
-            append(" · ").append(handTrackingPreset.maxTrackedHands).append(" рук · MediaPipe до ")
-                .append(inferenceFps).append(" кадр/с")
+            append(" · ").append(handTrackingPreset.maxTrackedHands).append(" рук · MediaPipe ")
+                .append(inferenceRateLabel)
             append('\n')
             append(cameraStatusMessage).append(" · рук: ").append(latestHandFrame.handCount)
             append('\n')
@@ -1801,7 +2010,14 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 }
             )
             append('\n')
-            val trackerMetrics = handTracker?.metricsSnapshot()
+            val trackerMetrics = if (serviceRunning) {
+                EndXrHandTrackingService.diagnosticMetrics()
+            } else {
+                handTracker?.metricsSnapshot() ?: latestSandboxTrackingMetrics
+            }
+            append("MediaPipe delegate: ").append(trackerMetrics?.delegateName ?: "ожидание")
+            append(" · выбор: ").append(handTrackingDelegatePreference.label)
+            append('\n')
             append("MediaPipe: ").append(handFpsText)
             append(" FPS · подготовка ").append(latestPreprocessingLatencyMs)
             append(" мс · pipeline ").append(latestHandPipelineLatencyMs)
@@ -1848,7 +2064,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             else -> "Включить фоновую камеру рук для Quest-игр"
         }
         persistentHandTrackingButton?.let { button ->
-            if (button.text.toString() != label) button.text = label
+            if (button.text.toString() != label) {
+                button.text = label
+                button.applyNextVreraStyle(nextVreraToneFor(label))
+            }
             button.contentDescription = label
         }
     }
@@ -1856,7 +2075,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private fun controlButton(label: String, action: () -> Unit): Button =
         Button(this).apply {
             text = label
-            isAllCaps = false
+            applyNextVreraStyle(nextVreraToneFor(label))
             setOnClickListener { action() }
         }
 

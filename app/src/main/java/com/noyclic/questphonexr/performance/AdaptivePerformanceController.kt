@@ -64,7 +64,11 @@ class AdaptivePerformanceController(
         lastEvaluationAtMs = nowMs
 
         val current = stateFor(level)
-        val expectedHandFps = 1000f / current.minimumInferenceIntervalMs.toFloat()
+        // A zero interval means the user explicitly requested no artificial frame throttle.
+        // Do not divide by zero or interpret every finite FPS as overload in that mode.
+        val expectedHandFps = current.minimumInferenceIntervalMs
+            .takeIf { it > 0L }
+            ?.let { 1_000f / it.toFloat() }
         val validRenderFps = renderFps.takeIf { it.isFinite() && it > 0f }
         val validHandFps = handTrackingFps.takeIf { it.isFinite() && it > 0f }
         val latencyKnown = pipelineLatencyMs > 0L
@@ -72,12 +76,14 @@ class AdaptivePerformanceController(
         val overloaded =
             (validRenderFps != null && validRenderFps < current.renderFpsCap * RENDER_OVERLOAD_RATIO) ||
                 (latencyKnown && pipelineLatencyMs >= OVERLOAD_LATENCY_MS) ||
-                (validHandFps != null && validHandFps < expectedHandFps * HAND_OVERLOAD_RATIO)
+                (validHandFps != null && expectedHandFps != null &&
+                    validHandFps < expectedHandFps * HAND_OVERLOAD_RATIO)
 
         val healthy =
             (validRenderFps == null || validRenderFps >= current.renderFpsCap * RENDER_HEALTHY_RATIO) &&
                 (!latencyKnown || pipelineLatencyMs <= HEALTHY_LATENCY_MS) &&
-                (validHandFps == null || validHandFps >= expectedHandFps * HAND_HEALTHY_RATIO)
+                (validHandFps == null || expectedHandFps == null ||
+                    validHandFps >= expectedHandFps * HAND_HEALTHY_RATIO)
 
         when {
             overloaded -> {
