@@ -319,6 +319,22 @@ class SandboxSimulationTest {
     }
 
     @Test
+    fun unassignedJoyConCanStillDriveSandboxLocomotion() {
+        val simulation = SandboxSimulation()
+        val unassigned = controller(
+            hand = HandSide.LEFT,
+            stickX = 0.5f,
+            stickY = -1f
+        ).copy(hand = null)
+
+        simulation.update(listOf(unassigned), 0.05f)
+
+        val position = simulation.snapshot().playerPosition
+        assertEquals(0.06f, position.x, 0.001f)
+        assertEquals(-0.12f, position.z, 0.001f)
+    }
+
+    @Test
     fun rightJoyConCanMovePlayerWhenLeftControllerIsUnavailable() {
         val simulation = SandboxSimulation()
         simulation.update(
