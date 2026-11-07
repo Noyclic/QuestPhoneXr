@@ -25,13 +25,19 @@ enum class HandTrackingPreset(
     ),
     POWER_SAVER(
         label = "Экономия",
-        description = "2 руки · 640×480 · повышенная точность распознавания",
+        description = "2 руки · низкая частота обработки · меньше нагрев",
         maxTrackedHands = 2,
-        // Match the known-working phone diagnostics input size. 320×240 was
-        // too small for reliable detection of hands presented at an angle.
         cameraWidthPx = 640,
         cameraHeightPx = 480,
         minimumInferenceIntervalMs = 100L
+    ),
+    SINGLE_HAND_FAST(
+        label = "Быстро · 1 рука",
+        description = "1 рука · 640×480 камера · минимальный интервал обработки",
+        maxTrackedHands = 1,
+        cameraWidthPx = 640,
+        cameraHeightPx = 480,
+        minimumInferenceIntervalMs = 0L
     ),
     BALANCED(
         label = "Баланс",
