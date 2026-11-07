@@ -129,3 +129,17 @@ After the MediaPipe display landmarks are mapped through calibration and the cam
 - It is strictly a presentation layer. Interaction cursor, pinch/grab state and OpenXR input continue to use the newest tracked observation; this additional smoothing does not delay trigger input or the controller snapshot.
 
 The JVM regression suite covers convergence without overshoot, faster response at higher palm speed, shared whole-hand response, depth smoothing, identity resets, missing-hand resets and invalid-coordinate recovery. Physical Redmi testing is still required to tune the response frequency against actual perceived hand motion and rendering cadence.
+
+
+## Continuous 3D hand mesh and mobile rendering
+
+Sandbox now builds the visible 3D hand as one reusable stereo render batch instead of issuing a separate GLES draw for every finger segment and joint:
+
+- The palm remains an ellipsoid, but finger bones are overlapping rounded capsules with per-digit width and distal taper. The thumb web receives a short bridge to the index MCP so the base of the thumb does not look detached from the palm.
+- Separate large joint beads were removed. The rounded ends of adjacent capsules provide the joint transitions and keep the silhouette more continuous.
+- The visible pinch accent remains a small pair of fingertip highlights; it is not part of gesture measurement.
+- Hand-only spheres use an 8×12 tessellation instead of the general 12×18 scene sphere. A soft vertex-color light is calculated from the ellipsoid normal before upload, giving palm and fingers readable volume without extra shader attributes or a more expensive fragment shader.
+- Both tracked hands are expanded into one interleaved direct FloatBuffer once per phone render frame. The same buffer is drawn once for each stereo eye, replacing up to 44 individual hand draw calls per hand per eye with one combined hand draw per eye. The buffer is reused and no per-frame direct-buffer allocation is performed.
+- The 3D mesh remains presentation-only. Cursor movement, pinch/grab logic and EndXR input are still driven by the tracking path and do not depend on the mesh batch.
+
+The new JVM tests cover all five four-point finger chains, the 15 bone links, palm/web topology, the maximum batch primitive count, and bounded per-digit radii/taper. The draw-call and vertex-count reduction is a code-level estimate; sustained FPS and visual quality still require measurement on the Redmi Note 13 4G.
