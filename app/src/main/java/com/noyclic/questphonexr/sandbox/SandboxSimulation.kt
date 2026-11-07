@@ -268,7 +268,9 @@ class SandboxSimulation {
         var position: SandboxVector3,
         val spawnPosition: SandboxVector3 = position,
         var velocity: SandboxVector3 = ZERO,
-        var heldBy: HandSide? = null
+        var heldBy: HandSide? = null,
+        /** Preserve where the object sits relative to the palm while it is held. */
+        var heldOffset: SandboxVector3? = null
     ) {
         fun snapshot() = SandboxObjectState(id, type, position, velocity, heldBy)
     }
@@ -281,7 +283,8 @@ class SandboxSimulation {
         val trackingLost: Boolean = false,
         val landmarks: List<SandboxVector3> = emptyList(),
         val contactLandmarks: List<SandboxVector3> = emptyList(),
-        val pinching: Boolean = false
+        val pinching: Boolean = false,
+        val naturalGripping: Boolean = false
     )
 
     private val objects = mutableListOf<MutableObject>()
@@ -449,8 +452,14 @@ class SandboxSimulation {
         leftTouchPoint = leftWorld.contactLandmarks.getOrNull(INDEX_TIP_LANDMARK)
         rightTouchPoint = rightWorld.contactLandmarks.getOrNull(INDEX_TIP_LANDMARK)
 
-        updateGrab(HandSide.LEFT, left.grabbing, leftWorld.cursor, dt, left.trackingLost)
-        updateGrab(HandSide.RIGHT, right.grabbing, rightWorld.cursor, dt, right.trackingLost)
+        updateGrab(
+            HandSide.LEFT, left.grabbing, leftWorld.cursor, dt, left.trackingLost,
+            if (left.naturalGripping || left.pinching) PRECISION_GRAB_DISTANCE else MAX_GRAB_DISTANCE
+        )
+        updateGrab(
+            HandSide.RIGHT, right.grabbing, rightWorld.cursor, dt, right.trackingLost,
+            if (right.naturalGripping || right.pinching) PRECISION_GRAB_DISTANCE else MAX_GRAB_DISTANCE
+        )
         if (!browserInteractionMode) {
             applyFingerContacts(leftWorld, dt)
             applyFingerContacts(rightWorld, dt)
@@ -616,7 +625,8 @@ class SandboxSimulation {
             cameraTracked = trackedHand != null,
             landmarks = renderedLandmarks,
             contactLandmarks = cameraLandmarks,
-            pinching = pinching
+            pinching = pinching,
+            naturalGripping = powerGripping
         )
     }
 
@@ -639,14 +649,16 @@ class SandboxSimulation {
             val thumbTip = landmarks.getOrNull(4) ?: return indexTip
             return (thumbTip + indexTip) * 0.5f
         }
-        if (isPowerGripping) {
-            val palmPoints = PALM_MCP_INDICES.map { index -> landmarks.getOrNull(index) }.filterNotNull()
-            if (palmPoints.isNotEmpty()) {
-                return palmPoints.reduce { total, point -> total + point } *
-                    (1f / palmPoints.size.toFloat())
-            }
-        }
-        return indexTip
+        // Use a stable palm anchor for normal reach and natural fist-grabbing. This avoids
+        // the cursor jumping from the index fingertip to the palm exactly when the fist closes.
+        val palmIndices = intArrayOf(0, 5, 9, 13, 17)
+        val palmPoints = palmIndices.mapNotNull { landmarks.getOrNull(it) }
+        return if (palmPoints.isNotEmpty()) {
+            palmPoints.reduce { total, point -> total + point } *
+                (1f / palmPoints.size.toFloat())
+        } else if (isPowerGripping) {
+            indexTip
+        } else indexTip
     }
 
     private fun applyFingerContacts(hand: ControllerState, deltaSeconds: Float) {
@@ -681,7 +693,8 @@ class SandboxSimulation {
         isPressed: Boolean,
         cursor: SandboxVector3,
         deltaSeconds: Float,
-        dropWithoutThrow: Boolean
+        dropWithoutThrow: Boolean,
+        maxGrabDistance: Float = MAX_GRAB_DISTANCE
     ) {
         val currentlyHeld = objects.firstOrNull { it.heldBy == hand }
 
@@ -689,24 +702,30 @@ class SandboxSimulation {
             val nearest = objects
                 .filter { it.heldBy == null && it.type != SandboxObjectType.TARGET }
                 .minByOrNull { (it.position - cursor).length() }
-            if (nearest != null && (nearest.position - cursor).length() <= MAX_GRAB_DISTANCE) {
+            if (nearest != null && (nearest.position - cursor).length() <= maxGrabDistance) {
                 nearest.heldBy = hand
+                nearest.heldOffset = nearest.position - cursor
                 nearest.velocity = ZERO
             }
         } else if (!isPressed && currentlyHeld != null) {
+            val targetPosition = cursor + (currentlyHeld.heldOffset ?: ZERO)
             currentlyHeld.heldBy = null
+            currentlyHeld.heldOffset = null
             currentlyHeld.velocity = if (dropWithoutThrow) {
                 ZERO
             } else {
-                (cursor - currentlyHeld.position)
+                (targetPosition - currentlyHeld.position)
                     .times(1f / deltaSeconds)
                     .clamped(MAX_THROW_SPEED)
             }
         }
 
         objects.firstOrNull { it.heldBy == hand }?.let { held ->
-            held.velocity = (cursor - held.position).times(1f / deltaSeconds).clamped(MAX_THROW_SPEED)
-            held.position = cursor
+            val targetPosition = cursor + (held.heldOffset ?: ZERO)
+            held.velocity = (targetPosition - held.position)
+                .times(1f / deltaSeconds)
+                .clamped(MAX_THROW_SPEED)
+            held.position = targetPosition
         }
 
         if (hand == HandSide.LEFT) leftGrabbing = isPressed else rightGrabbing = isPressed
@@ -759,6 +778,7 @@ class SandboxSimulation {
         private const val GAMEPAD_REACH_HEIGHT = 2.15f
         private const val GRAB_THRESHOLD = 0.45f
         private const val MAX_GRAB_DISTANCE = 1.2f
+        private const val PRECISION_GRAB_DISTANCE = 0.58f
         private const val FINGER_CONTACT_ACCELERATION = 5.5f
         private const val CONTACT_SEPARATION_GAIN = 7.0f
         private const val BALL_CONTACT_RADIUS = 0.25f
