@@ -672,7 +672,7 @@ class SandboxSimulation {
 
     private fun palmAnchor(landmarks: List<SandboxVector3>): SandboxVector3? {
         val palmIndices = intArrayOf(0, 5, 9, 13, 17)
-        val palmPoints = palmIndices.mapNotNull { landmarks.getOrNull(it) }
+        val palmPoints = palmIndices.map { landmarks.getOrNull(it) }.filterNotNull()
         if (palmPoints.isEmpty()) return null
         return palmPoints.reduce { total, point -> total + point } *
             (1f / palmPoints.size.toFloat())
