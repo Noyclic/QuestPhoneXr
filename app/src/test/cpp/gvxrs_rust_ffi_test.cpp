@@ -30,6 +30,15 @@ void testCAbiLayout() {
     static_assert(sizeof(GvxrsPoseInput) == 32, "pose C ABI size changed");
     static_assert(sizeof(GvxrsHeadOrientation) == 20,
                   "head orientation C ABI size changed");
+    static_assert(sizeof(GvxrsCoreStatus) == 8, "core status C ABI size changed");
+    static_assert(sizeof(GvxrsCoreFrameTiming) == 32,
+                  "frame timing C ABI size changed");
+    static_assert(sizeof(GvxrsCoreFrameResult) == 40,
+                  "frame result C ABI size changed");
+    static_assert(sizeof(GvxrsCoreSnapshot) == 72,
+                  "core snapshot C ABI size changed");
+    static_assert(offsetof(GvxrsCoreSnapshot, last_error_code) == 64,
+                  "core snapshot C ABI offsets changed");
 }
 
 void testControllerSanitization() {
