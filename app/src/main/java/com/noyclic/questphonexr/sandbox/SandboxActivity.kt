@@ -105,6 +105,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private lateinit var glView: GLSurfaceView
     private lateinit var renderer: SandboxRenderer
     private lateinit var browserPanel: SandboxBrowserPanelView
+    private var browserSettingsPanel: View? = null
+    private var restoreSettingsAfterBrowser = false
     private var sandboxBrowserVisible = false
     private var lastBrowserTextureUpdateMs = 0L
     private val xrSurfaceLifecycle = EndXrGlSurfaceLifecycle()
@@ -832,6 +834,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(0xE60C111B.toInt())
         }
+        browserSettingsPanel = topPanel
 
         val scrollContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1991,6 +1994,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         renderer.setBrowserVisible(sandboxBrowserVisible)
         simulation.setBrowserInteractionMode(sandboxBrowserVisible)
         if (sandboxBrowserVisible) {
+            restoreSettingsAfterBrowser = browserSettingsPanel?.visibility == View.VISIBLE
+            browserSettingsPanel?.visibility = View.GONE
             browserPanel.onResumeBrowser()
             lastBrowserTextureUpdateMs = 0L
             runCatching { browserPanel.captureTextureBitmap() }
@@ -2003,6 +2008,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             ).show()
         } else {
             browserPanel.releaseHandPointer()
+            if (restoreSettingsAfterBrowser) browserSettingsPanel?.visibility = View.VISIBLE
+            restoreSettingsAfterBrowser = false
             Toast.makeText(this, "3D-браузер закрыт", Toast.LENGTH_SHORT).show()
         }
         glView.requestRender()
