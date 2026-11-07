@@ -17,7 +17,12 @@ enum class HandSide {
     }
 }
 
-data class PinchSignal(val strength: Float, val isPinching: Boolean)
+data class PinchSignal(
+    val strength: Float,
+    val isPinching: Boolean,
+    /** Raw thumb/index distance divided by palm width; infinity means unavailable. */
+    val normalizedDistanceRatio: Float = Float.POSITIVE_INFINITY
+)
 
 /**
  * Measures thumb/index closure relative to palm width.
@@ -67,7 +72,7 @@ class PinchEstimator(
         } else if (isPinching && filteredStrength <= pinchOffThreshold) {
             isPinching = false
         }
-        return PinchSignal(filteredStrength, isPinching)
+        return PinchSignal(filteredStrength, isPinching, normalizedPinchDistance)
     }
 
     fun reset() {
@@ -108,6 +113,8 @@ data class TrackedHand(
     val points: List<HandPoint>,
     val pinchStrength: Float = 0f,
     val isPinching: Boolean = false,
+    /** Latest raw thumb/index distance relative to palm width; infinity means unavailable. */
+    val pinchDistanceRatio: Float = Float.POSITIVE_INFINITY,
     val side: HandSide = HandSide.UNKNOWN,
     /** MediaPipe world landmarks are hand-local 3D points measured in meters. */
     val worldPoints: List<HandPoint> = emptyList(),
