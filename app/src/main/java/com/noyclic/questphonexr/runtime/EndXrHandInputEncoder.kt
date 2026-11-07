@@ -111,19 +111,24 @@ internal object EndXrHandInputEncoder {
         skeletonReconstructor: HandKinematicReconstructor,
         timestampMs: Long
     ): EncodedHand {
-        if (hand == null || hand.points.size < LANDMARK_COUNT ||
-            hand.worldPoints.size < LANDMARK_COUNT
+        if (hand == null || hand.rawPoints.size < LANDMARK_COUNT ||
+            hand.rawWorldPoints.size < LANDMARK_COUNT ||
+            hand.rawPoints.take(LANDMARK_COUNT).any { !it.x.isFinite() || !it.y.isFinite() || !it.z.isFinite() } ||
+            hand.rawWorldPoints.take(LANDMARK_COUNT).any { !it.x.isFinite() || !it.y.isFinite() || !it.z.isFinite() }
         ) {
             skeletonReconstructor.reset()
             depthEstimator.reset()
             return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
         }
 
-        val imageCenter = average(hand.points, PALM_INDICES)
+        // EndXR uses the newest observation here. The reconstructor owns the
+        // adaptive joint filter; feeding it One-Euro-filtered render points would
+        // stack two temporal filters and add avoidable input lag.
+        val imageCenter = average(hand.rawPoints, PALM_INDICES)
             ?: return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
-        val worldCenter = average(hand.worldPoints, PALM_INDICES)
+        val worldCenter = average(hand.rawWorldPoints, PALM_INDICES)
             ?: return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
-        val distance = depthEstimator.update(hand.points)?.takeIf { it.isFinite() }
+        val distance = depthEstimator.update(hand.rawPoints)?.takeIf { it.isFinite() }
             ?: DEFAULT_HAND_DISTANCE_METERS
 
         val x = ((imageCenter.x - 0.5f) * distance * HORIZONTAL_FOV_SCALE)
@@ -133,7 +138,7 @@ internal object EndXrHandInputEncoder {
         val z = (-distance + worldCenter.z.coerceIn(-MAX_LOCAL_DEPTH_METERS, MAX_LOCAL_DEPTH_METERS) *
             LOCAL_DEPTH_SCALE).coerceIn(-MAX_HAND_DISTANCE_METERS, -0.25f)
 
-        val orientation = palmOrientation(hand.worldPoints)
+        val orientation = palmOrientation(hand.rawWorldPoints)
             ?: return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
         val pose = EndXrHandPoseSample.fromCameraPose(
             x = x, y = y, z = z,
@@ -143,7 +148,9 @@ internal object EndXrHandInputEncoder {
         if (!pose.active) return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
 
         val reconstructedJoints = skeletonReconstructor.reconstruct(
-            hand.worldPoints, hand.trackingId, timestampMs
+            hand.rawWorldPoints,
+            hand.trackingId,
+            hand.rawTimestampMs.takeIf { it >= 0L } ?: timestampMs
         ) ?: return EncodedHand(pose, EndXrHandJointSample.EMPTY)
         val joints = encodeJoints(reconstructedJoints, pose)
         return EncodedHand(pose, joints)
