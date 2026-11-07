@@ -40,6 +40,7 @@ class PinchEstimator(
 ) {
     private var filteredStrength = 0f
     private var isPinching = false
+    private var releaseCandidateSinceMs: Long? = null
     private var lastTimestampMs: Long? = null
 
     init {
@@ -131,10 +132,29 @@ class PinchEstimator(
         }
         filteredStrength += (rawStrength - filteredStrength) * alpha
 
-        if (!isPinching && filteredStrength >= pinchOnThreshold) {
-            isPinching = true
-        } else if (isPinching && filteredStrength <= pinchOffThreshold) {
-            isPinching = false
+        if (!isPinching) {
+            releaseCandidateSinceMs = null
+            if (filteredStrength >= pinchOnThreshold) {
+                isPinching = true
+            }
+        } else if (filteredStrength <= pinchOffThreshold) {
+            // A single bad fingertip estimate should not release a held object.
+            // Require a short continuous open interval; a renewed pinch cancels it.
+            val now = timestampMs
+            if (now == null) {
+                isPinching = false
+                releaseCandidateSinceMs = null
+            } else {
+                val candidateSince = releaseCandidateSinceMs
+                if (candidateSince == null || now < candidateSince) {
+                    releaseCandidateSinceMs = now
+                } else if (now - candidateSince >= RELEASE_CONFIRMATION_MS) {
+                    isPinching = false
+                    releaseCandidateSinceMs = null
+                }
+            }
+        } else {
+            releaseCandidateSinceMs = null
         }
         return PinchSignal(filteredStrength, isPinching, normalizedPinchDistance, useWorldGeometry)
     }
@@ -142,6 +162,7 @@ class PinchEstimator(
     fun reset() {
         filteredStrength = 0f
         isPinching = false
+        releaseCandidateSinceMs = null
         lastTimestampMs = null
     }
 
@@ -179,6 +200,7 @@ class PinchEstimator(
         const val RATIO_RANGE = 0.52f
         const val FAST_PRESS_RAW_STRENGTH = 0.90f
         const val FAST_PRESS_ALPHA = 0.82f
+        const val RELEASE_CONFIRMATION_MS = 24L
         const val REFERENCE_INTERVAL_MS = 16.667
         const val MAX_PINCH_SAMPLE_GAP_MS = 200L
     }
