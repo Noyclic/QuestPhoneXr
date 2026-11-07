@@ -79,3 +79,18 @@ The persistent service accepts live inference-interval updates without restartin
 A new **Быстро · 1 рука** preset uses one-hand inference and no additional frame interval. It is an optional low-latency workload; two-hand presets remain available. Preset descriptions are workload guidance, not guaranteed FPS.
 
 Diagnostics now split preprocessing, approximate inference, and result-processing time. Compare these values alongside result FPS, dropped-busy frames, dropped-interval frames, and result age. If inference dominates, test GPU versus CPU and one-hand mode. If preprocessing dominates, inspect CameraX stride/format and source dimensions. Do not claim a performance gain until the same scene and lighting are measured on the physical Redmi Note 13 4G.
+
+
+## Redmi Note 13 performance work
+
+The persistent service now keeps the selected CameraX capture size separate from the MediaPipe input bitmap. The source can remain at 640×480 while the model bitmap is capped at 480×360, preserving camera detail without feeding the full RGBA frame into the model.
+
+The service requests the MediaPipe GPU delegate first and falls back to CPU if GPU delegate creation fails. The selected delegate is included in diagnostics; successful delegate creation does not by itself prove that GPU inference is faster, so the Redmi must be measured on-device.
+
+The RGBA conversion path copies tightly packed rows directly into the reusable source bitmap. Devices that return padded rows continue to use the safe row-by-row repack path.
+
+The persistent service accepts live inference-interval updates without restarting CameraX or recreating the model. The Sandbox adaptive governor can adjust the running service while it is visible.
+
+A new **Быстро · 1 рука** preset uses one-hand inference and no additional frame interval. It is an optional low-latency workload; two-hand presets remain available. Preset descriptions are workload guidance, not guaranteed FPS.
+
+Diagnostics now split preprocessing, approximate inference, and result-processing time. Compare these values alongside result FPS, dropped-busy frames, dropped-interval frames, and result age. If inference dominates, test GPU versus CPU and one-hand mode. If preprocessing dominates, inspect CameraX stride/format and source dimensions. Do not claim a performance gain until the same scene and lighting are measured on the physical Redmi Note 13 4G.
