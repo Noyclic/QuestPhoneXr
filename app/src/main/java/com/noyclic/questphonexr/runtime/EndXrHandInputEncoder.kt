@@ -103,7 +103,11 @@ internal object EndXrHandInputEncoder {
     ): EncodedHand {
         if (hand == null || hand.points.size < LANDMARK_COUNT ||
             hand.worldPoints.size < LANDMARK_COUNT
-        ) return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
+        ) {
+            skeletonReconstructor.reset()
+            depthEstimator.reset()
+            return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
+        }
 
         val imageCenter = average(hand.points, PALM_INDICES)
             ?: return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
