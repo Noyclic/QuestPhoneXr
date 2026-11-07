@@ -218,7 +218,7 @@ pub struct GvxrsHeadOrientation {
 ///
 /// The function is intentionally stateless and safe to call from C/C++.
 /// It does not publish input into the OpenXR runtime.
-#[no_mangle]
+/// SAFETY: symbol export is required by the C ABI; arguments and return values are plain values only.\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]
 pub extern "C" fn gvxrs_sanitize_controller_input(
     active: u32,
     trigger: f32,
@@ -241,7 +241,7 @@ pub extern "C" fn gvxrs_sanitize_controller_input(
 }
 
 /// C ABI wrapper around estimated hand-pose validation and normalization.
-#[no_mangle]
+/// SAFETY: symbol export is required by the C ABI; arguments and return values are plain values only.\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]
 pub extern "C" fn gvxrs_sanitize_hand_pose(
     active: u32,
     position: GvxrsVector3,
@@ -260,7 +260,7 @@ pub extern "C" fn gvxrs_sanitize_hand_pose(
 }
 
 /// C ABI wrapper around phone head-orientation normalization.
-#[no_mangle]
+/// SAFETY: symbol export is required by the C ABI; arguments and return values are plain values only.\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]
 pub extern "C" fn gvxrs_sanitize_head_orientation(
     orientation: GvxrsQuaternion,
 ) -> GvxrsHeadOrientation {
