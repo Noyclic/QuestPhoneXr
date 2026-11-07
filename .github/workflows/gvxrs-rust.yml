@@ -1,0 +1,78 @@
+name: GVXRS Rust Core — lint, tests and C++ parity
+
+on:
+  push:
+    branches: [feat/gvxrs-rust-core-migration]
+    paths:
+      - "gvxrs-core/**"
+      - "app/src/test/cpp/gvxrs_*"
+      - ".github/workflows/gvxrs-rust.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gvxrs-rust-core-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-core:
+    name: Rust core and native ABI verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust, Clippy and formatter
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup component add clippy rustfmt --toolchain stable
+
+      - name: Check Rust formatting
+        run: cargo +stable fmt --manifest-path gvxrs-core/Cargo.toml -- --check
+
+      - name: Run Rust Clippy
+        run: cargo +stable clippy --manifest-path gvxrs-core/Cargo.toml --all-targets -- -D warnings
+
+      - name: Run Rust unit tests
+        run: cargo +stable test --manifest-path gvxrs-core/Cargo.toml --all-targets
+
+      - name: Build host static library
+        run: cargo +stable build --manifest-path gvxrs-core/Cargo.toml --release
+
+      - name: Test Rust tracking C ABI from C++
+        run: |
+          set -euo pipefail
+          mkdir -p ci-results
+          c++ -std=c++17 -Wall -Wextra -Werror \
+            -I gvxrs-core/include \
+            app/src/test/cpp/gvxrs_rust_ffi_test.cpp \
+            gvxrs-core/target/release/libgvxrs_core.a \
+            -ldl -lpthread -lm -lrt -lutil \
+            -o ci-results/gvxrs-rust-ffi-tests
+          ci-results/gvxrs-rust-ffi-tests
+
+      - name: Compare C++ and Rust lifecycle implementations
+        run: |
+          set -euo pipefail
+          c++ -std=c++17 -pthread -Wall -Wextra -Werror \
+            -I app/src/main/cpp \
+            -I gvxrs-core/include \
+            app/src/test/cpp/gvxrs_runtime_core_parity_test.cpp \
+            app/src/main/cpp/endxr_runtime_core.cpp \
+            gvxrs-core/target/release/libgvxrs_core.a \
+            -ldl -lpthread -lm -lrt -lutil \
+            -o ci-results/gvxrs-runtime-parity-tests
+          ci-results/gvxrs-runtime-parity-tests
+
+      - name: Upload Rust validation binaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GVXRS-Rust-Core-Validation
+          path: ci-results/**
+          if-no-files-found: warn
+          retention-days: 14
