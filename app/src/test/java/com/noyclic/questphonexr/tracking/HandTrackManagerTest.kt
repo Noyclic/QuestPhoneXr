@@ -188,3 +188,33 @@ class HandTrackManagerTest {
         )
     }
 }
+
+
+class HandTrackingPresetRegressionTest {
+    @org.junit.Test
+    fun singleHandFastPresetUsesOneHandAndNoArtificialThrottle() {
+        val preset = HandTrackingPreset.SINGLE_HAND_FAST
+        org.junit.Assert.assertEquals(1, preset.maxTrackedHands)
+        org.junit.Assert.assertEquals(640, preset.cameraWidthPx)
+        org.junit.Assert.assertEquals(480, preset.cameraHeightPx)
+        org.junit.Assert.assertEquals(0L, preset.minimumInferenceIntervalMs)
+    }
+
+    @org.junit.Test
+    fun allPresetsStayWithinSupportedTrackingLimits() {
+        HandTrackingPreset.entries.forEach { preset ->
+            org.junit.Assert.assertTrue(preset.maxTrackedHands in 1..2)
+            org.junit.Assert.assertTrue(preset.cameraWidthPx >= 160)
+            org.junit.Assert.assertTrue(preset.cameraHeightPx >= 120)
+            org.junit.Assert.assertTrue(preset.minimumInferenceIntervalMs in 0L..1_000L)
+        }
+    }
+
+    @org.junit.Test
+    fun storedFastPresetCanBeRestored() {
+        org.junit.Assert.assertEquals(
+            HandTrackingPreset.SINGLE_HAND_FAST,
+            HandTrackingPreset.fromStoredName(HandTrackingPreset.SINGLE_HAND_FAST.name)
+        )
+    }
+}
