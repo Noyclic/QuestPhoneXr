@@ -2065,7 +2065,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private fun pinchDiagnostic(hand: com.noyclic.questphonexr.tracking.TrackedHand?): String {
         if (hand == null) return "—"
         val percent = (hand.pinchStrength * 100f).toInt().coerceIn(0, 100)
-        return "$percent% · " + if (hand.isPinching) "ON" else "off"
+        val ratio = hand.pinchDistanceRatio.takeIf { it.isFinite() }
+            ?.let { String.format(Locale.US, "%.2f", it) } ?: "—"
+        return "$percent% · разрыв $ratio× · " + if (hand.isPinching) "ON" else "off"
     }
 
     private fun updateStatus() {
