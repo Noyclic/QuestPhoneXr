@@ -19,6 +19,8 @@ internal object SandboxHandMeshGeometry {
         intArrayOf(17, 18, 19, 20)   // little
     )
 
+    val THUMB_WEB = intArrayOf(2, 5)
+
     val PALM_LINKS = arrayOf(
         intArrayOf(0, 5),
         intArrayOf(5, 9),
