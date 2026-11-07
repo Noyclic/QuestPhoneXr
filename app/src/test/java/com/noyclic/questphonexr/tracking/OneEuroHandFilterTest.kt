@@ -27,7 +27,7 @@ class OneEuroHandFilterTest {
         val fastFilter = OneEuroHandFilter()
         fastFilter.update(listOf(HandPoint(0.1f, 0.5f, 0f)), 1000L)
         val fast = fastFilter.update(listOf(HandPoint(0.5f, 0.5f, 0f)), 1016L).single().x
-        assertTrue(fast > 0.3f)
+        assertTrue("Fast motion should receive a higher adaptive cutoff than slow motion", fast > slow + 0.05f)
     }
 
     @Test
