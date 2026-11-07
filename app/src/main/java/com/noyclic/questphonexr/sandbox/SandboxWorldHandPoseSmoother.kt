@@ -93,7 +93,7 @@ internal class SandboxWorldHandPoseSmoother(
         val desiredResponse = (
             minimumResponseRadiansPerSecond + usefulSpeed * motionResponseGain
         ).coerceIn(minimumResponseRadiansPerSecond, maximumResponseRadiansPerSecond)
-        val responseAlpha = (1f - exp(-dt / responseAdaptationSeconds))
+        val responseAlpha = (1f - exp((-dt / responseAdaptationSeconds).toDouble()).toFloat())
             .coerceIn(0f, 1f)
         responseRadiansPerSecond +=
             (desiredResponse - responseRadiansPerSecond) * responseAlpha
@@ -101,7 +101,7 @@ internal class SandboxWorldHandPoseSmoother(
         // Exact critically damped spring integration for a stationary target over dt.
         // Unlike a fixed lerp factor, this behaves consistently at 20, 30 and 60 render FPS.
         val omega = responseRadiansPerSecond
-        val decay = exp(-omega * dt)
+        val decay = exp((-omega * dt).toDouble()).toFloat()
         val output = ArrayList<SandboxVector3>(target.size)
         for (index in target.indices) {
             val goal = target[index]
