@@ -223,6 +223,22 @@ class HandTrackManagerTest {
     }
 
     @Test
+    fun mediumDropoutKeepsVisualFilterWarmButResetsMotionAndPinch() {
+        val manager = HandTrackManager()
+        manager.update(listOf(observation(HandSide.LEFT, 0.4f, pinching = false)), 1_000L)
+        manager.update(listOf(observation(HandSide.LEFT, 0.4f, pinching = false)), 1_016L)
+
+        val recovered = manager.update(
+            listOf(observation(HandSide.LEFT, 0.9f, pinching = false)),
+            1_176L
+        ).single()
+
+        assertTrue("the display filter should blend a medium-gap reacquisition",
+            recovered.points[0].x > 0.4f && recovered.points[0].x < 0.9f)
+        assertFalse("pinch state must not survive the medium dropout", recovered.isPinching)
+    }
+
+    @Test
     fun shortDetectionLossReleasesPinchAndMarksDistanceUnavailable() {
         val manager = HandTrackManager(pinchReleaseDelayMs = 30L)
         manager.update(listOf(observation(HandSide.LEFT, 0.4f, pinching = true)), 1_000L)
