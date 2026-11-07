@@ -148,6 +148,43 @@ class HandTrackManagerTest {
     }
 
     @Test
+    fun rawWorldPinchActivatesEvenWhenDisplayedWorldTipsAreRateLimited() {
+        val manager = HandTrackManager()
+        val image = observation(HandSide.LEFT, 0.4f).points
+        val openWorld = worldPinchPoints(pinching = false)
+        val closedWorld = worldPinchPoints(pinching = true)
+
+        manager.update(
+            listOf(observation(HandSide.LEFT, 0.4f).copy(
+                points = image,
+                worldPoints = openWorld
+            )),
+            1_000L
+        )
+        val pinched = manager.update(
+            listOf(observation(HandSide.LEFT, 0.4f).copy(
+                points = image,
+                worldPoints = closedWorld
+            )),
+            1_016L
+        ).single()
+
+        val displayedGap = kotlin.math.sqrt(
+            (pinched.worldPoints[4].x - pinched.worldPoints[8].x) *
+                (pinched.worldPoints[4].x - pinched.worldPoints[8].x) +
+                (pinched.worldPoints[4].y - pinched.worldPoints[8].y) *
+                (pinched.worldPoints[4].y - pinched.worldPoints[8].y) +
+                (pinched.worldPoints[4].z - pinched.worldPoints[8].z) *
+                (pinched.worldPoints[4].z - pinched.worldPoints[8].z)
+        )
+
+        assertTrue("gesture input must use the fresh raw world landmarks", pinched.isPinching)
+        assertTrue(pinched.pinchUsesWorldLandmarks)
+        assertTrue("display world pose should remain independently filtered", displayedGap > 0.02f)
+        assertEquals(0f, pinched.pinchDistanceRatio, 0f)
+    }
+
+    @Test
     fun shortOcclusionUsesBoundedDecayingMotionPrediction() {
         val manager = HandTrackManager()
         manager.update(listOf(observation(HandSide.LEFT, 0.4f)), 1_000L)
@@ -317,6 +354,20 @@ class HandTrackManagerTest {
             observedSide = side,
             handednessConfidence = if (side == HandSide.UNKNOWN) 0f else 0.99f
         )
+    }
+
+    private fun worldPinchPoints(pinching: Boolean): List<HandPoint> {
+        return List(21) { HandPoint(0f, 0f, 0f) }.toMutableList().also {
+            it[5] = HandPoint(0.04f, 0f, 0f)
+            it[17] = HandPoint(-0.04f, 0f, 0f)
+            if (pinching) {
+                it[4] = HandPoint(0f, 0f, 0f)
+                it[8] = HandPoint(0f, 0f, 0f)
+            } else {
+                it[4] = HandPoint(-0.09f, 0f, 0f)
+                it[8] = HandPoint(0.09f, 0f, 0f)
+            }
+        }
     }
 
     private fun palmWidth(points: List<HandPoint>): Float {
