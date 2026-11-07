@@ -334,29 +334,32 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                 handTracker?.close()
                 handTracker = null
 
-                newTracker = HandLandmarkerController(
-                    context = applicationContext,
-                    mirrorFrontCamera = useFrontCamera,
-                    onFrame = { frame ->
-                        EndXrHandTrackingDiagnostics.onFrame(frame)
-                        val encoded = EndXrHandInputEncoder.encode(frame)
-                        EndXrInputSnapshotStore.publish(encoded.leftRow, encoded.rightRow)
-                        EndXrInputSnapshotStore.publishHandPoses(encoded.leftPose, encoded.rightPose)
-                    },
-                    onError = { message ->
-                        EndXrHandTrackingDiagnostics.markError(message)
-                        Log.e(TAG, "MediaPipe foreground tracking error: $message")
-                        EndXrInputSnapshotStore.clear()
-                    },
-                    maxHands = maxHands,
-                    minimumInferenceIntervalMs = minimumInferenceIntervalMs,
-                    // Keep camera capture resolution high enough for hand detail, but cap
-                    // the bitmap sent to MediaPipe to reduce per-frame model work.
-                    outputWidthPx = minOf(cameraWidthPx, MAX_MODEL_INPUT_WIDTH_PX),
-                    outputHeightPx = minOf(cameraHeightPx, MAX_MODEL_INPUT_HEIGHT_PX),
-                    onMetrics = EndXrHandTrackingDiagnostics::updateMetrics,
-                    preferredDelegate = Delegate.GPU
-                )
+                // Construct the GPU delegate on the exact executor that CameraX will
+                // use for analyzer callbacks. MediaPipe's Android GPU delegate is thread-affine.
+                newTracker = cameraExecutor.submit<HandLandmarkerController> {
+                    HandLandmarkerController(
+                        context = applicationContext,
+                        mirrorFrontCamera = useFrontCamera,
+                        onFrame = { frame ->
+                            EndXrHandTrackingDiagnostics.onFrame(frame)
+                            val encoded = EndXrHandInputEncoder.encode(frame)
+                            EndXrInputSnapshotStore.publish(encoded.leftRow, encoded.rightRow)
+                            EndXrInputSnapshotStore.publishHandPoses(encoded.leftPose, encoded.rightPose)
+                        },
+                        onError = { message ->
+                            EndXrHandTrackingDiagnostics.markError(message)
+                            Log.e(TAG, "MediaPipe foreground tracking error: $message")
+                            EndXrInputSnapshotStore.clear()
+                        },
+                        maxHands = maxHands,
+                        minimumInferenceIntervalMs = minimumInferenceIntervalMs,
+                        outputWidthPx = minOf(cameraWidthPx, MAX_MODEL_INPUT_WIDTH_PX),
+                        outputHeightPx = minOf(cameraHeightPx, MAX_MODEL_INPUT_HEIGHT_PX),
+                        onMetrics = EndXrHandTrackingDiagnostics::updateMetrics,
+                        preferredDelegate = Delegate.GPU,
+                        ownerExecutor = cameraExecutor
+                    )
+                }.get()
 
                 val analysis = ImageAnalysis.Builder()
                     .setTargetResolution(android.util.Size(cameraWidthPx, cameraHeightPx))
