@@ -193,6 +193,41 @@ class EndXrInputSnapshotTest {
     }
 
     @Test
+    fun publishesControllerGesturePalmPoseAndJointsInOneSnapshot() {
+        val pose = EndXrHandPoseSample.fromCameraPose(
+            x = -0.1f, y = 0.05f, z = -2.4f, qx = 0f, qy = 0f, qz = 0f, qw = 1f
+        )
+        val values = FloatArray(EndXrHandJointSample.FLOAT_COUNT)
+        for (joint in 0 until EndXrHandJointSample.JOINT_COUNT) {
+            val offset = joint * EndXrHandJointSample.FLOATS_PER_JOINT
+            values[offset + 3] = 0.009f
+            values[offset + 7] = 1f
+        }
+        val joints = EndXrHandJointSample.fromValues(values)
+        val beforeSequence = EndXrInputSnapshotStore.snapshotForIpc(clock.now).sequence
+
+        EndXrInputSnapshotStore.publishTrackingFrame(
+            leftRow = floatArrayOf(1f, 0.82f, 1f, 0f, 0f, 0f),
+            rightRow = floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f),
+            leftPose = pose,
+            rightPose = EndXrHandPoseSample.EMPTY,
+            leftJoints = joints,
+            rightJoints = EndXrHandJointSample.EMPTY,
+            nowElapsedRealtimeNanos = clock.now
+        )
+
+        val snapshot = EndXrInputSnapshotStore.snapshotForIpc(clock.now)
+        assertEquals(beforeSequence + 1L, snapshot.sequence)
+        assertEquals(0.82f, snapshot.left.trigger, 0.0001f)
+        assertEquals(1f, snapshot.left.grip, 0f)
+        assertTrue(snapshot.leftHandPose.active)
+        assertTrue(snapshot.leftHandJoints.active)
+        assertFalse(snapshot.right.active)
+        assertFalse(snapshot.rightHandJoints.active)
+        assertEquals(snapshot.updatedAtElapsedRealtimeNanos, snapshot.handPoseUpdatedAtElapsedRealtimeNanos)
+    }
+
+    @Test
     fun rejectsNonFiniteOrUnboundedEstimatedHandPose() {
         assertEquals(
             EndXrHandPoseSample.EMPTY,

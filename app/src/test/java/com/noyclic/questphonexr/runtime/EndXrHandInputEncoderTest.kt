@@ -72,6 +72,30 @@ class EndXrHandInputEncoderTest {
         assertFalse(lost.rightJoints.active)
     }
 
+    @Test
+    fun mapsCameraPinchAndPowerGripIntoControllerActionRows() {
+        val pinching = trackedHand(HandSide.LEFT, centerX = 0.5f).copy(
+            pinchStrength = 0.83f,
+            isPinching = true
+        )
+        val gripping = trackedHand(HandSide.RIGHT, centerX = 0.75f).copy(
+            worldPoints = curledWorldPoints(3)
+        )
+        val encoded = EndXrHandInputEncoder.encode(HandTrackingFrame(5L, listOf(pinching, gripping)))
+
+        assertEquals(6, encoded.leftRow.size)
+        assertEquals(6, encoded.rightRow.size)
+        assertEquals(1f, encoded.leftRow[0], 0f)
+        assertEquals(0.83f, encoded.leftRow[1], 0.0001f)
+        assertEquals(0f, encoded.leftRow[2], 0f)
+        assertEquals(1f, encoded.rightRow[0], 0f)
+        assertEquals(0f, encoded.rightRow[1], 0f)
+        assertEquals(1f, encoded.rightRow[2], 0f)
+        assertEquals(0f, encoded.leftRow[3], 0f)
+        assertEquals(0f, encoded.leftRow[4], 0f)
+        assertEquals(0f, encoded.leftRow[5], 0f)
+    }
+
     private fun trackedHand(side: HandSide, centerX: Float): TrackedHand {
         val points = MutableList(21) { HandPoint(centerX, 0.5f, 0f) }
         points[0] = HandPoint(centerX, 0.62f, 0f)
@@ -92,6 +116,26 @@ class EndXrHandInputEncoderTest {
             side = side,
             worldPoints = world
         )
+    }
+
+    private fun curledWorldPoints(curledCount: Int): List<HandPoint> {
+        val wrist = HandPoint(0f, 0f, 0f)
+        val points = MutableList(21) { wrist }
+        val bases = listOf(
+            HandPoint(0.035f, 0.030f, 0f), HandPoint(0f, 0.055f, 0f),
+            HandPoint(-0.025f, 0.045f, 0f), HandPoint(-0.040f, 0.025f, 0f)
+        )
+        val mcps = intArrayOf(5, 9, 13, 17)
+        for (finger in mcps.indices) {
+            val mcp = bases[finger]
+            points[mcps[finger]] = mcp
+            points[mcps[finger] + 1] = HandPoint(mcp.x, mcp.y + 0.018f, 0f)
+            points[mcps[finger] + 2] = if (finger < curledCount) HandPoint(mcp.x + 0.012f, mcp.y + 0.016f, 0f)
+                else HandPoint(mcp.x, mcp.y + 0.036f, 0f)
+            points[mcps[finger] + 3] = if (finger < curledCount) HandPoint(mcp.x + 0.006f, mcp.y + 0.006f, 0f)
+                else HandPoint(mcp.x, mcp.y + 0.060f, 0f)
+        }
+        return points
     }
 
     private fun assertQuaternionNormalized(pose: EndXrHandPoseSample) {

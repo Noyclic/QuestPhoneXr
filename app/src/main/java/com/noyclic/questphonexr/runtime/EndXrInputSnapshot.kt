@@ -256,6 +256,34 @@ internal object EndXrInputSnapshotStore {
         }
     }
 
+    fun publishTrackingFrame(
+        leftRow: FloatArray,
+        rightRow: FloatArray,
+        leftPose: EndXrHandPoseSample,
+        rightPose: EndXrHandPoseSample,
+        leftJoints: EndXrHandJointSample,
+        rightJoints: EndXrHandJointSample,
+        nowElapsedRealtimeNanos: Long = SystemClock.elapsedRealtimeNanos()
+    ) {
+        val timestamp = nowElapsedRealtimeNanos.coerceAtLeast(0L)
+        val left = EndXrControllerSample.fromNativeRow(leftRow)
+        val right = EndXrControllerSample.fromNativeRow(rightRow)
+        update { current ->
+            current.copy(
+                updatedAtElapsedRealtimeNanos = timestamp,
+                left = left,
+                right = right,
+                stale = false,
+                leftHandPose = leftPose,
+                rightHandPose = rightPose,
+                leftHandJoints = if (leftPose.active) leftJoints else EndXrHandJointSample.EMPTY,
+                rightHandJoints = if (rightPose.active) rightJoints else EndXrHandJointSample.EMPTY,
+                handPoseUpdatedAtElapsedRealtimeNanos = timestamp,
+                handPoseStale = false
+            )
+        }
+    }
+
     fun publishHeadOrientation(
         x: Float,
         y: Float,

@@ -448,8 +448,14 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                             if (activeOrPending && generation == cameraGeneration) {
                                 EndXrHandTrackingDiagnostics.onFrame(frame)
                                 val encoded = EndXrHandInputEncoder.encode(frame)
-                                EndXrInputSnapshotStore.publish(encoded.leftRow, encoded.rightRow)
-                                EndXrInputSnapshotStore.publishHandPoses(encoded.leftPose, encoded.rightPose)
+                                EndXrInputSnapshotStore.publishTrackingFrame(
+                                    leftRow = encoded.leftRow,
+                                    rightRow = encoded.rightRow,
+                                    leftPose = encoded.leftPose,
+                                    rightPose = encoded.rightPose,
+                                    leftJoints = encoded.leftJoints,
+                                    rightJoints = encoded.rightJoints
+                                )
                             }
                         },
                         onError = { message ->

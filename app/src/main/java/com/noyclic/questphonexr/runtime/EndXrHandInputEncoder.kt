@@ -2,6 +2,7 @@ package com.noyclic.questphonexr.runtime
 
 import com.noyclic.questphonexr.sandbox.MonocularHandDepthEstimator
 import com.noyclic.questphonexr.tracking.HandPoint
+import com.noyclic.questphonexr.tracking.HandGestureEstimator
 import com.noyclic.questphonexr.tracking.HandSide
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.TrackedHand
@@ -14,6 +15,8 @@ import kotlin.math.sqrt
  * thumb and finger joints retain their MediaPipe positions.
  */
 internal data class EndXrEncodedHandInput(
+    val leftRow: FloatArray,
+    val rightRow: FloatArray,
     val leftPose: EndXrHandPoseSample,
     val rightPose: EndXrHandPoseSample,
     val leftJoints: EndXrHandJointSample,
@@ -59,11 +62,28 @@ internal object EndXrHandInputEncoder {
         if (right == null) rightDepthEstimator.reset()
 
         return EndXrEncodedHandInput(
+            leftRow = encodeControllerRow(left),
+            rightRow = encodeControllerRow(right),
             leftPose = leftEncoded.pose,
             rightPose = rightEncoded.pose,
             leftJoints = leftEncoded.joints,
             rightJoints = rightEncoded.joints
         )
+    }
+
+    /**
+     * Camera hands supply pinch trigger and a digital natural power grip only.
+     * Stick axes and physical face buttons remain neutral, not fabricated.
+     */
+    private fun encodeControllerRow(hand: TrackedHand?): FloatArray {
+        if (hand == null || hand.points.size < LANDMARK_COUNT ||
+            hand.points.any { !it.x.isFinite() || !it.y.isFinite() || !it.z.isFinite() }
+        ) return FloatArray(CONTROLLER_ROW_SIZE)
+
+        val rawTrigger = hand.pinchStrength.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+        val trigger = if (hand.isPinching) maxOf(rawTrigger, PINCH_ACTIVE_FLOOR) else rawTrigger
+        val grip = if (HandGestureEstimator.isPowerGrip(hand)) 1f else 0f
+        return floatArrayOf(1f, trigger, grip, 0f, 0f, 0f)
     }
 
     private fun encodeHand(
@@ -296,6 +316,8 @@ internal object EndXrHandInputEncoder {
 
 
     private const val LANDMARK_COUNT = 21
+    private const val CONTROLLER_ROW_SIZE = 6
+    private const val PINCH_ACTIVE_FLOOR = 0.62f
     private val PALM_INDICES = intArrayOf(5, 9, 13, 17)
     private const val DEFAULT_HAND_DISTANCE_METERS = 2.55f
     private const val HORIZONTAL_FOV_SCALE = 2.4f
