@@ -24,14 +24,15 @@ This document describes the Android camera-to-hand-input path and its current sa
 - Association uses a predicted palm center (wrist plus the four palm MCP landmarks) and MediaPipe handedness confidence.
 - For two detections, both complete track assignments are compared instead of letting an early greedy match consume the wrong track.
 - Each track owns its One Euro filter state and pinch estimator. Reordering MediaPipe's result list therefore does not transfer gesture state between hands.
-- A short dropout can retain identity for up to 350 ms, but no ghost hand is rendered while its detection is absent.
+- A dropout can retain identity for up to 350 ms. The last pose is held for at most 80 ms to cover an isolated missed result, then hidden until the detector reacquires it.
 - Pinch is released after 120 ms without a detection. Motion filters and velocity are reset after a longer gap so a returning hand does not slide from an obsolete pose.
 - Track IDs are diagnostic identity tokens only; they are not hardware IDs or persistent identities across application restarts.
 
 ## Filtering and pinch
 
 - Image landmarks and world landmarks use independent One Euro filters.
-- Low-speed landmark noise is damped; the cutoff rises with movement speed to reduce the "rubber-band" effect during faster movement.
+- Low-speed landmark noise is damped; the cutoff rises with movement speed. Velocity is measured from the previous raw sample, avoiding the extra lag caused by estimating speed from an already filtered pose.
+- Sandbox applies only a light secondary pose stabilizer; camera-space mapping no longer allocates temporary rotation-check lists for every landmark.
 - The filter uses MediaPipe callback timestamps, not an assumed fixed frame rate. Large or invalid timestamp gaps reset filter state.
 - Pinch distance is normalized by palm width so the gesture is less sensitive to how close the hand is to the camera.
 - Pinch uses separate activation and release thresholds (hysteresis) and time-aware smoothing. Missing or invalid key landmarks clear the gesture rather than leaving a stuck pinch.
@@ -48,7 +49,7 @@ The JVM suite covers:
 - adaptive smoothing versus fast motion;
 - MediaPipe result reordering and hand crossing;
 - per-hand pinch-state ownership;
-- short dropouts, long-gap pinch release and filter reset;
+- short dropouts, the 80 ms pose hold, long-gap pinch release and filter reset;
 - stale-track expiration, invalid landmarks and non-monotonic timestamps.
 
 Physical-device checks are still required for latency, occlusion behavior, low-light recovery, sustained temperature and battery draw.
