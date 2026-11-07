@@ -251,7 +251,6 @@ class HandLandmarkerController(
         inFlightSourceWidth.set(imageProxy.width.toLong())
         inFlightSourceHeight.set(imageProxy.height.toLong())
 
-        var mpImage: MPImage? = null
         var requestTicket: InFlightFrameGate.Ticket<MPImage>? = null
         try {
             val source = copyRgbaFrame(imageProxy)
@@ -290,6 +289,7 @@ class HandLandmarkerController(
                     // The callback owns normal completion; this branch owns a synchronous
                     // detectAsync() failure before a callback took responsibility. Do not
                     // close the MPImage wrapper: it borrows the reusable modelBitmap.
+                    resetInFlightState()
                 }
             } else {
                 // Preprocessing failed before this frame acquired a request ticket.
@@ -597,6 +597,7 @@ class HandLandmarkerController(
         if (!taskFailed.compareAndSet(false, true)) return
         // Retire the in-flight ticket without closing its borrowed MPImage wrapper. The
         // backing bitmap is controller-owned and remains reusable until the task is closed.
+        requestGate.cancel()
         synchronized(handTrackManager) { handTrackManager.reset() }
         resetInFlightState()
         publishMetrics(force = true)
