@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, feat/endvr-android-mjpeg-client-ev0]
   pull_request:
-    branches: [main]
+    branches: [main, feat/endvr-android-mjpeg-client-ev0]
   workflow_dispatch:
 
 permissions:
