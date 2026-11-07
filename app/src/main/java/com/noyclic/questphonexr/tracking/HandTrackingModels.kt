@@ -113,13 +113,13 @@ data class TrackedHand(
     val points: List<HandPoint>,
     val pinchStrength: Float = 0f,
     val isPinching: Boolean = false,
-    /** Latest raw thumb/index distance relative to palm width; infinity means unavailable. */
-    val pinchDistanceRatio: Float = Float.POSITIVE_INFINITY,
     val side: HandSide = HandSide.UNKNOWN,
     /** MediaPipe world landmarks are hand-local 3D points measured in meters. */
     val worldPoints: List<HandPoint> = emptyList(),
     /** Stable ID assigned by temporal hand association, zero for externally constructed samples. */
-    val trackingId: Long = 0L
+    val trackingId: Long = 0L,
+    /** Latest raw thumb/index distance relative to palm width; infinity means unavailable. */
+    val pinchDistanceRatio: Float = Float.POSITIVE_INFINITY
 ) {
     val thumbTip: HandPoint? get() = points.getOrNull(4)
     val indexTip: HandPoint? get() = points.getOrNull(8)
