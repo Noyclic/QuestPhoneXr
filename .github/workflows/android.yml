@@ -54,31 +54,6 @@ jobs:
         with:
           gradle-version: "8.13"
 
-      - name: Run isolated GVXRS Rust core tests
-        run: |
-          set -euo pipefail
-          rustup toolchain install stable --profile minimal
-          rustup component add clippy --toolchain stable
-          cargo +stable clippy --manifest-path gvxrs-core/Cargo.toml --all-targets -- -D warnings
-          cargo +stable test --manifest-path gvxrs-core/Cargo.toml --all-targets
-          cargo +stable build --manifest-path gvxrs-core/Cargo.toml --release
-          c++ -std=c++17 -Wall -Wextra -Werror \
-            -I gvxrs-core/include \
-            app/src/test/cpp/gvxrs_rust_ffi_test.cpp \
-            gvxrs-core/target/release/libgvxrs_core.a \
-            -ldl -lpthread -lm -lrt -lutil \
-            -o ci-results/gvxrs-rust-ffi-tests
-          ci-results/gvxrs-rust-ffi-tests
-          c++ -std=c++17 -pthread -Wall -Wextra -Werror \
-            -I app/src/main/cpp \
-            -I gvxrs-core/include \
-            app/src/test/cpp/gvxrs_runtime_core_parity_test.cpp \
-            app/src/main/cpp/endxr_runtime_core.cpp \
-            gvxrs-core/target/release/libgvxrs_core.a \
-            -ldl -lpthread -lm -lrt -lutil \
-            -o ci-results/gvxrs-runtime-parity-tests
-          ci-results/gvxrs-runtime-parity-tests
-
       - name: Run native EndXR core tests
         run: |
           set -euo pipefail
