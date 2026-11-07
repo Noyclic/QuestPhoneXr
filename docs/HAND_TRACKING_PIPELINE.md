@@ -32,7 +32,7 @@ This document describes the Android camera-to-hand-input path and its current sa
 
 - Image landmarks and world landmarks use independent One Euro filters.
 - Low-speed landmark noise is damped; the cutoff rises with movement speed. Velocity is measured from the previous raw sample, avoiding the extra lag caused by estimating speed from an already filtered pose.
-- Sandbox applies only a light secondary pose stabilizer; camera-space mapping no longer allocates temporary rotation-check lists for every landmark.
+- Sandbox uses MediaPipe's adaptive landmark filter as the single camera-pose smoothing stage; it no longer double-smooths hands at render rate. Camera-space mapping validates the rotation matrix once per hand instead of allocating temporary rotation-check lists for every landmark.
 - The filter uses MediaPipe callback timestamps, not an assumed fixed frame rate. Large or invalid timestamp gaps reset filter state.
 - Pinch distance is normalized by palm width so the gesture is less sensitive to how close the hand is to the camera.
 - Pinch uses separate activation and release thresholds (hysteresis) and time-aware smoothing. Missing or invalid key landmarks clear the gesture rather than leaving a stuck pinch.
