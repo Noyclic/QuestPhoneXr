@@ -67,7 +67,8 @@ class EndXrInputAccessManager(context: Context) {
         val retained = mutableListOf<EndXrInputGrantRecord>()
         val active = mutableListOf<EndXrInputClient>()
 
-        readRecords().forEach { record ->
+        val approvedAtStart = readRecords()
+        approvedAtStart.forEach { record ->
             val client = installed[record.packageName]
             if (client == null || !EndXrInputGrantCodec.matches(record, client)) {
                 revokeQuietly(record.packageName)
@@ -88,7 +89,17 @@ class EndXrInputAccessManager(context: Context) {
             }
         }
 
-        writeRecords(retained)
+        // Do not overwrite approvals or revocations made while the PackageManager scan ran.
+        val latestApprovals = readRecords()
+        val reconciled = EndXrInputGrantCodec.mergeAfterReconcile(
+            original = approvedAtStart,
+            retained = retained,
+            latest = latestApprovals
+        )
+        val latestByPackage = latestApprovals.associateBy { it.packageName }
+        retained.filter { latestByPackage[it.packageName] == null }
+            .forEach { revokeQuietly(it.packageName) }
+        writeRecords(reconciled)
         return active
     }
 
@@ -213,6 +224,24 @@ internal object EndXrInputGrantCodec {
     fun matches(record: EndXrInputGrantRecord, client: EndXrInputClient): Boolean =
         record.packageName == client.packageName &&
             record.signingCertificateSha256 == client.signingCertificateSha256
+
+    /**
+     * Merge a completed background reconciliation with the current preferences.
+     * A concurrent new approval or signer replacement wins; a concurrent revoke
+     * stays revoked. This prevents startup restoration from clobbering user action.
+     */
+    fun mergeAfterReconcile(
+        original: Collection<EndXrInputGrantRecord>,
+        retained: Collection<EndXrInputGrantRecord>,
+        latest: Collection<EndXrInputGrantRecord>
+    ): List<EndXrInputGrantRecord> {
+        val originalByPackage = original.associateBy { it.packageName }
+        val retainedSet = retained.toSet()
+        return latest.filter { current ->
+            val previous = originalByPackage[current.packageName]
+            previous == null || previous != current || current in retainedSet
+        }.distinctBy { it.packageName }
+    }
 
     fun encode(records: Collection<EndXrInputGrantRecord>): Set<String> =
         records.asSequence()
