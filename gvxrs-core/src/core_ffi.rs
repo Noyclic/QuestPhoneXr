@@ -152,7 +152,7 @@ fn snapshot_to_abi(snapshot: RuntimeSnapshot) -> GvxrsCoreSnapshot {
 ///
 /// The handle is an opaque integer token and must be released with
 /// gvxrs_runtime_core_destroy.
-#[no_mangle]
+/// SAFETY: symbol export is required by the C ABI; arguments and return values are plain values only.\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]
 pub extern "C" fn gvxrs_runtime_core_create() -> u64 {
     let mut registry = lock_registry();
     let handle = registry.next_handle;
@@ -164,7 +164,7 @@ pub extern "C" fn gvxrs_runtime_core_create() -> u64 {
     handle
 }
 
-#[no_mangle]
+/// SAFETY: symbol export is required by the C ABI; arguments and return values are plain values only.\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]
 pub extern "C" fn gvxrs_runtime_core_destroy(handle: u64) -> GvxrsCoreStatus {
     let mut registry = lock_registry();
     if registry.cores.remove(&handle).is_some() {
@@ -174,7 +174,7 @@ pub extern "C" fn gvxrs_runtime_core_destroy(handle: u64) -> GvxrsCoreStatus {
     }
 }
 
-#[no_mangle]
+/// SAFETY: symbol export is required by the C ABI; arguments and return values are plain values only.\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]
 pub extern "C" fn gvxrs_runtime_core_initialize(
     handle: u64,
     width: u32,
@@ -188,7 +188,7 @@ pub extern "C" fn gvxrs_runtime_core_initialize(
     }
 }
 
-#[no_mangle]
+/// SAFETY: symbol export is required by the C ABI; arguments and return values are plain values only.\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]
 pub extern "C" fn gvxrs_runtime_core_create_session(handle: u64) -> GvxrsCoreStatus {
     let registry = lock_registry();
     match registry.cores.get(&handle) {
@@ -197,7 +197,7 @@ pub extern "C" fn gvxrs_runtime_core_create_session(handle: u64) -> GvxrsCoreSta
     }
 }
 
-#[no_mangle]
+/// SAFETY: symbol export is required by the C ABI; arguments and return values are plain values only.\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]
 pub extern "C" fn gvxrs_runtime_core_begin_session(handle: u64) -> GvxrsCoreStatus {
     let registry = lock_registry();
     match registry.cores.get(&handle) {
@@ -206,7 +206,7 @@ pub extern "C" fn gvxrs_runtime_core_begin_session(handle: u64) -> GvxrsCoreStat
     }
 }
 
-#[no_mangle]
+/// SAFETY: symbol export is required by the C ABI; arguments and return values are plain values only.\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]
 pub extern "C" fn gvxrs_runtime_core_wait_frame(
     handle: u64,
     monotonic_now_ns: i64,
@@ -230,7 +230,7 @@ pub extern "C" fn gvxrs_runtime_core_wait_frame(
     }
 }
 
-#[no_mangle]
+/// SAFETY: symbol export is required by the C ABI; arguments and return values are plain values only.\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]
 pub extern "C" fn gvxrs_runtime_core_end_frame(
     handle: u64,
     timing: GvxrsCoreFrameTiming,
@@ -243,7 +243,7 @@ pub extern "C" fn gvxrs_runtime_core_end_frame(
     }
 }
 
-#[no_mangle]
+/// SAFETY: symbol export is required by the C ABI; arguments and return values are plain values only.\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]
 pub extern "C" fn gvxrs_runtime_core_request_stop(handle: u64) -> GvxrsCoreStatus {
     let registry = lock_registry();
     match registry.cores.get(&handle) {
@@ -252,7 +252,7 @@ pub extern "C" fn gvxrs_runtime_core_request_stop(handle: u64) -> GvxrsCoreStatu
     }
 }
 
-#[no_mangle]
+/// SAFETY: symbol export is required by the C ABI; arguments and return values are plain values only.\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]
 pub extern "C" fn gvxrs_runtime_core_destroy_session(handle: u64) -> GvxrsCoreStatus {
     let registry = lock_registry();
     match registry.cores.get(&handle) {
@@ -261,7 +261,7 @@ pub extern "C" fn gvxrs_runtime_core_destroy_session(handle: u64) -> GvxrsCoreSt
     }
 }
 
-#[no_mangle]
+/// SAFETY: symbol export is required by the C ABI; arguments and return values are plain values only.\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]
 pub extern "C" fn gvxrs_runtime_core_mark_lost(handle: u64) -> GvxrsCoreStatus {
     let registry = lock_registry();
     match registry.cores.get(&handle) {
@@ -270,7 +270,7 @@ pub extern "C" fn gvxrs_runtime_core_mark_lost(handle: u64) -> GvxrsCoreStatus {
     }
 }
 
-#[no_mangle]
+/// SAFETY: symbol export is required by the C ABI; arguments and return values are plain values only.\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]
 pub extern "C" fn gvxrs_runtime_core_shutdown(handle: u64) -> GvxrsCoreStatus {
     let registry = lock_registry();
     match registry.cores.get(&handle) {
@@ -282,7 +282,7 @@ pub extern "C" fn gvxrs_runtime_core_shutdown(handle: u64) -> GvxrsCoreStatus {
     }
 }
 
-#[no_mangle]
+/// SAFETY: symbol export is required by the C ABI; arguments and return values are plain values only.\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]
 pub extern "C" fn gvxrs_runtime_core_snapshot(handle: u64) -> GvxrsCoreSnapshot {
     let registry = lock_registry();
     match registry.cores.get(&handle) {
