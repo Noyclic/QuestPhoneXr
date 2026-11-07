@@ -254,7 +254,7 @@ internal class SandboxBrowserPanelView @JvmOverloads constructor(
         """.trimIndent()
         webView.evaluateJavascript(script) { result ->
             if (result != "true" && key != SandboxVirtualKeyboardView.KEY_ENTER &&
-                !isDestroyed && !isFinishing
+                webView.isAttachedToWindow
             ) {
                 addressField.requestFocus()
                 if (key == SandboxVirtualKeyboardView.KEY_ENTER) {
