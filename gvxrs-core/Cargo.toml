@@ -6,7 +6,7 @@ license = "MIT"
 description = "Platform-independent GVXRS runtime lifecycle and frame-clock core"
 
 [lib]
-crate-type = ["rlib"]
+crate-type = ["rlib", "staticlib"]
 
 [profile.release]
 lto = true
