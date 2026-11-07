@@ -65,6 +65,16 @@ jobs:
             -o ci-results/endxr-runtime-core-tests
           ci-results/endxr-runtime-core-tests
 
+      - name: Run native EndGVR lifecycle tests
+        run: |
+          set -euo pipefail
+          c++ -std=c++17 -Wall -Wextra -Werror \
+            -I app/src/main/cpp/endgvr \
+            app/src/test/cpp/endgvr_vr_mode_coordinator_test.cpp \
+            app/src/main/cpp/endgvr/endgvr_vr_mode_coordinator.cpp \
+            -o ci-results/endgvr-vr-mode-tests
+          ci-results/endgvr-vr-mode-tests
+
       - name: Run native OpenXR bootstrap tests
         run: |
           set -euo pipefail
@@ -84,6 +94,19 @@ jobs:
 
       - name: Build external runtime client probe APK
         run: gradle --no-daemon :runtime-client-probe:assembleDebug
+
+      - name: Test and build EndVR Android client
+        run: |
+          gradle --no-daemon :endvr-client:testDebugUnitTest
+          gradle --no-daemon :endvr-client:assembleDebug
+
+      - name: Validate EndVR client APK
+        run: |
+          set -euo pipefail
+          APK="endvr-client/build/outputs/apk/debug/endvr-client-debug.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | tee ci-results/endvr-client-metadata.txt
+          grep -q "package: name='com.noyclic.endvr.client'" ci-results/endvr-client-metadata.txt
 
       - name: Validate APK package and required payload
         run: |
@@ -159,6 +182,15 @@ jobs:
           name: QuestPhoneXR-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload EndVR Android client APK
+        if: always() && !cancelled() && hashFiles('endvr-client/build/outputs/apk/debug/endvr-client-debug.apk') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: EndVR-Android-Client-APK
+          path: endvr-client/build/outputs/apk/debug/endvr-client-debug.apk
+          if-no-files-found: warn
           retention-days: 14
 
       - name: Upload source archive

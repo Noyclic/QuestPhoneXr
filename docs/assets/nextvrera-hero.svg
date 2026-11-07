@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="460" viewBox="0 0 1200 460" fill="none" role="img" aria-labelledby="title desc">
+<title id="title">NextVRera — GVXRS platform</title><desc id="desc">A premium dark technology illustration presenting NextVRera and the GVXRS virtual reality platform.</desc>
+<defs>
+  <linearGradient id="bg" x1="35" y1="0" x2="1165" y2="460" gradientUnits="userSpaceOnUse"><stop stop-color="#07111F"/><stop offset=".55" stop-color="#101D34"/><stop offset="1" stop-color="#171A37"/></linearGradient>
+  <radialGradient id="glowA" cx="0" cy="0" r="1" gradientTransform="matrix(0 300 -340 0 910 220)" gradientUnits="userSpaceOnUse"><stop stop-color="#4D6DFF" stop-opacity=".34"/><stop offset="1" stop-color="#4D6DFF" stop-opacity="0"/></radialGradient>
+  <radialGradient id="glowB" cx="0" cy="0" r="1" gradientTransform="matrix(0 180 -220 0 760 95)" gradientUnits="userSpaceOnUse"><stop stop-color="#45DCC6" stop-opacity=".22"/><stop offset="1" stop-color="#45DCC6" stop-opacity="0"/></radialGradient>
+  <linearGradient id="mint" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#73F4D8"/><stop offset="1" stop-color="#39BFE4"/></linearGradient>
+  <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#A59AFF"/><stop offset="1" stop-color="#657CFF"/></linearGradient>
+  <linearGradient id="visor" x1="742" y1="127" x2="1030" y2="312" gradientUnits="userSpaceOnUse"><stop stop-color="#233C59"/><stop offset=".5" stop-color="#101F37"/><stop offset="1" stop-color="#29345C"/></linearGradient>
+  <linearGradient id="lens" x1="783" y1="180" x2="990" y2="272" gradientUnits="userSpaceOnUse"><stop stop-color="#6FEAD9" stop-opacity=".33"/><stop offset=".5" stop-color="#667FFF" stop-opacity=".2"/><stop offset="1" stop-color="#9A8CFF" stop-opacity=".38"/></linearGradient>
+  <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse"><path d="M28 0H0V28" stroke="#A8C7F8" stroke-opacity=".08"/></pattern>
+  <filter id="shadow" x="680" y="65" width="440" height="360" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="18"/></filter>
+  <filter id="soft" x="0" y="0" width="1200" height="460" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="1.4"/></filter>
+</defs>
+<rect width="1200" height="460" rx="30" fill="url(#bg)"/><rect width="1200" height="460" rx="30" fill="url(#glowA)"/><rect width="1200" height="460" rx="30" fill="url(#glowB)"/><rect width="1200" height="460" rx="30" fill="url(#grid)"/>
+<path d="M0 365C210 300 385 420 575 355s360-105 625-11" stroke="#6CE8D2" stroke-opacity=".11" stroke-width="1.5"/>
+<path d="M0 398C250 330 407 453 622 390s355-95 578-42" stroke="#8E8AFF" stroke-opacity=".13" stroke-width="1.5"/>
+<g transform="translate(72 62)">
+  <path d="M23 2 47 16v28L23 58 0 44V16L23 2Z" fill="#102A3D" stroke="url(#mint)" stroke-width="2"/>
+  <path d="M9 31c3-8 8-12 14-12s11 4 14 12c-3 8-8 12-14 12S12 39 9 31Z" fill="#0B1728" stroke="#73F4D8" stroke-width="2"/>
+  <path d="M16 31h14" stroke="#73F4D8" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="23" cy="31" r="3.5" fill="#A59AFF"/>
+  <text x="64" y="24" fill="#DDE8FC" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="15" font-weight="700" letter-spacing="3">GVXRS  /  GLOBAL VIRTUAL XR SERIES</text>
+  <text x="64" y="46" fill="#7D91B2" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="11" letter-spacing="2">ONE PLATFORM · MULTIPLE RUNTIME TRACKS</text>
+</g>
+<g font-family="Inter,Segoe UI,Arial,sans-serif">
+  <text x="78" y="216" fill="#F4F8FF" font-size="62" font-weight="750" letter-spacing="-2">NextVRera</text>
+  <rect x="80" y="237" width="73" height="4" rx="2" fill="url(#mint)"/>
+  <text x="80" y="281" fill="#C2D0E8" font-size="21" font-weight="500">The next era of virtual reality.</text>
+  <text x="80" y="320" fill="#8295B4" font-size="15">A unified home for mobile XR, legacy compatibility</text>
+  <text x="80" y="344" fill="#8295B4" font-size="15">and PC-powered virtual reality.</text>
+  <g transform="translate(80 382)">
+    <rect width="130" height="34" rx="17" fill="#133A43" stroke="#3EBDAE" stroke-opacity=".65"/><circle cx="17" cy="17" r="4" fill="#69E9D2"/><text x="31" y="22" font-size="12" fill="#D7FFF5" font-weight="650">MOBILE XR</text>
+    <rect x="142" width="130" height="34" rx="17" fill="#292B4B" stroke="#8880F7" stroke-opacity=".65"/><circle cx="159" cy="17" r="4" fill="#A79AFF"/><text x="173" y="22" font-size="12" fill="#E5E2FF" font-weight="650">LEGACY VR</text>
+    <rect x="284" width="124" height="34" rx="17" fill="#1E3450" stroke="#67B9FF" stroke-opacity=".65"/><circle cx="301" cy="17" r="4" fill="#76C8FF"/><text x="315" y="22" font-size="12" fill="#DDEEFF" font-weight="650">PCVR LINK</text>
+  </g>
+</g>
+<ellipse cx="900" cy="380" rx="210" ry="32" fill="#020711" opacity=".55" filter="url(#shadow)"/>
+<g opacity=".8" stroke-linecap="round">
+  <path d="M730 116C788 51 1002 48 1082 140" stroke="#6DE6D2" stroke-opacity=".42" stroke-width="1.5"/>
+  <path d="M715 300C777 405 1008 414 1101 300" stroke="#8A89FF" stroke-opacity=".45" stroke-width="1.5"/>
+  <circle cx="730" cy="116" r="5" fill="#6DE6D2"/><circle cx="1082" cy="140" r="5" fill="#A69AFF"/><circle cx="1101" cy="300" r="5" fill="#65BFFF"/>
+</g>
+<g transform="rotate(-7 905 225)">
+  <rect x="719" y="105" width="374" height="246" rx="64" fill="#050D19" stroke="#49627F" stroke-width="2"/>
+  <rect x="730" y="116" width="352" height="224" rx="55" fill="url(#visor)" stroke="#7B94B5" stroke-opacity=".55" stroke-width="1.5"/>
+  <path d="M756 220c22-48 69-76 124-76h53c55 0 102 28 124 76l-15 49c-7 23-28 38-52 38H823c-24 0-45-15-52-38l-15-49Z" fill="url(#lens)" stroke="#7BE9DB" stroke-opacity=".75" stroke-width="2"/>
+  <path d="M908 150v144" stroke="#8E9FFF" stroke-opacity=".6" stroke-width="2"/>
+  <path d="M785 218c25-28 55-42 90-42 14 0 24 2 33 6M1028 218c-25-28-55-42-90-42-14 0-24 2-33 6" stroke="#D3FFF7" stroke-opacity=".43" stroke-width="2"/>
+  <path d="M848 309v15m120-15v15" stroke="#4DE1CE" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="908" cy="128" r="3" fill="#73F4D8"/><circle cx="908" cy="128" r="12" stroke="#73F4D8" stroke-opacity=".4"/>
+  <path d="M764 160h38M1023 160h38" stroke="#8A9CBB" stroke-width="2" stroke-linecap="round"/>
+  <path d="M886 340h45" stroke="#8A9CBB" stroke-width="4" stroke-linecap="round"/>
+</g>
+<g>
+  <rect x="704" y="66" width="112" height="48" rx="12" fill="#102A3A" stroke="#4DDCC8" stroke-opacity=".5"/>
+  <circle cx="722" cy="90" r="5" fill="#64E7D0"/><text x="735" y="87" fill="#E5FFF9" font-family="Inter,Arial,sans-serif" font-size="11" font-weight="700">GVXRS</text><text x="735" y="101" fill="#8CA9B8" font-family="Inter,Arial,sans-serif" font-size="9">CORE</text>
+  <rect x="1008" y="354" width="132" height="48" rx="12" fill="#202344" stroke="#9288FF" stroke-opacity=".55"/>
+  <circle cx="1027" cy="378" r="5" fill="#A69AFF"/><text x="1040" y="375" fill="#EFEDFF" font-family="Inter,Arial,sans-serif" font-size="11" font-weight="700">CONNECTED</text><text x="1040" y="389" fill="#A4A1CC" font-family="Inter,Arial,sans-serif" font-size="9">XR ECOSYSTEM</text>
+</g>
+</svg>

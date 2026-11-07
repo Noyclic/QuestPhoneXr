@@ -1,10 +1,14 @@
-# QuestPhoneXR architecture
+# NextVRera architecture
 
 ## Project direction
 
-QuestPhoneXR explores phone-based XR on Android. The phone provides the display, sensors, camera, input and application runtime; a smartphone viewer such as VR Shinecon can be used for stereoscopic viewing.
+NextVRera explores phone-based XR on Android. The phone provides the display, sensors, camera, input and application runtime; a smartphone viewer such as VR Shinecon can be used for stereoscopic viewing.
 
-The Android runtime work is named **EndXR**. PC-to-phone VR streaming is a separate planned direction named **EndVR**. The two projects may share a tracking protocol, but they have different responsibilities and should not be coupled into one runtime.
+The Android OpenXR runtime is branded **GVXRS Mobile**; PC-to-phone streaming is **GVXRS Link**; and Gear VR compatibility research is **GVXRS Legacy**. GVXRS Core groups shared tracking contracts and diagnostics. These are independent runtime tracks inside one product family; their lifecycle boundaries remain separate.
+
+## Naming and compatibility
+
+NextVRera is the user-facing Android application. GVXRS means **Global Virtual XR Series**. The Android package ID, Kotlin package, native library filename and historical EndXR service/source identifiers remain unchanged for now to preserve app identity, permissions, IPC and OpenXR loader integration.
 
 ## Main components
 
@@ -26,15 +30,15 @@ The estimated palm position is camera-relative and uses monocular depth heuristi
 
 The app has a normalized controller/action model for Sandbox and supported integrations.
 
-The EndXR runtime can read a snapshot from the app's exported read-only ContentProvider in a separate Android process. The producer publishes controller values, hand-pose estimates and phone head orientation with freshness limits; stale input is neutralized.
+The GVXRS Mobile runtime can read a snapshot from the app's exported read-only ContentProvider in a separate Android process. The producer publishes controller values, hand-pose estimates and phone head orientation with freshness limits; stale input is neutralized.
 
 This is an early cross-process bridge, not Android-wide input injection. Android does not allow this app to globally capture another foreground application's gamepad events through the ordinary activity input path. Haptic output is not implemented.
 
-The exported provider retains the signature permission `com.noyclic.questphonexr.permission.READ_INPUT_SNAPSHOT` as its default access rule. QuestPhoneXR can explicitly grant read-only access to the exact `controller_state` URI for one selected installed app after user confirmation. The approval is bound to the package's signing-certificate fingerprint and can be revoked; this transport grant does not make a game compatible unless it implements the EndXR input contract. See [IPC security](IPC_SECURITY.md).
+The exported provider retains the signature permission `com.noyclic.questphonexr.permission.READ_INPUT_SNAPSHOT` as its default access rule. NextVRera can explicitly grant read-only access to the exact `controller_state` URI for one selected installed app after user confirmation. The approval is bound to the package's signing-certificate fingerprint and can be revoked; this transport grant does not make a game compatible unless it implements the GVXRS Mobile input contract. See [IPC security](IPC_SECURITY.md).
 
-### EndXR native OpenXR runtime
+### GVXRS Mobile native OpenXR runtime
 
-EndXR is an app-owned native Android OpenXR runtime implementation. The native runtime library is built separately from the app's JNI library and exposes the Android runtime service metadata expected by the Khronos loader.
+GVXRS Mobile is an app-owned native Android OpenXR runtime implementation. The native runtime library is built separately from the app's JNI library and exposes the Android runtime service metadata expected by the Khronos loader.
 
 The current implementation includes:
 
@@ -46,17 +50,17 @@ The current implementation includes:
 - An initial OpenXR Action / Input API surface.
 - Estimated hand-pose input exposed through `POSE_INPUT` and `xrLocateSpace`, without OpenXR `TRACKED` flags.
 
-The Sandbox has exercised its own stereo projection path. That proves the in-process diagnostic path, not that a separate game can render through EndXR.
+The Sandbox has exercised its own stereo projection path. That proves the in-process diagnostic path, not that a separate game can render through GVXRS Mobile.
 
 ### External OpenXR client probe
 
-The `runtime-client-probe` module is a separate Android package. It uses the official Khronos Android OpenXR loader to test the boundary between an external app and EndXR.
+The `runtime-client-probe` module is a separate Android package. It uses the official Khronos Android OpenXR loader to test the boundary between an external app and GVXRS Mobile.
 
 The probe records runtime service discovery, loader initialization, active-runtime availability, instance creation and—if the runtime is selected—HMD system discovery, GLES session creation, swapchain operations and a frame lifecycle.
 
-Android RuntimeBroker selection is a separate step. Seeing the EndXR service does not mean Android has selected it as the active runtime. The emulator currently has no RuntimeBroker provider, so `XR_ERROR_RUNTIME_UNAVAILABLE` can be the expected result there.
+Android RuntimeBroker selection is a separate step. Seeing the GVXRS Mobile service does not mean Android has selected it as the active runtime. The emulator currently has no RuntimeBroker provider, so `XR_ERROR_RUNTIME_UNAVAILABLE` can be the expected result there.
 
-### PC tracking bridge and future EndVR
+### PC tracking bridge and GVXRS Link preview
 
 The experimental PC bridge sends head-orientation and MediaPipe hand telemetry over UDP. The current tracking packet is a latest-state snapshot, not a reliable video transport.
 
@@ -66,29 +70,35 @@ It is not:
 - a calibrated room-space tracking system;
 - proof that the PC can use the phone as a complete VR headset.
 
-EndVR is planned as a separate system with a PC host, Android client, video encoding/decoding, tracking transport and SteamVR integration. Linux is a first-class target; Windows support is also planned. None of those streaming components should be described as complete until implemented and tested. The proposed module boundaries, transport choices and staged implementation criteria are documented in [EndVR streaming design](ENDVR_STREAMING_DESIGN.md).
+GVXRS Link is a separate PC-to-phone system. Its first EV-0 slice has a synthetic MJPEG PC host and a standalone Android client that displays the generated left/right-eye test pattern. It does not yet capture desktop/SteamVR frames, use WebRTC/H.264, send phone tracking back to the PC or provide a usable live SteamVR headset path. The module boundaries and remaining milestones are documented in [GVXRS Link streaming design](ENDVR_STREAMING_DESIGN.md).
 
-### EndGVR — separate legacy Gear VR track
+### GVXRS Legacy — separate legacy Gear VR track
 
-EndGVR is an isolated package inside the Android app for Gear VR evidence,
+GVXRS Legacy is an isolated package inside the Android app for Gear VR evidence,
 legacy dependency reports and future title-specific compatibility work. It
 is not an extension of the modern OpenXR runtime and it must not change
-EndXR's loader, runtime service, IPC permission or Sandbox path.
+GVXRS Mobile's loader, runtime service, IPC permission or Sandbox path.
 
-The initial EndGVR code statically distinguishes explicit Samsung Gear VR
-markers from generic legacy Oculus Mobile SDK evidence. It does not implement
-VrApi, Gear VR Services, a legacy session compositor or APK execution. A
-future native compatibility component should be designed only after a real
-classic APK has been inspected and its required service/API calls are known.
+The APK evidence layer statically distinguishes explicit Samsung Gear VR
+markers from generic legacy Oculus Mobile SDK evidence. The first isolated
+native C++ component is the host-tested EndGVR VrModeCoordinator. It only
+serializes the prerequisites and transitions for entering/leaving a legacy VR
+mode: backend ready, Android activity resumed, valid window surface and an
+explicit start request. It handles pause, surface loss, in-flight transitions
+and fail-closed recovery.
 
-### EndVR — separate PC streaming track
+The coordinator is not linked into the production APK and does not call VrApi,
+EGL, Android or JNI. It is not a Gear VR runtime, API shim, system service or
+compositor. The actual compatibility ABI must be based on a real classic APK
+and its exact native imports. See [the GVXRS Legacy design and current limits](ENDGVR_LEGACY_DESIGN.md).
 
-EndVR is the planned PC streaming system described above. It is not the Gear
-VR compatibility layer.
+### GVXRS Link — separate PC streaming track
+
+GVXRS Link is the separate PC streaming system described above. Its generated-frame phone preview is an early test path, not a finished headset. It is not the Gear VR compatibility layer.
 
 ## Runtime boundaries and compatibility
 
-QuestPhoneXR does not emulate Meta/Oculus services. Quest-only APKs may require vendor APIs, extensions, input paths, graphics features or system services that EndXR does not currently implement.
+NextVRera does not emulate Meta/Oculus services. Quest-only APKs may require vendor APIs, extensions, input paths, graphics features or system services that GVXRS Mobile does not currently implement.
 
 The APK analyzer performs static triage only. It can identify likely engines, XR markers, ABI and declared device requirements, but it cannot determine with certainty whether a game will run.
 
@@ -101,7 +111,7 @@ Each title must be evaluated separately. A successful loader probe or OpenXR ins
 - Use conservative render resolution and frame pacing on weaker phones.
 - Measure sustained performance and thermal behaviour on real hardware.
 - Treat 20–30 FPS as an initial target, not a measured result.
-- For future EndVR work, account for both game rendering and video encoding load on the PC.
+- For future GVXRS Link work, account for both game rendering and video encoding load on the PC.
 
 ## Testing strategy
 
@@ -118,7 +128,7 @@ Use separate checkpoints so a passing test cannot be mistaken for a later stage:
 
 ## Rules for future changes
 
-- Keep EndXR (Android runtime) separate from EndVR (PC streaming).
+- Keep GVXRS Mobile, GVXRS Legacy and GVXRS Link as separate runtime tracks; share only stable, versioned contracts and platform services.
 - Do not reintroduce Monado as a required dependency.
 - Do not call the current implementation a complete or fully conformant general-purpose Quest runtime.
 - Do not label estimated palm poses as tracked 6DoF controllers.

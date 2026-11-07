@@ -2,6 +2,7 @@ package com.noyclic.questphonexr.sandbox
 
 import com.noyclic.questphonexr.input.GamepadButtonCodes
 import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
+import com.noyclic.questphonexr.tracking.HandPoint
 import com.noyclic.questphonexr.tracking.HandSide
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.TrackedHand
@@ -24,6 +25,126 @@ internal fun isSandboxHandFrameStale(
 ): Boolean {
     if (receivedAtUptimeMs <= 0L || timeoutMs < 0L) return true
     return (nowUptimeMs - receivedAtUptimeMs).coerceAtLeast(0L) > timeoutMs
+}
+
+
+/**
+ * Produces a render-time hand pose between MediaPipe observations.
+ *
+ * Gesture state is copied from the newest observation and is never interpolated.
+ * Only landmark positions are interpolated, with a small adaptive presentation delay
+ * and tightly bounded forward prediction to bridge the tail of a camera-sample interval.
+ */
+internal class SandboxHandPoseInterpolator {
+    private data class Sample(val timestampMs: Long, val hand: TrackedHand)
+
+    private var previous: Sample? = null
+    private var current: Sample? = null
+    private var lastFrameTimestampMs = Long.MIN_VALUE
+
+    fun sample(
+        hand: TrackedHand?,
+        frameTimestampMs: Long,
+        receivedAtUptimeMs: Long,
+        renderTimeMs: Long
+    ): TrackedHand? {
+        if (frameTimestampMs != lastFrameTimestampMs) {
+            lastFrameTimestampMs = frameTimestampMs
+            if (hand == null) {
+                previous = null
+                current = null
+                return null
+            }
+
+            val arrivalTime = receivedAtUptimeMs.takeIf { it > 0L } ?: frameTimestampMs
+            val sampleTime = maxOf(arrivalTime, (current?.timestampMs ?: arrivalTime - 1L) + 1L)
+            val oldCurrent = current
+            if (oldCurrent != null &&
+                sampleTime > oldCurrent.timestampMs &&
+                sampleTime - oldCurrent.timestampMs <= MAX_SAMPLE_GAP_MS &&
+                sameTrack(oldCurrent.hand, hand) &&
+                oldCurrent.hand.points.size == hand.points.size
+            ) {
+                previous = oldCurrent
+            } else {
+                previous = null
+            }
+            current = Sample(sampleTime, hand)
+        }
+
+        val newest = current ?: return null
+        val older = previous ?: return newest.hand
+        val sampleDurationMs = (newest.timestampMs - older.timestampMs).coerceAtLeast(1L)
+        val presentationDelayMs = (sampleDurationMs * PRESENTATION_DELAY_RATIO)
+            .toLong()
+            .coerceIn(MIN_PRESENTATION_DELAY_MS, MAX_PRESENTATION_DELAY_MS)
+        val presentationTimeMs = renderTimeMs - presentationDelayMs
+
+        val interpolationAmount = if (presentationTimeMs <= newest.timestampMs) {
+            ((presentationTimeMs - older.timestampMs).toFloat() / sampleDurationMs.toFloat())
+                .coerceIn(0f, 1f)
+        } else {
+            val predictionLimitMs = (sampleDurationMs * MAX_PREDICTION_RATIO)
+                .toLong()
+                .coerceAtMost(MAX_PREDICTION_MS)
+            val predictionMs = (presentationTimeMs - newest.timestampMs)
+                .coerceIn(0L, predictionLimitMs)
+            1f + predictionMs.toFloat() / sampleDurationMs.toFloat()
+        }
+
+        return interpolate(older.hand, newest.hand, interpolationAmount)
+    }
+
+    fun reset() {
+        previous = null
+        current = null
+        lastFrameTimestampMs = Long.MIN_VALUE
+    }
+
+    private fun sameTrack(first: TrackedHand, second: TrackedHand): Boolean =
+        first.side == second.side && first.trackingId == second.trackingId
+
+    private fun interpolate(
+        from: TrackedHand,
+        to: TrackedHand,
+        amount: Float
+    ): TrackedHand {
+        if (amount == 1f) return to
+        val points = interpolatePoints(from.points, to.points, amount)
+        val worldPoints = if (from.worldPoints.size == to.worldPoints.size) {
+            interpolatePoints(from.worldPoints, to.worldPoints, amount)
+        } else {
+            to.worldPoints
+        }
+        // Pinch/grip flags and strength remain authoritative from the newest camera result.
+        return to.copy(points = points, worldPoints = worldPoints)
+    }
+
+    private fun interpolatePoints(
+        from: List<HandPoint>,
+        to: List<HandPoint>,
+        amount: Float
+    ): List<HandPoint> {
+        if (from.size != to.size) return to
+        return List(to.size) { index ->
+            val start = from[index]
+            val end = to[index]
+            HandPoint(
+                x = start.x + (end.x - start.x) * amount,
+                y = start.y + (end.y - start.y) * amount,
+                z = start.z + (end.z - start.z) * amount
+            )
+        }
+    }
+
+    private companion object {
+        const val MAX_SAMPLE_GAP_MS = 220L
+        const val MIN_PRESENTATION_DELAY_MS = 18L
+        const val MAX_PRESENTATION_DELAY_MS = 48L
+        const val MAX_PREDICTION_MS = 26L
+        const val PRESENTATION_DELAY_RATIO = 0.55f
+        const val MAX_PREDICTION_RATIO = 0.35f
+    }
 }
 
 enum class SandboxObjectType { CUBE, BALL, TARGET }
@@ -107,10 +228,10 @@ class SandboxSimulation {
     private val objects = mutableListOf<MutableObject>()
     private val leftCursorSmoother = SandboxCursorSmoother()
     private val rightCursorSmoother = SandboxCursorSmoother()
-    private val leftHandPoseSmoother = SandboxHandPoseSmoother()
-    private val rightHandPoseSmoother = SandboxHandPoseSmoother()
     private val leftDepthEstimator = MonocularHandDepthEstimator()
     private val rightDepthEstimator = MonocularHandDepthEstimator()
+    private val leftPoseInterpolator = SandboxHandPoseInterpolator()
+    private val rightPoseInterpolator = SandboxHandPoseInterpolator()
     private var leftCursor = DEFAULT_LEFT_CURSOR
     private var rightCursor = DEFAULT_RIGHT_CURSOR
     private var leftGrabbing = false
@@ -152,17 +273,17 @@ class SandboxSimulation {
         rightLandmarks = emptyList()
         leftCursorSmoother.reset()
         rightCursorSmoother.reset()
-        leftHandPoseSmoother.reset()
-        rightHandPoseSmoother.reset()
+        leftPoseInterpolator.reset()
+        rightPoseInterpolator.reset()
     }
 
     @Synchronized
     fun setHandCalibration(calibration: SandboxHandCalibration) {
         handCalibration = calibration.normalized()
-        leftHandPoseSmoother.reset()
-        rightHandPoseSmoother.reset()
         leftCursorSmoother.reset()
         rightCursorSmoother.reset()
+        leftPoseInterpolator.reset()
+        rightPoseInterpolator.reset()
         leftLandmarks = emptyList()
         rightLandmarks = emptyList()
     }
@@ -186,48 +307,50 @@ class SandboxSimulation {
         controllers: List<PhysicalControllerSnapshot>,
         handFrame: HandTrackingFrame,
         deltaSeconds: Float,
-        cameraToWorldRotation: FloatArray? = null
+        cameraToWorldRotation: FloatArray? = null,
+        handFrameReceivedAtMs: Long = handFrame.timestampMs,
+        renderTimeMs: Long = handFrameReceivedAtMs
     ) {
         val dt = deltaSeconds.takeIf { it.isFinite() }?.coerceIn(MIN_STEP_SECONDS, MAX_STEP_SECONDS)
             ?: MIN_STEP_SECONDS
         movePlayer(controllers, dt)
-        val handsBySide = handFrame.hands
-            .filter { it.side != HandSide.UNKNOWN }
-            .associateBy { it.side }
+        var leftTrackedHand: TrackedHand? = null
+        var rightTrackedHand: TrackedHand? = null
+        for (trackedHand in handFrame.hands) {
+            when (trackedHand.side) {
+                HandSide.LEFT -> leftTrackedHand = trackedHand
+                HandSide.RIGHT -> rightTrackedHand = trackedHand
+                HandSide.UNKNOWN -> Unit
+            }
+        }
+        val leftDisplayHand = leftPoseInterpolator.sample(
+            leftTrackedHand, handFrame.timestampMs, handFrameReceivedAtMs, renderTimeMs
+        )
+        val rightDisplayHand = rightPoseInterpolator.sample(
+            rightTrackedHand, handFrame.timestampMs, handFrameReceivedAtMs, renderTimeMs
+        )
         val leftRaw = controllerFor(
-            HandSide.LEFT, controllers, handsBySide[HandSide.LEFT], cameraToWorldRotation
+            HandSide.LEFT, controllers, leftTrackedHand, leftDisplayHand, cameraToWorldRotation
         )
         val rightRaw = controllerFor(
-            HandSide.RIGHT, controllers, handsBySide[HandSide.RIGHT], cameraToWorldRotation
+            HandSide.RIGHT, controllers, rightTrackedHand, rightDisplayHand, cameraToWorldRotation
         )
         val leftTrackingLost = leftCameraTracked && !leftRaw.cameraTracked &&
             leftGrabbing && !leftRaw.grabbing
         val rightTrackingLost = rightCameraTracked && !rightRaw.cameraTracked &&
             rightGrabbing && !rightRaw.grabbing
+        // Rendering uses interpolated landmarks, but interaction cursors below are based
+        // on the newest MediaPipe result so pinch/grab movement is not delayed.
         val left = if (leftRaw.cameraTracked) {
-            val smoothedLandmarks = leftHandPoseSmoother.update(leftRaw.landmarks)
-            leftRaw.copy(
-                cursor = interactionCursor(smoothedLandmarks, leftRaw.grabbing)
-                    ?: leftCursorSmoother.update(leftRaw.cursor),
-                landmarks = smoothedLandmarks,
-                trackingLost = false
-            )
+            leftRaw.copy(trackingLost = false)
         } else {
             leftCursorSmoother.reset()
-            leftHandPoseSmoother.reset()
             leftRaw.copy(trackingLost = leftTrackingLost)
         }
         val right = if (rightRaw.cameraTracked) {
-            val smoothedLandmarks = rightHandPoseSmoother.update(rightRaw.landmarks)
-            rightRaw.copy(
-                cursor = interactionCursor(smoothedLandmarks, rightRaw.grabbing)
-                    ?: rightCursorSmoother.update(rightRaw.cursor),
-                landmarks = smoothedLandmarks,
-                trackingLost = false
-            )
+            rightRaw.copy(trackingLost = false)
         } else {
             rightCursorSmoother.reset()
-            rightHandPoseSmoother.reset()
             rightRaw.copy(trackingLost = rightTrackingLost)
         }
 
@@ -295,10 +418,13 @@ class SandboxSimulation {
         )
     }
 
-    private fun ControllerState.withWorldOffset(offset: SandboxVector3) = copy(
-        cursor = cursor + offset,
-        landmarks = landmarks.map { it + offset }
-    )
+    private fun ControllerState.withWorldOffset(offset: SandboxVector3): ControllerState {
+        if (offset.x == 0f && offset.y == 0f && offset.z == 0f) return this
+        return copy(
+            cursor = cursor + offset,
+            landmarks = landmarks.map { it + offset }
+        )
+    }
 
     private fun createObject(type: SandboxObjectType, position: SandboxVector3) =
         MutableObject(nextObjectId++, type, position)
@@ -307,12 +433,13 @@ class SandboxSimulation {
         hand: HandSide,
         controllers: List<PhysicalControllerSnapshot>,
         trackedHand: TrackedHand?,
+        displayHand: TrackedHand?,
         cameraToWorldRotation: FloatArray?
     ): ControllerState {
         val physical = controllers.firstOrNull { it.hand == hand }
         val depthEstimator = if (hand == HandSide.LEFT) leftDepthEstimator else rightDepthEstimator
+        val estimatedDistance = trackedHand?.let { depthEstimator.update(it.points) }
         val cameraLandmarks = trackedHand?.let { tracked ->
-            val estimatedDistance = depthEstimator.update(tracked.points)
             SandboxHandPoseMapper.map(
                 points = tracked.points,
                 calibration = handCalibration,
@@ -320,6 +447,19 @@ class SandboxSimulation {
                 worldPoints = tracked.worldPoints,
                 cameraToWorldRotation = cameraToWorldRotation
             )
+        }.orEmpty()
+        val displayLandmarks = displayHand?.let { display ->
+            if (display === trackedHand) {
+                cameraLandmarks
+            } else {
+                SandboxHandPoseMapper.map(
+                    points = display.points,
+                    calibration = handCalibration,
+                    estimatedDistanceMeters = estimatedDistance,
+                    worldPoints = display.worldPoints,
+                    cameraToWorldRotation = cameraToWorldRotation
+                )
+            }
         }.orEmpty()
         if (trackedHand == null) depthEstimator.reset()
         val cameraCursor = interactionCursor(cameraLandmarks, trackedHand?.isPinching == true)
@@ -339,7 +479,7 @@ class SandboxSimulation {
         val cursor = cameraCursor ?: gamepadCursor ?: fallbackCursor
         // Locomotion must never translate a camera-tracked hand. The gamepad cursor
         // remains available only as a fallback when MediaPipe is not tracking this hand.
-        val renderedLandmarks = cameraLandmarks
+        val renderedLandmarks = displayLandmarks
         val digitalGrab = physical?.pressedKeyCodes?.any {
             it == GamepadButtonCodes.BUTTON_L1 ||
                 it == GamepadButtonCodes.BUTTON_R1 ||

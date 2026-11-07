@@ -1,7 +1,7 @@
-# EndVR SteamVR Driver — EV-1 prototype
+# GVXRS Link SteamVR Driver — EV-1 prototype
 
 This is the first native OpenVR driver slice. It registers a virtual HMD named
-**EndVR Phone HMD (prototype)** and publishes a stationary, valid pose so that
+**GVXRS Link Phone HMD (prototype)** and publishes a stationary, valid pose so that
 SteamVR can enumerate the device.
 
 ## Important limitations
@@ -11,8 +11,8 @@ SteamVR can enumerate the device.
 - The display reports a provisional 1920x1080 stereo target with identity
   distortion. Real per-eye optics, lens calibration and phone panel geometry
   are not configured.
-- No video frames are transported to the phone. The EV-0 MJPEG preview remains
-  a separate smoke test.
+- The separate GVXRS Link Android Client can display the PC host's generated MJPEG
+  test pattern, but this driver does not send SteamVR eye frames to that client.
 - Do not install this beside another active HMD and expect it to become the
   primary headset. SteamVR may choose another device.
 

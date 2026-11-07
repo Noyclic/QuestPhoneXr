@@ -22,7 +22,10 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import com.noyclic.questphonexr.MainActivity
+import com.noyclic.questphonexr.R
 import com.noyclic.questphonexr.vr.PhoneVrPreviewActivity
+import com.noyclic.questphonexr.ui.applyNextVreraStyle
+import com.noyclic.questphonexr.ui.nextVreraToneFor
 import com.noyclic.questphonexr.sandbox.SandboxActivity
 import com.noyclic.questphonexr.diagnostics.CrashReportStore
 import com.noyclic.questphonexr.diagnostics.CrashReportFormatter
@@ -382,7 +385,7 @@ class GameLibraryActivity : ComponentActivity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(18), dp(18), dp(12))
-            setBackgroundColor(Color.rgb(14, 17, 23))
+            setBackgroundResource(R.drawable.bg_nextvrera_atmosphere)
         }
 
         root.addView(button("← Выбор режима").apply {
@@ -393,7 +396,7 @@ class GameLibraryActivity : ComponentActivity() {
         ).apply { bottomMargin = dp(6) })
 
         root.addView(text(
-            "QuestPhoneXR  /  БИБЛИОТЕКА",
+            "NextVRera  /  БИБЛИОТЕКА",
             12f,
             0xFF9CA9BC.toInt(),
             Typeface.BOLD
@@ -942,8 +945,7 @@ class GameLibraryActivity : ComponentActivity() {
     private fun button(label: String): Button = Button(this).apply {
         text = label
         isAllCaps = false
-        setTextColor(Color.WHITE)
-        background = rounded(0xFF303B4B.toInt(), dp(9).toFloat())
+        applyNextVreraStyle(nextVreraToneFor(label))
     }
 
     private fun text(

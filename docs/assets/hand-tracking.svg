@@ -1,4 +1,44 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="420" viewBox="0 0 960 420" fill="none">
-<defs><linearGradient id="b" x2="1" y2="1"><stop stop-color="#102C37"/><stop offset="1" stop-color="#1D4C56"/></linearGradient></defs><rect width="960" height="420" rx="24" fill="url(#b)"/><text x="52" y="62" fill="#8EDDD2" font-family="Arial,sans-serif" font-size="16" letter-spacing="3">CAMERA • MEDIAPIPE</text><text x="52" y="105" fill="#F4FFFD" font-family="Arial,sans-serif" font-size="34" font-weight="700">Hand tracking</text><text x="52" y="137" fill="#B8DAD8" font-family="Arial,sans-serif" font-size="17">Landmarks provide hand-pose estimates from the phone camera</text>
-<rect x="570" y="58" width="330" height="300" rx="18" fill="#0B2029" stroke="#4D8F91" stroke-width="2"/><path d="M600 90h270v235H600z" stroke="#2F6971" stroke-dasharray="6 8"/><g stroke="#64E0C9" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M720 302 700 245 682 190 671 143 668 104M700 245 655 208 624 172 606 139M700 245 690 183 686 128 687 91M700 245 720 185 733 137 738 105M700 245 752 204 777 169 790 141"/><path d="M720 302 765 286 805 264"/></g><g fill="#D7FFF6" stroke="#36B99F" stroke-width="3"><circle cx="720" cy="302" r="8"/><circle cx="700" cy="245" r="8"/><circle cx="682" cy="190" r="8"/><circle cx="671" cy="143" r="8"/><circle cx="668" cy="104" r="8"/><circle cx="655" cy="208" r="8"/><circle cx="624" cy="172" r="8"/><circle cx="606" cy="139" r="8"/><circle cx="690" cy="183" r="8"/><circle cx="686" cy="128" r="8"/><circle cx="687" cy="91" r="8"/><circle cx="720" cy="185" r="8"/><circle cx="733" cy="137" r="8"/><circle cx="738" cy="105" r="8"/><circle cx="752" cy="204" r="8"/><circle cx="777" cy="169" r="8"/><circle cx="790" cy="141" r="8"/></g>
-<g fill="#183D48" stroke="#62C9B8" stroke-width="2"><rect x="52" y="210" width="390" height="86" rx="14"/><circle cx="88" cy="253" r="15" fill="#63D8C2"/><path d="M82 253h12m-6-6v12" stroke="#12333A" stroke-width="3"/><text x="119" y="246" fill="#F0FFFC" font-family="Arial,sans-serif" font-size="18" font-weight="700">21 hand landmarks</text><text x="119" y="272" fill="#B5DAD5" font-family="Arial,sans-serif" font-size="14">Illustrative tracking overlay</text></g><text x="52" y="350" fill="#91BDBA" font-family="Arial,sans-serif" font-size="13">Concept artwork — tracking quality and latency require device testing.</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="460" viewBox="0 0 1000 460" fill="none" role="img" aria-labelledby="title desc">
+<title id="title">GVXRS optional hand tracking</title><desc id="desc">A smartphone camera observes a hand while an illustrative landmark skeleton is shown with a privacy-first tracking status panel.</desc>
+<defs>
+ <linearGradient id="bg" x1="0" y1="0" x2="1000" y2="460" gradientUnits="userSpaceOnUse"><stop stop-color="#071923"/><stop offset=".54" stop-color="#0D2A37"/><stop offset="1" stop-color="#172A42"/></linearGradient>
+ <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="matrix(0 230 -260 0 706 220)" gradientUnits="userSpaceOnUse"><stop stop-color="#32BFAF" stop-opacity=".22"/><stop offset="1" stop-color="#32BFAF" stop-opacity="0"/></radialGradient>
+ <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#152E3C"/><stop offset="1" stop-color="#0A1728"/></linearGradient>
+ <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M30 0H0V30" stroke="#8BDACF" stroke-opacity=".07"/></pattern>
+</defs>
+<rect width="1000" height="460" rx="26" fill="url(#bg)"/><rect width="1000" height="460" rx="26" fill="url(#glow)"/><rect width="1000" height="460" rx="26" fill="url(#grid)"/>
+<text x="54" y="56" fill="#67E5D0" font-family="Inter,Arial,sans-serif" font-size="12" font-weight="700" letter-spacing="3">GVXRS CORE  /  OPTIONAL CAMERA INPUT</text>
+<text x="54" y="101" fill="#F2FFFC" font-family="Inter,Arial,sans-serif" font-size="34" font-weight="750">Hand tracking</text>
+<text x="54" y="130" fill="#9BC6C5" font-family="Inter,Arial,sans-serif" font-size="14">Camera frames become hand landmarks and approximate gesture input.</text>
+<g>
+ <rect x="58" y="174" width="330" height="218" rx="22" fill="#07131F" stroke="#477F83" stroke-width="1.5"/>
+ <rect x="72" y="188" width="302" height="190" rx="15" fill="url(#screen)" stroke="#2F5B69"/>
+ <path d="M90 209h40M90 209v24M356 209h-40M356 209v24M90 356h40M90 356v-24M356 356h-40M356 356v-24" stroke="#4FD8C5" stroke-width="2" stroke-linecap="round"/>
+ <rect x="193" y="196" width="60" height="8" rx="4" fill="#1E3B4C"/>
+ <circle cx="233" cy="200" r="2" fill="#79EBDD"/>
+ <g opacity=".6" stroke="#4E9D9C" stroke-dasharray="4 7"><path d="M100 275h260M230 215v145"/></g>
+ <path d="M231 335c-16-14-29-32-39-48-8-15-11-32-7-45 4-12 14-17 22-12 6 3 8 12 10 23l4 16-1-70c0-11 6-17 14-16 8 1 12 8 12 18l-1 61 9-76c1-10 8-15 15-12 7 2 9 9 8 18l-9 74 17-47c4-9 12-12 18-8 6 4 7 11 3 20l-24 58c-10 23-22 41-42 57l-9 7Z" fill="#65E3D0" fill-opacity=".1" stroke="#69E7D5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+ <g fill="#E1FFF8" stroke="#2FBBAA" stroke-width="2"><circle cx="231" cy="335" r="5"/><circle cx="212" cy="269" r="5"/><circle cx="205" cy="230" r="5"/><circle cx="234" cy="215" r="5"/><circle cx="244" cy="286" r="5"/><circle cx="249" cy="225" r="5"/><circle cx="266" cy="210" r="5"/><circle cx="259" cy="285" r="5"/><circle cx="282" cy="238" r="5"/><circle cx="299" cy="222" r="5"/><circle cx="271" cy="301" r="5"/><circle cx="300" cy="274" r="5"/></g>
+ <text x="88" y="362" fill="#7BBDB9" font-family="Inter,Arial,sans-serif" font-size="10" letter-spacing="1.4">CAMERA PREVIEW  /  USER ENABLED</text>
+</g>
+<g stroke="#55DDCA" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+ <path d="M696 365 676 295 657 230 650 173 650 124M676 295 624 252 592 211 574 176M676 295 676 217 680 153 687 105M676 295 724 218 750 157 759 116M676 295 766 252 811 206 834 169"/>
+ <path d="M696 365 755 362 811 344"/>
+</g>
+<g fill="#D9FFF8" stroke="#3CBBA9" stroke-width="2.5">
+ <circle cx="696" cy="365" r="7"/><circle cx="676" cy="295" r="7"/><circle cx="657" cy="230" r="7"/><circle cx="650" cy="173" r="7"/><circle cx="650" cy="124" r="7"/>
+ <circle cx="624" cy="252" r="7"/><circle cx="592" cy="211" r="7"/><circle cx="574" cy="176" r="7"/>
+ <circle cx="676" cy="217" r="7"/><circle cx="680" cy="153" r="7"/><circle cx="687" cy="105" r="7"/>
+ <circle cx="724" cy="218" r="7"/><circle cx="750" cy="157" r="7"/><circle cx="759" cy="116" r="7"/>
+ <circle cx="766" cy="252" r="7"/><circle cx="811" cy="206" r="7"/><circle cx="834" cy="169" r="7"/>
+ <circle cx="755" cy="362" r="6"/><circle cx="811" cy="344" r="6"/>
+</g>
+<g fill="#69E7D4" opacity=".15"><circle cx="696" cy="365" r="20"/><circle cx="650" cy="124" r="17"/><circle cx="834" cy="169" r="17"/></g>
+<g font-family="Inter,Arial,sans-serif">
+ <rect x="566" y="74" width="356" height="50" rx="13" fill="#102F38" stroke="#3E9F98" stroke-opacity=".65"/>
+ <circle cx="587" cy="99" r="5" fill="#69E7D4"/><text x="603" y="96" fill="#E7FFFA" font-size="13" font-weight="700">21 LANDMARKS PER HAND</text><text x="603" y="111" fill="#81B9B5" font-size="10">Illustrative landmark overlay</text>
+ <rect x="566" y="392" width="356" height="37" rx="12" fill="#102B38" stroke="#3D7E86"/>
+ <text x="584" y="415" fill="#B7D9D8" font-size="11">Front camera stays off until the user enables it.</text>
+</g>
+<text x="54" y="429" fill="#648E93" font-family="Inter,Arial,sans-serif" font-size="10">Pose output is approximate camera-relative input, not calibrated room-scale 6DoF tracking.</text>
+</svg>
