@@ -183,7 +183,7 @@ class SandboxSimulationTest {
         val expectedX = (0.8f - 0.5f) * 2.55f * 2.4f
         val handSnapshot = simulation.snapshot().rightHand
         assertEquals(expectedX, handSnapshot.cursor.x, 0.002f)
-        assertTrue(handSnapshot.landmarks[8].x > 0.6f * 2.55f * 2.4f)
+        assertTrue(handSnapshot.landmarks[8].x > (0.6f - 0.5f) * 2.55f * 2.4f)
         assertTrue(handSnapshot.landmarks[8].x < expectedX)
     }
 
