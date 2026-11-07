@@ -19,17 +19,28 @@ jobs:
   rust-core:
     name: Rust core and native ABI verification
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install stable Rust, Clippy and formatter
+      - name: Install stable Rust and Clippy
         run: |
           set -euo pipefail
           rustup toolchain install stable --profile minimal
           rustup component add clippy --toolchain stable
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android NDK for the shadow cross-build
+        run: sdkmanager "ndk;27.2.12479018"
+
+      - name: Add Android ARM64 Rust target
+        run: rustup target add aarch64-linux-android --toolchain stable
 
       - name: Run Rust Clippy
         run: cargo +stable clippy --manifest-path gvxrs-core/Cargo.toml --all-targets -- -D warnings
@@ -39,6 +50,28 @@ jobs:
 
       - name: Build host static library
         run: cargo +stable build --manifest-path gvxrs-core/Cargo.toml --release
+
+      - name: Build Android arm64-v8a shadow static library
+        run: |
+          set -euo pipefail
+          NDK="$ANDROID_HOME/ndk/27.2.12479018"
+          TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          LINKER="$TOOLCHAIN/aarch64-linux-android29-clang"
+          ARCHIVE="gvxrs-core/target/aarch64-linux-android/release/libgvxrs_core.a"
+
+          test -x "$LINKER"
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$LINKER" >> "$GITHUB_ENV"
+          cargo +stable build --manifest-path gvxrs-core/Cargo.toml --target aarch64-linux-android --release
+
+          test -s "$ARCHIVE"
+          mkdir -p ci-results
+          "$TOOLCHAIN/llvm-readelf" --file-header "$ARCHIVE" > ci-results/gvxrs-android-arm64-elf-headers.txt
+          grep -q "Machine: AArch64" ci-results/gvxrs-android-arm64-elf-headers.txt
+
+          "$TOOLCHAIN/llvm-nm" -g --defined-only "$ARCHIVE" > ci-results/gvxrs-android-arm64-symbols.txt
+          grep -Eq "[[:space:]]gvxrs_runtime_core_create$" ci-results/gvxrs-android-arm64-symbols.txt
+          grep -Eq "[[:space:]]gvxrs_sanitize_controller_input$" ci-results/gvxrs-android-arm64-symbols.txt
+          echo "Android arm64-v8a Rust archive compiled; expected C ABI symbols are present." | tee ci-results/gvxrs-android-arm64-validation.txt
 
       - name: Test Rust tracking C ABI from C++
         run: |
@@ -65,11 +98,13 @@ jobs:
             -o ci-results/gvxrs-runtime-parity-tests
           ci-results/gvxrs-runtime-parity-tests
 
-      - name: Upload Rust validation binaries
+      - name: Upload Rust validation binaries and ARM64 archive
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: GVXRS-Rust-Core-Validation
-          path: ci-results/**
+          path: |
+            ci-results/**
+            gvxrs-core/target/aarch64-linux-android/release/libgvxrs_core.a
           if-no-files-found: warn
           retention-days: 14
