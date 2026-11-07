@@ -232,9 +232,40 @@ class HandTrackManagerTest {
         assertEquals(first.trackingId, oneFrameGap.trackingId)
         assertEquals(first.points, oneFrameGap.points)
 
-        assertTrue(manager.update(emptyList(), 1_090L).isEmpty())
-        val recovered = manager.update(listOf(observation(HandSide.LEFT, 0.42f)), 1_100L).single()
+        assertTrue(manager.update(emptyList(), 1_160L).isEmpty())
+        val recovered = manager.update(listOf(observation(HandSide.LEFT, 0.42f)), 1_170L).single()
         assertEquals(first.trackingId, recovered.trackingId)
+    }
+
+    @Test
+    fun oneMissedResultAt100msInferenceCadenceKeepsHandVisibleAndReacquirable() {
+        val manager = HandTrackManager()
+        manager.update(listOf(observation(HandSide.LEFT, 0.4f)), 1_000L)
+        val latest = manager.update(
+            listOf(observation(HandSide.LEFT, 0.5f)),
+            1_100L
+        ).single()
+
+        val missedResult = manager.update(emptyList(), 1_200L).single()
+
+        assertEquals(latest.trackingId, missedResult.trackingId)
+        assertTrue(
+            "one missed 10 Hz inference result should not hide the hand",
+            missedResult.points[9].x > latest.points[9].x
+        )
+        assertTrue(
+            "predicted displacement must remain bounded",
+            missedResult.points[9].x - latest.points[9].x <= 0.08f
+        )
+        assertTrue("a second consecutive missed result should end the short hold",
+            manager.update(emptyList(), 1_250L).isEmpty())
+
+        val reacquired = manager.update(
+            listOf(observation(HandSide.LEFT, 0.53f)),
+            1_260L
+        ).single()
+        assertEquals("the short dropout should preserve the hand identity",
+            latest.trackingId, reacquired.trackingId)
     }
 
     @Test

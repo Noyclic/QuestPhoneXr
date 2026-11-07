@@ -450,8 +450,10 @@ internal class HandTrackManager(
         const val MAX_TRACKS = 2
         const val DEFAULT_RETENTION_MS = 350L
         const val DEFAULT_PINCH_RELEASE_DELAY_MS = 120L
-        const val MAX_OUTPUT_HOLD_MS = 80L
-        const val MAX_OCCLUSION_PREDICTION_MS = 50L
+        // The persistent EndXR service may run inference at 10 Hz (100 ms intervals).
+        // Keep a missed result visible long enough for the next inference to reacquire it.
+        const val MAX_OUTPUT_HOLD_MS = 140L
+        const val MAX_OCCLUSION_PREDICTION_MS = 100L
         const val MAX_OCCLUSION_SHIFT = 0.08f
         const val MIN_ASSOCIATION_PALM_WIDTH = 0.015f
         const val PALM_SCALE_COST_WEIGHT = 0.12f
