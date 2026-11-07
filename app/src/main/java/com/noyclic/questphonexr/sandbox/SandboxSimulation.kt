@@ -455,11 +455,11 @@ class SandboxSimulation {
         rightTouchPoint = rightWorld.contactLandmarks.getOrNull(INDEX_TIP_LANDMARK)
 
         updateGrab(
-            HandSide.LEFT, left.grabbing, left.graspCursor ?: leftWorld.cursor, dt, left.trackingLost,
+            HandSide.LEFT, left.grabbing, leftWorld.graspCursor ?: leftWorld.cursor, dt, left.trackingLost,
             if (left.naturalGripping || left.pinching) PRECISION_GRAB_DISTANCE else MAX_GRAB_DISTANCE
         )
         updateGrab(
-            HandSide.RIGHT, right.grabbing, right.graspCursor ?: rightWorld.cursor, dt, right.trackingLost,
+            HandSide.RIGHT, right.grabbing, rightWorld.graspCursor ?: rightWorld.cursor, dt, right.trackingLost,
             if (right.naturalGripping || right.pinching) PRECISION_GRAB_DISTANCE else MAX_GRAB_DISTANCE
         )
         if (!browserInteractionMode) {
@@ -530,7 +530,8 @@ class SandboxSimulation {
         return copy(
             cursor = cursor + offset,
             landmarks = landmarks.map { it + offset },
-            contactLandmarks = contactLandmarks.map { it + offset }
+            contactLandmarks = contactLandmarks.map { it + offset },
+            graspCursor = graspCursor?.plus(offset)
         )
     }
 
