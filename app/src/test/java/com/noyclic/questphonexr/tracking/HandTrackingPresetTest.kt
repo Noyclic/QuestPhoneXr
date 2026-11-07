@@ -1,6 +1,7 @@
 package com.noyclic.questphonexr.tracking
 
 import com.noyclic.questphonexr.performance.DevicePerformanceTier
+import com.google.mediapipe.tasks.core.Delegate
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -50,6 +51,16 @@ class HandTrackingPresetTest {
             HandTrackingPreset.recommend(DevicePerformanceTier.BALANCED))
         assertEquals(HandTrackingPreset.RESPONSIVE,
             HandTrackingPreset.recommend(DevicePerformanceTier.CAPABLE))
+    }
+
+    @Test
+    fun delegatePreferenceSupportsGpuFallbackAndCpuOnlyModes() {
+        assertEquals(Delegate.GPU, HandTrackingDelegatePreference.GPU_PREFERRED.delegate)
+        assertEquals(Delegate.CPU, HandTrackingDelegatePreference.CPU_ONLY.delegate)
+        assertEquals(
+            HandTrackingDelegatePreference.GPU_PREFERRED,
+            HandTrackingDelegatePreference.fromStoredName("UNKNOWN")
+        )
     }
 
     @Test
