@@ -86,15 +86,14 @@ void testInstanceApiVersionCompatibility() {
     PFN_xrVoidFunction raw = resolve(request.getInstanceProcAddr, XR_NULL_HANDLE,
                                      "xrCreateInstance");
     auto create = reinterpret_cast<PFN_xrCreateInstance>(raw);
-    raw = resolve(request.getInstanceProcAddr, XR_NULL_HANDLE, "xrDestroyInstance");
-    auto destroy = reinterpret_cast<PFN_xrDestroyInstance>(raw);
-
     XrInstanceCreateInfo info{};
     info.type = XR_TYPE_INSTANCE_CREATE_INFO;
     info.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 65);
     XrInstance instance = XR_NULL_HANDLE;
     expect(create(&info, &instance) == XR_SUCCESS && instance != XR_NULL_HANDLE,
            "accept a patch-level revision within the supported OpenXR 1.0 API line");
+    raw = resolve(request.getInstanceProcAddr, instance, "xrDestroyInstance");
+    auto destroy = reinterpret_cast<PFN_xrDestroyInstance>(raw);
     expect(destroy(instance) == XR_SUCCESS,
            "destroy instance created with a compatible OpenXR 1.0 patch version");
 
