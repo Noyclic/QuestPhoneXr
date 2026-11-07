@@ -173,6 +173,10 @@ internal class HandTrackManager(
     }
 
     private val tracks = ArrayList<Track>(maxHands)
+    // Scratch storage is owned by this single-result manager and never escapes update().
+    private val validObservations = ArrayList<HandObservation>(maxHands)
+    private val assignedObservations = BooleanArray(MAX_TRACKS)
+    private val assignedTrackIds = LongArray(MAX_TRACKS)
     private var nextTrackId = 1L
     private var lastFrameTimestampMs: Long? = null
 
@@ -200,14 +204,14 @@ internal class HandTrackManager(
             }
         }
 
-        val validObservations = ArrayList<HandObservation>(maxHands)
+        validObservations.clear()
         for (observation in observations) {
             if (validObservations.size >= maxHands) break
             if (isUsable(observation)) validObservations.add(observation)
         }
 
-        val assignedObservations = BooleanArray(maxHands)
-        val assignedTrackIds = LongArray(maxHands)
+        assignedObservations.fill(false)
+        assignedTrackIds.fill(0L)
         var assignedTrackCount = 0
 
         // Select the best complete two-hand assignment when both hands are visible.
@@ -312,6 +316,9 @@ internal class HandTrackManager(
     fun reset() {
         for (track in tracks) track.reset()
         tracks.clear()
+        validObservations.clear()
+        assignedObservations.fill(false)
+        assignedTrackIds.fill(0L)
         lastFrameTimestampMs = null
     }
 
@@ -345,6 +352,7 @@ internal class HandTrackManager(
     private companion object {
         val PALM_CENTER_INDICES = intArrayOf(0, 5, 9, 13, 17)
         const val LANDMARK_COUNT = 21
+        const val MAX_TRACKS = 2
         const val DEFAULT_RETENTION_MS = 350L
         const val DEFAULT_PINCH_RELEASE_DELAY_MS = 120L
         const val MAX_OUTPUT_HOLD_MS = 80L
