@@ -28,9 +28,9 @@ class MainActivity : Activity() {
     private lateinit var overlay: LinearLayout
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val frameLock = Any()
-    private var latestFrame: PendingFrame? = null
-    private var frameDeliveryPosted = false
+    private val frameMailbox = LatestFrameMailbox<PendingFrame> { frame ->
+        if (!frame.bitmap.isRecycled) frame.bitmap.recycle()
+    }
     private var streamClient: MjpegStreamClient? = null
     private var fpsWindowStartMs = 0L
     private var framesInWindow = 0
@@ -49,7 +49,10 @@ class MainActivity : Activity() {
         root = FrameLayout(this).apply { setBackgroundColor(0xFF080B10.toInt()) }
         preview = StereoPreviewView(this).apply {
             visibility = View.GONE
-            setOnClickListener { this@MainActivity.overlay.visibility = if (this@MainActivity.overlay.visibility == View.VISIBLE) View.GONE else View.VISIBLE }
+            setOnClickListener {
+                this@MainActivity.overlay.visibility =
+                    if (this@MainActivity.overlay.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            }
         }
         root.addView(preview, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -145,11 +148,12 @@ class MainActivity : Activity() {
             statusLabel.text = "Use an HTTP URL on your trusted local network."
             return
         }
+
         stopStreaming(showPanel = false)
+        val session = frameMailbox.beginSession()
         connectionPanel.visibility = View.GONE
         preview.visibility = View.VISIBLE
         overlay.visibility = View.VISIBLE
-        preview.clearFrame()
         statusLabel.text = "Connecting to " + parsed.host + "…"
         fpsWindowStartMs = 0L
         framesInWindow = 0
@@ -158,64 +162,49 @@ class MainActivity : Activity() {
         streamClient = MjpegStreamClient(parsed, object : MjpegStreamClient.Listener {
             override fun onState(message: String) {
                 runOnUiThread {
-                    if (streamClient != null) statusLabel.text = message
+                    if (frameMailbox.isCurrent(session) && streamClient != null) {
+                        statusLabel.text = message
+                    }
                 }
             }
 
             override fun onFrame(bitmap: Bitmap, decodeMs: Double) {
-                synchronized(frameLock) {
-                    latestFrame = PendingFrame(bitmap, decodeMs)
-                    if (!frameDeliveryPosted) {
-                        frameDeliveryPosted = true
-                        mainHandler.post { deliverLatestFrame() }
-                    }
+                if (frameMailbox.publish(session, PendingFrame(bitmap, decodeMs))) {
+                    mainHandler.post { deliverLatestFrame(session) }
                 }
             }
         }).also { it.start() }
     }
 
-    private fun deliverLatestFrame() {
-        val pending = synchronized(frameLock) {
-            val value = latestFrame
-            latestFrame = null
-            frameDeliveryPosted = false
-            value
+    private fun deliverLatestFrame(session: Long) {
+        val pending = frameMailbox.take(session) ?: return
+        if (!frameMailbox.isCurrent(session) || streamClient == null) {
+            if (!pending.bitmap.isRecycled) pending.bitmap.recycle()
+            return
         }
-        if (pending != null && streamClient != null) {
-            preview.setFrame(pending.bitmap)
-            lastDecodeMs = pending.decodeMs
-            framesInWindow += 1
-            val now = SystemClock.elapsedRealtime()
-            if (fpsWindowStartMs == 0L) fpsWindowStartMs = now
-            val elapsed = now - fpsWindowStartMs
-            if (elapsed >= 1000L) {
-                val fps = framesInWindow * 1000.0 / elapsed.toDouble()
-                statusLabel.text = String.format(
-                    Locale.US, "GVXRS Link test  •  %.1f displayed FPS  •  decode %.1f ms",
-                    fps, lastDecodeMs
-                )
-                framesInWindow = 0
-                fpsWindowStartMs = now
-            }
+
+        preview.setFrame(pending.bitmap)
+        lastDecodeMs = pending.decodeMs
+        framesInWindow += 1
+        val now = SystemClock.elapsedRealtime()
+        if (fpsWindowStartMs == 0L) fpsWindowStartMs = now
+        val elapsed = now - fpsWindowStartMs
+        if (elapsed >= 1000L) {
+            val fps = framesInWindow * 1000.0 / elapsed.toDouble()
+            statusLabel.text = String.format(
+                Locale.US, "GVXRS Link test  •  %.1f displayed FPS  •  decode %.1f ms",
+                fps, lastDecodeMs
+            )
+            framesInWindow = 0
+            fpsWindowStartMs = now
         }
-        var scheduleAgain = false
-        synchronized(frameLock) {
-            if (latestFrame != null && !frameDeliveryPosted) {
-                frameDeliveryPosted = true
-                scheduleAgain = true
-            }
-        }
-        if (scheduleAgain) mainHandler.post { deliverLatestFrame() }
     }
 
     private fun stopStreaming(showPanel: Boolean) {
         val oldClient = streamClient
         streamClient = null
+        frameMailbox.endSession()
         oldClient?.stop()
-        synchronized(frameLock) {
-            latestFrame = null
-            frameDeliveryPosted = false
-        }
         preview.clearFrame()
         preview.visibility = if (showPanel) View.GONE else preview.visibility
         overlay.visibility = View.GONE
