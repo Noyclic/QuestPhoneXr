@@ -1,6 +1,8 @@
 package com.noyclic.questphonexr.runtime
 
 import com.noyclic.questphonexr.tracking.HandTrackingMetricsSnapshot
+import com.noyclic.questphonexr.tracking.NaturalGestureResult
+import com.noyclic.questphonexr.tracking.NaturalHandGesture
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -59,6 +61,27 @@ class EndXrHandTrackingDiagnosticsTest {
         assertTrue(report.contains("service_recovery_limit=3"))
         assertTrue(report.contains("service_last_recovery_reason=No MediaPipe result"))
         assertTrue(report.contains("service_last_recovery_at_ms=1234"))
+    }
+
+    @Test
+    fun naturalGestureRecognitionIsVisibleInDiagnosticsWithoutChangingControllerAbi() {
+        EndXrHandTrackingDiagnostics.begin(640, 480, maxHands = 2, inferenceIntervalMs = 100L)
+        EndXrHandTrackingDiagnostics.updateNaturalGestures(
+            left = NaturalGestureResult(
+                gesture = NaturalHandGesture.VICTORY,
+                confidence = 0.91f,
+                usedWorldLandmarks = true,
+                timestampMs = 123L
+            ),
+            right = NaturalGestureResult.EMPTY
+        )
+
+        val report = EndXrHandTrackingDiagnostics.report()
+
+        assertTrue(report.contains("service_left_natural_gesture=VICTORY"))
+        assertTrue(report.contains("service_left_natural_gesture_confidence=0.91"))
+        assertTrue(report.contains("service_left_natural_gesture_source=world"))
+        assertTrue(report.contains("service_right_natural_gesture=NONE"))
     }
 
     @Test
