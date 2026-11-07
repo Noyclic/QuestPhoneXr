@@ -40,7 +40,7 @@ The lifecycle module covers:
 - frame deadline and late-frame accounting;
 - stop, loss, recovery and shutdown behavior.
 
-This is a shadow implementation. Neither module is linked into the Android app yet, and neither replaces the C++ implementation. Host-side C++ tests exercise the ABI, while CI also cross-compiles a separate Android `arm64-v8a` static archive and checks its ELF architecture and exported C ABI symbols. This cross-build is a compile/packaging-preparation check only; it does not link the archive into an APK or call it from JNI.
+This is a shadow implementation. Neither module is linked into the Android app yet, and neither replaces the C++ implementation. Host-side C++ tests exercise the ABI, while CI also cross-compiles a separate Android `arm64-v8a` static archive and links it into a test-only shared library with the Android NDK C++ linker. The link smoke target checks C ABI struct layout and exported symbols under `--no-undefined`. It is not linked into an APK or called from JNI.
 
 ## Stage 2 — differential verification and Android cross-build
 
@@ -50,11 +50,12 @@ This is a shadow implementation. Neither module is linked into the Android app y
 - Test tracking sanitization through the same C ABI intended for future native integration.
 - Build the dependency-free crate for `aarch64-linux-android` using Android NDK 27.2.12479018 and API level 29, matching the app's current minimum SDK.
 - Inspect the resulting archive for AArch64 ELF objects and required exported C ABI symbols.
+- Link the archive into a CI-only Android ARM64 shared library using the NDK C++ linker and `--no-undefined`; check C ABI struct sizes/offsets and the exported smoke-test entry point.
 - Add deterministic parity vectors that feed identical inputs into both implementations and compare state, errors, timing and counters.
 - Exercise invalid transitions, timestamp overflow, frame token mismatch, loss/recovery and repeated start/stop cycles.
 - Keep C++ as the production path until parity is demonstrated.
 
-The Android cross-build does not yet prove final NDK linking, APK packaging, JNI invocation, or physical-device behavior.
+The cross-build and test-only shared-library link prove Android ARM64 compilation, static linking and the tested C ABI layouts. They do not prove APK packaging, Java/Kotlin JNI invocation, execution on the phone, or physical-device behavior.
 
 ## Stage 3 — opt-in JNI adapter
 
@@ -91,10 +92,10 @@ Every migration step is isolated in its own commit. If a Rust build, test, JNI c
 | --- | --- | --- |
 | `src/lib.rs` | App-side lifecycle/frame-clock helper from `endxr_runtime_core.cpp` | Not linked into Android |
 | `src/tracking.rs` | Controller axis clamping; hand-pose validation/quaternion normalization; head quaternion normalization | Not linked into Android |
-| `src/core_ffi.rs` | Integer-handle C ABI for lifecycle operations | Host parity tests and Android ARM64 archive symbol check only |
+| `src/core_ffi.rs` | Integer-handle C ABI for lifecycle operations | Host parity tests and Android ARM64 test-only shared-library link smoke |
 | `include/gvxrs_core.h` | C declarations and fixed-width POD structs | Not included by production CMake |
 
-The CI host builds the Rust static library, calls its C ABI from C++, and runs a differential harness against the original C++ lifecycle helper. A separate C++ test covers the tracking sanitizer ABI. CI now also cross-compiles an Android arm64-v8a archive and inspects its ELF objects and exported symbols. These checks do not yet perform final Android NDK linking, call the private input setters inside the OpenXR shared library, package Rust into the APK, invoke the Rust path through JNI, or prove faster execution.
+The CI host builds the Rust static library, calls its C ABI from C++, and runs a differential harness against the original C++ lifecycle helper. A separate C++ test covers the tracking sanitizer ABI. CI now also cross-compiles an Android arm64-v8a archive, inspects its ELF objects and exported symbols, and links it into a separate test-only shared library with the NDK C++ linker and `--no-undefined`. These checks do not call the private input setters inside the OpenXR shared library, package Rust into the app APK, invoke the Rust path through JNI, run the smoke function on a device, or prove faster execution.
 
 ## Explicit non-migration
 
