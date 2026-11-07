@@ -74,7 +74,7 @@ The service prefers the MediaPipe GPU delegate by default and falls back to CPU 
 
 The RGBA conversion path copies tightly packed rows directly into the reusable source bitmap. Devices that return padded rows continue to use the safe row-by-row repack path.
 
-The controller publication path scans the maximum two hand sides directly and computes grip from the four required fingertip landmarks without temporary per-frame filter/map/list collections. The EndXR pose encoder similarly computes palm centers with bounded indexed loops. This reduces allocation churn while preserving the existing left/right selection and invalid-landmark behavior.
+The controller publication path scans the maximum two hand sides directly and computes grip from the four required fingertip landmarks without temporary per-frame filter/map/list collections. The EndXR pose encoder similarly computes palm centers with bounded indexed loops. This reduces allocation churn while preserving the existing left/right selection and invalid-landmark behavior. The hand-association manager also reuses its internal observation and assignment scratch buffers; published frame lists remain independent so consumers cannot observe coordinates being overwritten by a later camera result.
 
 The persistent service accepts live inference-interval updates without restarting CameraX or recreating the model. The Sandbox adaptive governor can therefore adjust the running service while it is visible.
 
