@@ -132,6 +132,8 @@ internal class HandTrackManager(
         private fun resetMotionAndGesture() {
             velocityX = 0f
             velocityY = 0f
+            imageFilter.reset()
+            worldFilter.reset()
             pinchEstimator.reset()
         }
 
