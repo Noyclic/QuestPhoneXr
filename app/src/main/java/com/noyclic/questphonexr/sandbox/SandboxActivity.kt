@@ -187,9 +187,16 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             )
             if (updatedAdaptiveState != adaptivePerformanceState) {
                 adaptivePerformanceState = updatedAdaptiveState
-                handTracker?.updateMinimumInferenceIntervalMs(
-                    updatedAdaptiveState.minimumInferenceIntervalMs
-                )
+                if (serviceActive) {
+                    EndXrHandTrackingService.updateInferenceInterval(
+                        this@SandboxActivity,
+                        updatedAdaptiveState.minimumInferenceIntervalMs
+                    )
+                } else {
+                    handTracker?.updateMinimumInferenceIntervalMs(
+                        updatedAdaptiveState.minimumInferenceIntervalMs
+                    )
+                }
                 updateStatus()
             }
 
