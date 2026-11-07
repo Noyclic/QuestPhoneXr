@@ -15,7 +15,7 @@ The Android OpenXR runtime is branded **GVXRS Mobile**. **GVXRS Link** is the PC
 ## GVXRS runtime family
 
 - **GVXRS Mobile** — Android OpenXR runtime.
-- **GVXRS Legacy** — Gear VR compatibility research; not yet a working legacy runtime.
+- **GVXRS Legacy** — Gear VR compatibility research; the isolated C++ lifecycle core is host-tested, but no VrApi shim or compositor exists yet.
 - **GVXRS Link** — PC-to-phone VR streaming and host integration.
 - **GVXRS Core** — shared tracking contracts, diagnostics and common platform services.
 
@@ -49,7 +49,7 @@ The repository contains several working foundations:
 | Runtime selection through Android RuntimeBroker | Not yet verified on the target phone |
 | Third-party Quest game compatibility | Not yet demonstrated |
 
-See [the GVXRS Mobile runtime status](docs/ENDXR_RUNTIME.md) for the detailed implementation notes and limitations.
+See [the GVXRS Mobile runtime status](docs/ENDXR_RUNTIME.md) for the detailed implementation notes and limitations.\n\nSee [the GVXRS Legacy design](docs/ENDGVR_LEGACY_DESIGN.md) for the current C++ foundation and Gear VR compatibility limits.
 
 ## Visual overview
 
@@ -147,7 +147,7 @@ To download a build, open [GitHub Actions](https://github.com/Noyclic/QuestPhone
 - [GVXRS Mobile cross-process input IPC security](docs/IPC_SECURITY.md)
 - [Device compatibility diagnostics](docs/DEVICE_COMPATIBILITY.md)
 - [GVXRS Link Android client setup](endvr-client/README.md)
-- [GVXRS Link streaming design and milestones](docs/ENDVR_STREAMING_DESIGN.md)
+- [GVXRS Link streaming design and milestones](docs/ENDVR_STREAMING_DESIGN.md)\n- [GVXRS Legacy Gear VR design and milestones](docs/ENDGVR_LEGACY_DESIGN.md)
 
 ## Licensing
 
