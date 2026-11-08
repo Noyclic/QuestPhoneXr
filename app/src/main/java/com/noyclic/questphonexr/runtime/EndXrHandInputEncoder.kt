@@ -4,6 +4,7 @@ import com.noyclic.questphonexr.sandbox.MonocularHandDepthEstimator
 import com.noyclic.questphonexr.tracking.HandPoint
 import com.noyclic.questphonexr.tracking.HandGestureEstimator
 import com.noyclic.questphonexr.tracking.HandKinematicReconstructor
+import com.noyclic.questphonexr.tracking.AdaptiveHandOrientationFilter
 import com.noyclic.questphonexr.tracking.HandSide
 import com.noyclic.questphonexr.tracking.NaturalGestureClassifier
 import com.noyclic.questphonexr.tracking.NaturalGestureResult
@@ -50,6 +51,8 @@ internal object EndXrHandInputEncoder {
     private val rightDepthEstimator = MonocularHandDepthEstimator()
     private val leftSkeletonReconstructor = HandKinematicReconstructor()
     private val rightSkeletonReconstructor = HandKinematicReconstructor()
+    private val leftOrientationFilter = AdaptiveHandOrientationFilter()
+    private val rightOrientationFilter = AdaptiveHandOrientationFilter()
     private val leftGestureClassifier = NaturalGestureClassifier()
     private val rightGestureClassifier = NaturalGestureClassifier()
 
@@ -65,17 +68,23 @@ internal object EndXrHandInputEncoder {
             }
         }
 
-        val leftEncoded = encodeHand(left, leftDepthEstimator, leftSkeletonReconstructor, frame.timestampMs)
-        val rightEncoded = encodeHand(right, rightDepthEstimator, rightSkeletonReconstructor, frame.timestampMs)
+        val leftEncoded = encodeHand(
+            left, leftDepthEstimator, leftSkeletonReconstructor, leftOrientationFilter, frame.timestampMs
+        )
+        val rightEncoded = encodeHand(
+            right, rightDepthEstimator, rightSkeletonReconstructor, rightOrientationFilter, frame.timestampMs
+        )
         val leftGesture = leftGestureClassifier.update(left, frame.timestampMs)
         val rightGesture = rightGestureClassifier.update(right, frame.timestampMs)
         if (left == null) {
             leftDepthEstimator.reset()
             leftSkeletonReconstructor.reset()
+            leftOrientationFilter.reset()
         }
         if (right == null) {
             rightDepthEstimator.reset()
             rightSkeletonReconstructor.reset()
+            rightOrientationFilter.reset()
         }
 
         return EndXrEncodedHandInput(
@@ -109,6 +118,7 @@ internal object EndXrHandInputEncoder {
         hand: TrackedHand?,
         depthEstimator: MonocularHandDepthEstimator,
         skeletonReconstructor: HandKinematicReconstructor,
+        orientationFilter: AdaptiveHandOrientationFilter,
         timestampMs: Long
     ): EncodedHand {
         if (hand == null || hand.rawPoints.size < LANDMARK_COUNT ||
@@ -117,6 +127,7 @@ internal object EndXrHandInputEncoder {
             hand.rawWorldPoints.take(LANDMARK_COUNT).any { !it.x.isFinite() || !it.y.isFinite() || !it.z.isFinite() }
         ) {
             skeletonReconstructor.reset()
+            orientationFilter.reset()
             depthEstimator.reset()
             return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
         }
@@ -138,8 +149,16 @@ internal object EndXrHandInputEncoder {
         val z = (-distance + worldCenter.z.coerceIn(-MAX_LOCAL_DEPTH_METERS, MAX_LOCAL_DEPTH_METERS) *
             LOCAL_DEPTH_SCALE).coerceIn(-MAX_HAND_DISTANCE_METERS, -0.25f)
 
-        val orientation = palmOrientation(hand.rawWorldPoints)
-            ?: return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
+        val sampleTimestampMs = hand.rawTimestampMs.takeIf { it >= 0L } ?: timestampMs
+        val measuredOrientation = palmOrientation(hand.rawWorldPoints) ?: run {
+            orientationFilter.reset()
+            return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
+        }
+        val orientation = orientationFilter.update(
+            measuredOrientation,
+            trackingId = hand.trackingId,
+            timestampMs = sampleTimestampMs
+        ) ?: return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
         val pose = EndXrHandPoseSample.fromCameraPose(
             x = x, y = y, z = z,
             qx = orientation[0], qy = orientation[1],
@@ -150,7 +169,7 @@ internal object EndXrHandInputEncoder {
         val reconstructedJoints = skeletonReconstructor.reconstruct(
             hand.rawWorldPoints,
             hand.trackingId,
-            hand.rawTimestampMs.takeIf { it >= 0L } ?: timestampMs
+            sampleTimestampMs
         ) ?: return EncodedHand(pose, EndXrHandJointSample.EMPTY)
         val joints = encodeJoints(reconstructedJoints, pose)
         return EncodedHand(pose, joints)
