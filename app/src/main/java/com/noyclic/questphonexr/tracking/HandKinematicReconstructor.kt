@@ -1,5 +1,6 @@
 package com.noyclic.questphonexr.tracking
 
+import kotlin.math.exp
 import kotlin.math.sqrt
 
 /**
@@ -85,7 +86,16 @@ internal class HandKinematicReconstructor {
         // monocular world landmarks can make a finger bone appear to stretch for one
         // frame; keeping a slowly learned segment-length reference stabilizes the
         // OpenXR skeleton without changing the raw landmarks used by gestures.
-        val stabilized = constrainFingerBoneLengths(filtered, resetReference = mustReset)
+        val filterDeltaSeconds = if (mustReset) {
+            DEFAULT_FILTER_STEP_SECONDS
+        } else {
+            (elapsed / 1_000f).coerceIn(MIN_FILTER_STEP_SECONDS, MAX_FILTER_STEP_SECONDS)
+        }
+        val stabilized = constrainFingerBoneLengths(
+            filtered,
+            resetReference = mustReset,
+            deltaSeconds = filterDeltaSeconds
+        )
 
         previousRaw = raw
         previousFiltered = stabilized
@@ -104,7 +114,8 @@ internal class HandKinematicReconstructor {
      */
     private fun constrainFingerBoneLengths(
         points: List<HandPoint>,
-        resetReference: Boolean
+        resetReference: Boolean,
+        deltaSeconds: Float
     ): List<HandPoint> {
         if (resetReference) boneLengthReferences.fill(Float.NaN)
         if (points.size != JOINT_COUNT) {
@@ -133,7 +144,12 @@ internal class HandKinematicReconstructor {
 
             val ratio = measuredLength / referenceLength
             if (ratio in MIN_REFERENCE_ADAPTATION_RATIO..MAX_REFERENCE_ADAPTATION_RATIO) {
-                referenceLength += (measuredLength - referenceLength) * REFERENCE_ADAPTATION_ALPHA
+                // Use elapsed time, not frames, so adaptation remains consistent
+                // when the phone changes its camera/inference rate under load.
+                val adaptationAlpha = (
+                    1f - exp(-deltaSeconds / REFERENCE_ADAPTATION_SECONDS)
+                ).coerceIn(0f, MAX_REFERENCE_ADAPTATION_ALPHA)
+                referenceLength += (measuredLength - referenceLength) * adaptationAlpha
                 boneLengthReferences[segmentIndex] = referenceLength
             }
 
@@ -183,7 +199,8 @@ internal class HandKinematicReconstructor {
         const val MIN_BONE_LENGTH_METERS = 0.001f
         const val MIN_REFERENCE_ADAPTATION_RATIO = 0.75f
         const val MAX_REFERENCE_ADAPTATION_RATIO = 1.25f
-        const val REFERENCE_ADAPTATION_ALPHA = 0.01f
+        const val REFERENCE_ADAPTATION_SECONDS = 4.0f
+        const val MAX_REFERENCE_ADAPTATION_ALPHA = 0.05f
         const val MIN_BONE_LENGTH_RATIO = 0.82f
         const val MAX_BONE_LENGTH_RATIO = 1.18f
         const val BONE_CORRECTION_WEIGHT = 0.35f
@@ -195,5 +212,8 @@ internal class HandKinematicReconstructor {
         const val FAST_MOTION_SCALE = 1.4f
         const val MAX_ALPHA = 0.94f
         const val MAX_FILTER_GAP_MS = 220L
+        const val MIN_FILTER_STEP_SECONDS = 1f / 240f
+        const val MAX_FILTER_STEP_SECONDS = 0.1f
+        const val DEFAULT_FILTER_STEP_SECONDS = 1f / 60f
     }
 }
