@@ -5,6 +5,7 @@ import com.noyclic.questphonexr.tracking.HandPoint
 import com.noyclic.questphonexr.tracking.HandGestureEstimator
 import com.noyclic.questphonexr.tracking.HandKinematicReconstructor
 import com.noyclic.questphonexr.tracking.AdaptiveHandOrientationFilter
+import com.noyclic.questphonexr.tracking.AdaptiveHandRootPositionFilter
 import com.noyclic.questphonexr.tracking.HandSide
 import com.noyclic.questphonexr.tracking.NaturalGestureClassifier
 import com.noyclic.questphonexr.tracking.NaturalGestureResult
@@ -53,6 +54,8 @@ internal object EndXrHandInputEncoder {
     private val rightSkeletonReconstructor = HandKinematicReconstructor()
     private val leftOrientationFilter = AdaptiveHandOrientationFilter()
     private val rightOrientationFilter = AdaptiveHandOrientationFilter()
+    private val leftRootPositionFilter = AdaptiveHandRootPositionFilter()
+    private val rightRootPositionFilter = AdaptiveHandRootPositionFilter()
     private val leftGestureClassifier = NaturalGestureClassifier()
     private val rightGestureClassifier = NaturalGestureClassifier()
 
@@ -69,10 +72,12 @@ internal object EndXrHandInputEncoder {
         }
 
         val leftEncoded = encodeHand(
-            left, leftDepthEstimator, leftSkeletonReconstructor, leftOrientationFilter, frame.timestampMs
+            left, leftDepthEstimator, leftSkeletonReconstructor, leftOrientationFilter,
+            leftRootPositionFilter, frame.timestampMs
         )
         val rightEncoded = encodeHand(
-            right, rightDepthEstimator, rightSkeletonReconstructor, rightOrientationFilter, frame.timestampMs
+            right, rightDepthEstimator, rightSkeletonReconstructor, rightOrientationFilter,
+            rightRootPositionFilter, frame.timestampMs
         )
         val leftGesture = leftGestureClassifier.update(left, frame.timestampMs)
         val rightGesture = rightGestureClassifier.update(right, frame.timestampMs)
@@ -80,11 +85,13 @@ internal object EndXrHandInputEncoder {
             leftDepthEstimator.reset()
             leftSkeletonReconstructor.reset()
             leftOrientationFilter.reset()
+            leftRootPositionFilter.reset()
         }
         if (right == null) {
             rightDepthEstimator.reset()
             rightSkeletonReconstructor.reset()
             rightOrientationFilter.reset()
+            rightRootPositionFilter.reset()
         }
 
         return EndXrEncodedHandInput(
@@ -119,6 +126,7 @@ internal object EndXrHandInputEncoder {
         depthEstimator: MonocularHandDepthEstimator,
         skeletonReconstructor: HandKinematicReconstructor,
         orientationFilter: AdaptiveHandOrientationFilter,
+        rootPositionFilter: AdaptiveHandRootPositionFilter,
         timestampMs: Long
     ): EncodedHand {
         if (hand == null || hand.rawPoints.size < LANDMARK_COUNT ||
@@ -128,6 +136,7 @@ internal object EndXrHandInputEncoder {
         ) {
             skeletonReconstructor.reset()
             orientationFilter.reset()
+            rootPositionFilter.reset()
             depthEstimator.reset()
             return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
         }
@@ -135,21 +144,29 @@ internal object EndXrHandInputEncoder {
         // EndXR uses the newest observation here. The reconstructor owns the
         // adaptive joint filter; feeding it One-Euro-filtered render points would
         // stack two temporal filters and add avoidable input lag.
-        val imageCenter = average(hand.rawPoints, PALM_INDICES)
-            ?: return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
-        val worldCenter = average(hand.rawWorldPoints, PALM_INDICES)
-            ?: return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
+        val sampleTimestampMs = hand.rawTimestampMs.takeIf { it >= 0L } ?: timestampMs
+        val imageCenter = average(hand.rawPoints, PALM_INDICES) ?: run {
+            rootPositionFilter.reset()
+            return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
+        }
+        val worldCenter = average(hand.rawWorldPoints, PALM_INDICES) ?: run {
+            rootPositionFilter.reset()
+            return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
+        }
+        // Depth is already smoothed by MonocularHandDepthEstimator. Filter the
+        // camera-plane palm center separately, preserving fast deliberate moves.
+        val stableImageCenter = rootPositionFilter.update(
+            imageCenter.x, imageCenter.y, hand.trackingId, sampleTimestampMs
+        ) ?: return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
         val distance = depthEstimator.update(hand.rawPoints)?.takeIf { it.isFinite() }
             ?: DEFAULT_HAND_DISTANCE_METERS
 
-        val x = ((imageCenter.x - 0.5f) * distance * HORIZONTAL_FOV_SCALE)
+        val x = ((stableImageCenter.x - 0.5f) * distance * HORIZONTAL_FOV_SCALE)
             .coerceIn(-MAX_HAND_X_METERS, MAX_HAND_X_METERS)
-        val y = ((0.5f - imageCenter.y) * distance * VERTICAL_FOV_SCALE)
+        val y = ((0.5f - stableImageCenter.y) * distance * VERTICAL_FOV_SCALE)
             .coerceIn(-MAX_HAND_Y_METERS, MAX_HAND_Y_METERS)
         val z = (-distance + worldCenter.z.coerceIn(-MAX_LOCAL_DEPTH_METERS, MAX_LOCAL_DEPTH_METERS) *
             LOCAL_DEPTH_SCALE).coerceIn(-MAX_HAND_DISTANCE_METERS, -0.25f)
-
-        val sampleTimestampMs = hand.rawTimestampMs.takeIf { it >= 0L } ?: timestampMs
         val measuredOrientation = palmOrientation(hand.rawWorldPoints) ?: run {
             orientationFilter.reset()
             return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
