@@ -46,7 +46,41 @@ internal object EndXrHandInputEncoder {
     private data class EncodedHand(
         val pose: EndXrHandPoseSample,
         val joints: EndXrHandJointSample
-    )
+    ) {
+        companion object {
+            val EMPTY = EncodedHand(
+                EndXrHandPoseSample.EMPTY,
+                EndXrHandJointSample.EMPTY
+            )
+        }
+    }
+
+    private class EncodedHandSampleCache {
+        private var trackingId = NO_TRACKING_ID
+        private var sampleTimestampMs = Long.MIN_VALUE
+        private var encoded = EncodedHand.EMPTY
+
+        fun matches(nextTrackingId: Long, nextTimestampMs: Long): Boolean =
+            trackingId == nextTrackingId && sampleTimestampMs == nextTimestampMs
+
+        fun value(): EncodedHand = encoded
+
+        fun store(nextTrackingId: Long, nextTimestampMs: Long, value: EncodedHand) {
+            trackingId = nextTrackingId
+            sampleTimestampMs = nextTimestampMs
+            encoded = value
+        }
+
+        fun reset() {
+            trackingId = NO_TRACKING_ID
+            sampleTimestampMs = Long.MIN_VALUE
+            encoded = EncodedHand.EMPTY
+        }
+
+        private companion object {
+            const val NO_TRACKING_ID = Long.MIN_VALUE
+        }
+    }
 
     private val leftDepthEstimator = MonocularHandDepthEstimator()
     private val rightDepthEstimator = MonocularHandDepthEstimator()
@@ -56,6 +90,8 @@ internal object EndXrHandInputEncoder {
     private val rightOrientationFilter = AdaptiveHandOrientationFilter()
     private val leftRootPositionFilter = AdaptiveHandRootPositionFilter()
     private val rightRootPositionFilter = AdaptiveHandRootPositionFilter()
+    private val leftSampleCache = EncodedHandSampleCache()
+    private val rightSampleCache = EncodedHandSampleCache()
     private val leftGestureClassifier = NaturalGestureClassifier()
     private val rightGestureClassifier = NaturalGestureClassifier()
 
@@ -73,11 +109,11 @@ internal object EndXrHandInputEncoder {
 
         val leftEncoded = encodeHand(
             left, leftDepthEstimator, leftSkeletonReconstructor, leftOrientationFilter,
-            leftRootPositionFilter, frame.timestampMs
+            leftRootPositionFilter, leftSampleCache, frame.timestampMs
         )
         val rightEncoded = encodeHand(
             right, rightDepthEstimator, rightSkeletonReconstructor, rightOrientationFilter,
-            rightRootPositionFilter, frame.timestampMs
+            rightRootPositionFilter, rightSampleCache, frame.timestampMs
         )
         val leftGesture = leftGestureClassifier.update(left, frame.timestampMs)
         val rightGesture = rightGestureClassifier.update(right, frame.timestampMs)
@@ -86,12 +122,14 @@ internal object EndXrHandInputEncoder {
             leftSkeletonReconstructor.reset()
             leftOrientationFilter.reset()
             leftRootPositionFilter.reset()
+            leftSampleCache.reset()
         }
         if (right == null) {
             rightDepthEstimator.reset()
             rightSkeletonReconstructor.reset()
             rightOrientationFilter.reset()
             rightRootPositionFilter.reset()
+            rightSampleCache.reset()
         }
 
         return EndXrEncodedHandInput(
@@ -123,6 +161,46 @@ internal object EndXrHandInputEncoder {
 
     private fun encodeHand(
         hand: TrackedHand?,
+        depthEstimator: MonocularHandDepthEstimator,
+        skeletonReconstructor: HandKinematicReconstructor,
+        orientationFilter: AdaptiveHandOrientationFilter,
+        rootPositionFilter: AdaptiveHandRootPositionFilter,
+        sampleCache: EncodedHandSampleCache,
+        timestampMs: Long
+    ): EncodedHand {
+        if (hand == null) {
+            sampleCache.reset()
+            return EncodedHand.EMPTY
+        }
+
+        val sampleTimestampMs = hand.rawTimestampMs.takeIf { it >= 0L } ?: timestampMs
+        if (sampleCache.matches(hand.trackingId, sampleTimestampMs)) {
+            val sampleAgeMs = timestampMs - sampleTimestampMs
+            if (sampleAgeMs in 0L..MAX_CACHED_SAMPLE_AGE_MS) {
+                // A temporary detector miss can expose the last raw sample again.
+                // Reuse its encoded pose/joints instead of feeding the same timestamp
+                // into temporal filters, which would otherwise reset their history.
+                return sampleCache.value()
+            }
+
+            sampleCache.reset()
+            skeletonReconstructor.reset()
+            orientationFilter.reset()
+            rootPositionFilter.reset()
+            depthEstimator.reset()
+            return EncodedHand.EMPTY
+        }
+
+        val encoded = encodeHandFresh(
+            hand, depthEstimator, skeletonReconstructor, orientationFilter,
+            rootPositionFilter, timestampMs
+        )
+        sampleCache.store(hand.trackingId, sampleTimestampMs, encoded)
+        return encoded
+    }
+
+    private fun encodeHandFresh(
+        hand: TrackedHand,
         depthEstimator: MonocularHandDepthEstimator,
         skeletonReconstructor: HandKinematicReconstructor,
         orientationFilter: AdaptiveHandOrientationFilter,
@@ -373,6 +451,7 @@ internal object EndXrHandInputEncoder {
     }
 
 
+    private const val MAX_CACHED_SAMPLE_AGE_MS = 140L
     private const val LANDMARK_COUNT = 21
     private const val CONTROLLER_ROW_SIZE = 6
     private const val PINCH_ACTIVE_FLOOR = 0.62f
