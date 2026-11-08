@@ -67,14 +67,31 @@ internal class HandKinematicReconstructor {
         val filtered = if (mustReset) {
             raw
         } else {
-            val dtSeconds = elapsed / 1000f
+            val dtSeconds = elapsed / 1_000f
+            val responseByJoint = FloatArray(JOINT_COUNT)
+
+            // Palm and wrist keep independent root responses. Every joint in a
+            // finger chain shares one response derived from the chain's average
+            // measured speed, preventing proximal/distal joints from acquiring
+            // visibly different temporal delays during one articulation.
+            for (index in ROOT_JOINT_INDICES) {
+                val speed = distance(previousInput[index], raw[index]) / dtSeconds
+                responseByJoint[index] = adaptiveResponse(speed)
+            }
+            for (chain in FINGER_CHAINS) {
+                var totalSpeed = 0f
+                for (index in chain) {
+                    totalSpeed += distance(previousInput[index], raw[index]) / dtSeconds
+                }
+                val chainSpeed = totalSpeed / chain.size
+                val sharedResponse = adaptiveResponse(chainSpeed)
+                for (index in chain) responseByJoint[index] = sharedResponse
+            }
+
             raw.indices.map { index ->
-                val oldRaw = previousInput[index]
                 val oldFiltered = previous[index]
                 val current = raw[index]
-                val speed = distance(oldRaw, current) / dtSeconds
-                val alpha = (BASE_ALPHA + (speed / FAST_MOTION_SCALE) * FAST_ALPHA_GAIN)
-                    .coerceIn(BASE_ALPHA, MAX_ALPHA)
+                val alpha = responseByJoint[index]
                 HandPoint(
                     oldFiltered.x + (current.x - oldFiltered.x) * alpha,
                     oldFiltered.y + (current.y - oldFiltered.y) * alpha,
@@ -284,6 +301,10 @@ internal class HandKinematicReconstructor {
         palmGapReferences.fill(Float.NaN)
     }
 
+    private fun adaptiveResponse(speed: Float): Float =
+        (BASE_ALPHA + (speed / FAST_MOTION_SCALE) * FAST_ALPHA_GAIN)
+            .coerceIn(BASE_ALPHA, MAX_ALPHA)
+
     private fun distance(a: HandPoint, b: HandPoint): Float {
         val dx = a.x - b.x
         val dy = a.y - b.y
@@ -336,6 +357,14 @@ internal class HandKinematicReconstructor {
         const val MIN_BONE_LENGTH_RATIO = 0.82f
         const val MAX_BONE_LENGTH_RATIO = 1.18f
         const val BONE_CORRECTION_WEIGHT = 0.35f
+        val ROOT_JOINT_INDICES = intArrayOf(0, 1)
+        val FINGER_CHAINS = arrayOf(
+            intArrayOf(2, 3, 4, 5),
+            intArrayOf(6, 7, 8, 9, 10),
+            intArrayOf(11, 12, 13, 14, 15),
+            intArrayOf(16, 17, 18, 19, 20),
+            intArrayOf(21, 22, 23, 24, 25)
+        )
         const val JOINT_COUNT = 26
         const val LANDMARK_COUNT = 21
         const val METACARPAL_BASE_RATIO = 0.58f
