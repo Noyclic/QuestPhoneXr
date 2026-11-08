@@ -183,7 +183,9 @@ internal object EndXrHandInputEncoder {
                 return sampleCache.value()
             }
 
-            sampleCache.reset()
+            // Keep the expired key as a tombstone so the same stale observation
+            // cannot be treated as fresh again on the next encoder call.
+            sampleCache.store(hand.trackingId, sampleTimestampMs, EncodedHand.EMPTY)
             skeletonReconstructor.reset()
             orientationFilter.reset()
             rootPositionFilter.reset()
@@ -207,7 +209,7 @@ internal object EndXrHandInputEncoder {
         rootPositionFilter: AdaptiveHandRootPositionFilter,
         timestampMs: Long
     ): EncodedHand {
-        if (hand == null || hand.rawPoints.size < LANDMARK_COUNT ||
+        if (hand.rawPoints.size < LANDMARK_COUNT ||
             hand.rawWorldPoints.size < LANDMARK_COUNT ||
             hand.rawPoints.take(LANDMARK_COUNT).any { !it.x.isFinite() || !it.y.isFinite() || !it.z.isFinite() } ||
             hand.rawWorldPoints.take(LANDMARK_COUNT).any { !it.x.isFinite() || !it.y.isFinite() || !it.z.isFinite() }
@@ -224,12 +226,18 @@ internal object EndXrHandInputEncoder {
         // stack two temporal filters and add avoidable input lag.
         val sampleTimestampMs = hand.rawTimestampMs.takeIf { it >= 0L } ?: timestampMs
         val imageCenter = average(hand.rawPoints, PALM_INDICES) ?: run {
+            skeletonReconstructor.reset()
+            orientationFilter.reset()
             rootPositionFilter.reset()
-            return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
+            depthEstimator.reset()
+            return EncodedHand.EMPTY
         }
         val worldCenter = average(hand.rawWorldPoints, PALM_INDICES) ?: run {
+            skeletonReconstructor.reset()
+            orientationFilter.reset()
             rootPositionFilter.reset()
-            return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
+            depthEstimator.reset()
+            return EncodedHand.EMPTY
         }
         // Depth is already smoothed by MonocularHandDepthEstimator. Filter the
         // camera-plane palm center separately, preserving fast deliberate moves.
@@ -246,20 +254,34 @@ internal object EndXrHandInputEncoder {
         val z = (-distance + worldCenter.z.coerceIn(-MAX_LOCAL_DEPTH_METERS, MAX_LOCAL_DEPTH_METERS) *
             LOCAL_DEPTH_SCALE).coerceIn(-MAX_HAND_DISTANCE_METERS, -0.25f)
         val measuredOrientation = palmOrientation(hand.rawWorldPoints) ?: run {
+            skeletonReconstructor.reset()
             orientationFilter.reset()
-            return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
+            rootPositionFilter.reset()
+            depthEstimator.reset()
+            return EncodedHand.EMPTY
         }
         val orientation = orientationFilter.update(
             measuredOrientation,
             trackingId = hand.trackingId,
             timestampMs = sampleTimestampMs
-        ) ?: return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
+        ) ?: run {
+            skeletonReconstructor.reset()
+            rootPositionFilter.reset()
+            depthEstimator.reset()
+            return EncodedHand.EMPTY
+        }
         val pose = EndXrHandPoseSample.fromCameraPose(
             x = x, y = y, z = z,
             qx = orientation[0], qy = orientation[1],
             qz = orientation[2], qw = orientation[3]
         )
-        if (!pose.active) return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
+        if (!pose.active) {
+            skeletonReconstructor.reset()
+            orientationFilter.reset()
+            rootPositionFilter.reset()
+            depthEstimator.reset()
+            return EncodedHand.EMPTY
+        }
 
         val reconstructedJoints = skeletonReconstructor.reconstruct(
             hand.rawWorldPoints,
