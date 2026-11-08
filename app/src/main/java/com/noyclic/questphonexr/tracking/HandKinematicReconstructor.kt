@@ -147,7 +147,7 @@ internal class HandKinematicReconstructor {
                 // Use elapsed time, not frames, so adaptation remains consistent
                 // when the phone changes its camera/inference rate under load.
                 val adaptationAlpha = (
-                    1f - exp(-deltaSeconds / REFERENCE_ADAPTATION_SECONDS)
+                    1f - exp((-deltaSeconds / REFERENCE_ADAPTATION_SECONDS).toDouble()).toFloat()
                 ).coerceIn(0f, MAX_REFERENCE_ADAPTATION_ALPHA)
                 referenceLength += (measuredLength - referenceLength) * adaptationAlpha
                 boneLengthReferences[segmentIndex] = referenceLength
