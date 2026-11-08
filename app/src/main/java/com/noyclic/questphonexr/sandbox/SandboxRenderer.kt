@@ -45,6 +45,10 @@ class SandboxRenderer : GLSurfaceView.Renderer {
     /** Reused interleaved world-space vertex buffer for both hands and both stereo eyes. */
     private lateinit var handBatchBuffer: FloatBuffer
     private var handBatchVertexCount = 0
+    // Per-hand render-only pivot. This never feeds back into tracking or interaction.
+    private var handVisualCenterX = 0f
+    private var handVisualCenterY = 0f
+    private var handVisualCenterZ = 0f
     private var program = 0
     private var positionHandle = 0
     private var browserTextureProgram = 0
@@ -452,6 +456,10 @@ class SandboxRenderer : GLSurfaceView.Renderer {
         centerY /= PALM_CENTER_INDICES.size
         centerZ /= PALM_CENTER_INDICES.size
 
+        handVisualCenterX = centerX
+        handVisualCenterY = centerY
+        handVisualCenterZ = centerZ
+
         // Ellipsoidal palm with a little extra thickness for a more solid dorsal surface.
         appendEllipsoid(
             handMesh,
@@ -620,9 +628,17 @@ class SandboxRenderer : GLSurfaceView.Renderer {
             val shade = (AMBIENT_LIGHT + DIFFUSE_LIGHT * diffuse.coerceAtLeast(0f))
                 .coerceIn(AMBIENT_LIGHT, 1f)
 
-            handBatchBuffer.put(worldX)
-            handBatchBuffer.put(worldY)
-            handBatchBuffer.put(worldZ)
+            // Shrink only the rendered hand mesh around its palm centre. The original
+            // MediaPipe landmarks remain untouched for pinch, grabbing and browser touch.
+            handBatchBuffer.put(
+                SandboxHandMeshGeometry.scaleVisualCoordinate(worldX, handVisualCenterX)
+            )
+            handBatchBuffer.put(
+                SandboxHandMeshGeometry.scaleVisualCoordinate(worldY, handVisualCenterY)
+            )
+            handBatchBuffer.put(
+                SandboxHandMeshGeometry.scaleVisualCoordinate(worldZ, handVisualCenterZ)
+            )
             handBatchBuffer.put(source.get(offset + 3) * shade)
             handBatchBuffer.put(source.get(offset + 4) * shade)
             handBatchBuffer.put(source.get(offset + 5) * shade)
