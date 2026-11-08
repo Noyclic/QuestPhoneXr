@@ -179,3 +179,24 @@ The OpenXR skeleton reconstruction also stabilizes the three neighboring knuckle
 
 Regression tests cover a single-frame MCP displacement and sustained finger splay. Real-hand tuning still requires physical-device testing across different hand sizes, camera angles and motion speeds.
 - After all constraints run, the OpenXR `PALM` joint is recalculated as the center of the final four proximal knuckle joints. This prevents the palm anchor from remaining at its pre-correction location.
+## Adaptive root translation and coherent finger response
+
+The camera-derived OpenXR palm origin now has a separate adaptive image-plane filter:
+
+- It smooths normalized X/Y using the One Euro filter, with a small image-space derivative deadzone and faster response as the hand moves.
+- Depth remains owned by MonocularHandDepthEstimator; this avoids stacking a second smoothing stage onto its existing depth response.
+- It is keyed by tracking identity and resets on invalid samples, hand loss, identity change or a gap over 220 ms.
+- Raw MediaPipe image/world points are unchanged, so pinch, grip and natural gesture decisions do not inherit this position-filter delay.
+
+The 26-joint reconstruction now calculates one adaptive temporal response per finger chain from its average measured joint speed. All joints in the same finger therefore follow a shared response for that observation, while the palm and wrist keep independent root responses. Existing palm-spacing and bone-length constraints still run after this temporal stage.
+
+## Duplicate camera-observation continuity
+
+The EndXR encoder caches only the encoded palm pose and 26-joint sample for each hand identity and raw MediaPipe timestamp:
+
+- If CameraX/MediaPipe briefly surfaces the same observation again during a detector dropout, EndXR reuses the already encoded pose/joints rather than submitting an identical timestamp to temporal filters and accidentally resetting their history.
+- The cache expires after 140 ms, matching the bounded short-dropout presentation window. An expired repeat is rejected and all per-hand temporal state is reset.
+- Controller rows and gesture classification are still refreshed from the current TrackedHand state on every call. This allows pinch/grip release to take effect even while pose/joints are reusing the last sample.
+- Cache entries are isolated per hand, and clear immediately when that hand disappears.
+
+JVM regression coverage checks adaptive camera-plane smoothing, faster response to deliberate movement, identity/gap resets, coherent per-finger filter response, duplicate-sample reuse with fresh gesture release, and cache expiry/reacquisition. The filters remain estimates over monocular camera data; physical Redmi validation is required before tuning or claiming tracking-quality gains.
