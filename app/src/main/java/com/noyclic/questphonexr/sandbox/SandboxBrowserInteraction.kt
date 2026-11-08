@@ -17,6 +17,7 @@ internal object SandboxBrowserInteraction {
     private const val MAX_DEPTH_DELTA = 1.25f
     private const val TOUCH_PRESS_DEPTH_METERS = 0.18f
     private const val TOUCH_RELEASE_DEPTH_METERS = 0.30f
+    private const val TOUCH_RELEASE_EDGE_MARGIN_METERS = 0.08f
     private const val CLOSE_REVEAL_DEPTH_METERS = 0.95f
     private const val CLOSE_REVEAL_MARGIN_METERS = 0.30f
 
@@ -77,7 +78,19 @@ internal object SandboxBrowserInteraction {
 
     fun isMaintainingPanelTouch(fingertip: SandboxVector3): Boolean =
         isWithinPanelDepth(fingertip, TOUCH_RELEASE_DEPTH_METERS) &&
+            isWithinPanelBounds(fingertip, TOUCH_RELEASE_EDGE_MARGIN_METERS) &&
             map(fingertip, clampToPanel = true) != null
+
+    /**
+     * Keep a drag alive through a little camera-depth/edge noise, but do not let
+     * a fingertip far outside the panel remain pressed indefinitely.
+     */
+    private fun isWithinPanelBounds(point: SandboxVector3, edgeMarginMeters: Float): Boolean {
+        val halfWidth = PANEL_WIDTH * 0.5f + edgeMarginMeters
+        val halfHeight = PANEL_HEIGHT * 0.5f + edgeMarginMeters
+        return abs(point.x - PANEL_CENTER_X) <= halfWidth &&
+            abs(point.y - PANEL_CENTER_Y) <= halfHeight
+    }
 
     private fun isWithinPanelDepth(point: SandboxVector3, toleranceMeters: Float): Boolean =
         point.x.isFinite() && point.y.isFinite() && point.z.isFinite() &&

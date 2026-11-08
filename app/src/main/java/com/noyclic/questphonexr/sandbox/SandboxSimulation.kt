@@ -454,13 +454,34 @@ class SandboxSimulation {
         leftTouchPoint = leftWorld.contactLandmarks.getOrNull(INDEX_TIP_LANDMARK)
         rightTouchPoint = rightWorld.contactLandmarks.getOrNull(INDEX_TIP_LANDMARK)
 
+        // Pinch is a fingertip precision gesture: keep its thumb/index midpoint as
+        // the grab anchor. A natural power grip wraps around the palm anchor instead.
+        // This prevents a pinch from reaching backward to the palm and missing nearby objects.
+        val leftGrabAnchor = if (left.naturalGripping && !left.pinching) {
+            leftWorld.graspCursor ?: leftWorld.cursor
+        } else {
+            leftWorld.cursor
+        }
+        val rightGrabAnchor = if (right.naturalGripping && !right.pinching) {
+            rightWorld.graspCursor ?: rightWorld.cursor
+        } else {
+            rightWorld.cursor
+        }
+        val leftGrabDistance = when {
+            left.naturalGripping && !left.pinching -> POWER_GRIP_GRAB_DISTANCE
+            left.pinching -> PRECISION_GRAB_DISTANCE
+            else -> MAX_GRAB_DISTANCE
+        }
+        val rightGrabDistance = when {
+            right.naturalGripping && !right.pinching -> POWER_GRIP_GRAB_DISTANCE
+            right.pinching -> PRECISION_GRAB_DISTANCE
+            else -> MAX_GRAB_DISTANCE
+        }
         updateGrab(
-            HandSide.LEFT, left.grabbing, leftWorld.graspCursor ?: leftWorld.cursor, dt, left.trackingLost,
-            if (left.naturalGripping || left.pinching) PRECISION_GRAB_DISTANCE else MAX_GRAB_DISTANCE
+            HandSide.LEFT, left.grabbing, leftGrabAnchor, dt, left.trackingLost, leftGrabDistance
         )
         updateGrab(
-            HandSide.RIGHT, right.grabbing, rightWorld.graspCursor ?: rightWorld.cursor, dt, right.trackingLost,
-            if (right.naturalGripping || right.pinching) PRECISION_GRAB_DISTANCE else MAX_GRAB_DISTANCE
+            HandSide.RIGHT, right.grabbing, rightGrabAnchor, dt, right.trackingLost, rightGrabDistance
         )
         if (!browserInteractionMode) {
             applyFingerContacts(leftWorld, dt)
@@ -795,7 +816,8 @@ class SandboxSimulation {
         private const val GAMEPAD_REACH_HEIGHT = 2.15f
         private const val GRAB_THRESHOLD = 0.45f
         private const val MAX_GRAB_DISTANCE = 1.2f
-        private const val PRECISION_GRAB_DISTANCE = 0.65f
+        private const val PRECISION_GRAB_DISTANCE = 0.72f
+        private const val POWER_GRIP_GRAB_DISTANCE = 0.65f
         private const val FINGER_CONTACT_ACCELERATION = 5.5f
         private const val CONTACT_SEPARATION_GAIN = 7.0f
         private const val BALL_CONTACT_RADIUS = 0.25f

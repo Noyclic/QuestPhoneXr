@@ -88,6 +88,19 @@ class SandboxBrowserInteractionTest {
     }
 
     @Test
+    fun maintainingPanelTouchAllowsSmallEdgeMarginForDrag() {
+        val slightlyOutside = SandboxVector3(
+            SandboxBrowserInteraction.PANEL_CENTER_X +
+                SandboxBrowserInteraction.PANEL_WIDTH * 0.5f + 0.04f,
+            SandboxBrowserInteraction.PANEL_CENTER_Y,
+            SandboxBrowserInteraction.PANEL_CENTER_Z
+        )
+
+        assertFalse(SandboxBrowserInteraction.isTouchingPanel(slightlyOutside))
+        assertTrue(SandboxBrowserInteraction.isMaintainingPanelTouch(slightlyOutside))
+    }
+
+    @Test
     fun fingertipOutsidePanelDoesNotPressBrowser() {
         val outside = SandboxVector3(
             SandboxBrowserInteraction.PANEL_CENTER_X + SandboxBrowserInteraction.PANEL_WIDTH,
