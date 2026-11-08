@@ -80,6 +80,11 @@ class HandKinematicReconstructorTest {
 
         assertTrue(referenceGap > 0.002f)
         assertTrue(abs(stabilizedGap - referenceGap) < abs(rawGap - referenceGap))
+
+        val expectedPalm = listOf(7, 12, 17, 22).map { reconstructed[it] }
+        assertEquals(expectedPalm.map { it.x }.average().toFloat(), reconstructed[0].x, 0.0001f)
+        assertEquals(expectedPalm.map { it.y }.average().toFloat(), reconstructed[0].y, 0.0001f)
+        assertEquals(expectedPalm.map { it.z }.average().toFloat(), reconstructed[0].z, 0.0001f)
     }
 
     @Test
