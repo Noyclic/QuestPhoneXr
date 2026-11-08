@@ -8,6 +8,12 @@ package com.noyclic.questphonexr.sandbox
  * proportions deterministic and straightforward to regression-test.
  */
 internal object SandboxHandMeshGeometry {
+    /** Visual-only shrink factor; tracking and interaction landmarks remain untouched. */
+    const val VISUAL_SCALE = 0.78f
+
+    fun scaleVisualCoordinate(value: Float, center: Float): Float =
+        center + (value - center) * VISUAL_SCALE
+
     const val MAX_PRIMITIVES_PER_HAND = 24
     const val BASE_PRIMITIVES_PER_HAND = 22
 
