@@ -114,9 +114,17 @@ class EndXrHandInputEncoderTest {
         assertFalse(stale.leftPose.active)
         assertFalse(stale.leftJoints.active)
 
-        val reacquiredHand = firstHand.copy(rawTimestampMs = 250L)
+        // A repeated stale timestamp stays expired; it must not be reprocessed
+        // merely because the first expiry cleared the active filter state.
+        val stillStale = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(250L, listOf(firstHand))
+        )
+        assertFalse(stillStale.leftPose.active)
+        assertFalse(stillStale.leftJoints.active)
+
+        val reacquiredHand = firstHand.copy(rawTimestampMs = 260L)
         val reacquired = EndXrHandInputEncoder.encode(
-            HandTrackingFrame(250L, listOf(reacquiredHand))
+            HandTrackingFrame(260L, listOf(reacquiredHand))
         )
         assertTrue(reacquired.leftPose.active)
         assertTrue(reacquired.leftJoints.active)
