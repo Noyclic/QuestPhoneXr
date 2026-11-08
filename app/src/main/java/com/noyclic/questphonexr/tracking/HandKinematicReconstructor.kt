@@ -13,6 +13,7 @@ import kotlin.math.sqrt
  */
 internal class HandKinematicReconstructor {
     private val boneLengthReferences = FloatArray(FINGER_BONE_SEGMENTS.size) { Float.NaN }
+    private val palmGapReferences = FloatArray(PALM_GAP_PAIRS.size) { Float.NaN }
     private var previousRaw: List<HandPoint>? = null
     private var previousFiltered: List<HandPoint>? = null
     private var previousTimestampMs: Long = Long.MIN_VALUE
@@ -91,8 +92,13 @@ internal class HandKinematicReconstructor {
         } else {
             (elapsed / 1_000f).coerceIn(MIN_FILTER_STEP_SECONDS, MAX_FILTER_STEP_SECONDS)
         }
-        val stabilized = constrainFingerBoneLengths(
+        val palmStabilized = stabilizePalmKnuckleSpacing(
             filtered,
+            resetReference = mustReset,
+            deltaSeconds = filterDeltaSeconds
+        )
+        val stabilized = constrainFingerBoneLengths(
+            palmStabilized,
             resetReference = mustReset,
             deltaSeconds = filterDeltaSeconds
         )
@@ -102,6 +108,95 @@ internal class HandKinematicReconstructor {
         previousTimestampMs = timestampMs
         previousTrackingId = trackingId
         return stabilized
+    }
+
+    /**
+     * Keeps adjacent knuckle spacing from jumping independently for one frame.
+     *
+     * Each correction translates a complete finger chain, rather than moving a
+     * single MCP joint. This preserves the finger's measured articulation and
+     * all within-finger bone lengths. The learned spacing adapts continuously so
+     * intentional finger splay is allowed instead of being locked to one pose.
+     */
+    private fun stabilizePalmKnuckleSpacing(
+        points: List<HandPoint>,
+        resetReference: Boolean,
+        deltaSeconds: Float
+    ): List<HandPoint> {
+        if (resetReference) palmGapReferences.fill(Float.NaN)
+        if (points.size != JOINT_COUNT) {
+            palmGapReferences.fill(Float.NaN)
+            return points
+        }
+
+        val output = points.toMutableList()
+        val adaptationAlpha = (
+            1.0 - exp((-deltaSeconds / PALM_GAP_ADAPTATION_SECONDS).toDouble())
+        ).toFloat().coerceIn(0f, MAX_PALM_GAP_ADAPTATION_ALPHA)
+
+        // Learn from the uncorrected, temporally filtered shape before the
+        // pairwise corrections move any of the finger chains.
+        for (pairIndex in PALM_GAP_PAIRS.indices) {
+            val pair = PALM_GAP_PAIRS[pairIndex]
+            val measured = distance(points[pair.leftMcp], points[pair.rightMcp])
+            if (!measured.isFinite() || measured < MIN_PALM_GAP_METERS) continue
+
+            val reference = palmGapReferences[pairIndex]
+            if (!reference.isFinite() || reference < MIN_PALM_GAP_METERS) {
+                palmGapReferences[pairIndex] = measured
+            } else {
+                palmGapReferences[pairIndex] =
+                    reference + (measured - reference) * adaptationAlpha
+            }
+        }
+
+        // Two inexpensive position-based passes reduce coupling between the
+        // three neighboring gaps that share middle/ring finger chains.
+        repeat(PALM_GAP_SOLVER_ITERATIONS) {
+            for (pairIndex in PALM_GAP_PAIRS.indices) {
+                val pair = PALM_GAP_PAIRS[pairIndex]
+                val reference = palmGapReferences[pairIndex]
+                if (!reference.isFinite() || reference < MIN_PALM_GAP_METERS) continue
+
+                val left = output[pair.leftMcp]
+                val right = output[pair.rightMcp]
+                val dx = right.x - left.x
+                val dy = right.y - left.y
+                val dz = right.z - left.z
+                val measured = sqrt(dx * dx + dy * dy + dz * dz)
+                if (!measured.isFinite() || measured < MIN_PALM_GAP_METERS) continue
+
+                val allowed = reference * (measured / reference).coerceIn(
+                    MIN_PALM_GAP_RATIO,
+                    MAX_PALM_GAP_RATIO
+                )
+                val corrected = measured + (allowed - measured) * PALM_GAP_CORRECTION_WEIGHT
+                val halfShift = (corrected - measured) * 0.5f / measured
+                val shiftX = dx * halfShift
+                val shiftY = dy * halfShift
+                val shiftZ = dz * halfShift
+
+                translateFingerChain(output, pair.leftChainStart, pair.leftChainEnd,
+                    -shiftX, -shiftY, -shiftZ)
+                translateFingerChain(output, pair.rightChainStart, pair.rightChainEnd,
+                    shiftX, shiftY, shiftZ)
+            }
+        }
+        return output
+    }
+
+    private fun translateFingerChain(
+        points: MutableList<HandPoint>,
+        startIndex: Int,
+        endIndex: Int,
+        x: Float,
+        y: Float,
+        z: Float
+    ) {
+        for (index in startIndex..endIndex) {
+            val point = points[index]
+            points[index] = HandPoint(point.x + x, point.y + y, point.z + z)
+        }
     }
 
     /**
@@ -176,6 +271,7 @@ internal class HandKinematicReconstructor {
         previousTimestampMs = Long.MIN_VALUE
         previousTrackingId = Long.MIN_VALUE
         boneLengthReferences.fill(Float.NaN)
+        palmGapReferences.fill(Float.NaN)
     }
 
     private fun distance(a: HandPoint, b: HandPoint): Float {
@@ -189,6 +285,22 @@ internal class HandKinematicReconstructor {
         // OpenXR joint indices: thumb 2..5, index 6..10, middle 11..15,
         // ring 17..20 and little finger 22..25. Constrain only measured
         // phalange segments; estimated base joints remain softly anchored to the MCPs.
+        private data class PalmGapPair(
+            val leftMcp: Int,
+            val rightMcp: Int,
+            val leftChainStart: Int,
+            val leftChainEnd: Int,
+            val rightChainStart: Int,
+            val rightChainEnd: Int
+        )
+        // Proximal joints are MCP landmarks in the reconstructed OpenXR order.
+        // Only adjacent non-thumb knuckle gaps are constrained; thumb opposition
+        // and independent finger articulation remain free.
+        val PALM_GAP_PAIRS = arrayOf(
+            PalmGapPair(7, 12, 6, 10, 11, 15),
+            PalmGapPair(12, 17, 11, 15, 16, 20),
+            PalmGapPair(17, 22, 16, 20, 21, 25)
+        )
         val FINGER_BONE_SEGMENTS = arrayOf(
             2 to 3, 3 to 4, 4 to 5,
             6 to 7, 7 to 8, 8 to 9, 9 to 10,
@@ -196,6 +308,13 @@ internal class HandKinematicReconstructor {
             16 to 17, 17 to 18, 18 to 19, 19 to 20,
             21 to 22, 22 to 23, 23 to 24, 24 to 25
         )
+        const val MIN_PALM_GAP_METERS = 0.002f
+        const val MIN_PALM_GAP_RATIO = 0.86f
+        const val MAX_PALM_GAP_RATIO = 1.14f
+        const val PALM_GAP_CORRECTION_WEIGHT = 0.35f
+        const val PALM_GAP_ADAPTATION_SECONDS = 0.70f
+        const val MAX_PALM_GAP_ADAPTATION_ALPHA = 0.06f
+        const val PALM_GAP_SOLVER_ITERATIONS = 2
         const val MIN_BONE_LENGTH_METERS = 0.001f
         const val MIN_REFERENCE_ADAPTATION_RATIO = 0.75f
         const val MAX_REFERENCE_ADAPTATION_RATIO = 1.25f
