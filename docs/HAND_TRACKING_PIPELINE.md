@@ -154,3 +154,16 @@ The natural gesture classifier reports independent per-finger extension state an
 Natural gesture results are currently diagnostic-only. They are not converted into physical A/B/X/Y buttons or stick movements, and the six-field controller row ABI remains unchanged. Pinch and natural power grip continue through the existing trigger/grip channels. The 26-joint skeleton is exposed separately through `XR_EXT_hand_tracking`; the palm and four non-thumb metacarpal bases are estimated points, and monocular camera-derived locations intentionally do not claim OpenXR tracked flags.
 
 The classifier and encoder tests cover the four static poses, raw-versus-render landmark separation, world/image fallback, confidence, duplicate samples, identity/loss resets, ambiguous/invalid input, and the camera-to-joint mapping. The external-client probe exercises the hand-tracking extension from a separate Android package when a RuntimeBroker-selected runtime and session are available. Physical Redmi and third-party game testing remain necessary.
+
+## Adaptive OpenXR finger geometry and palm orientation
+
+The EndXR camera-input encoder now has an additional orientation and skeletal-stability stage, separate from Sandbox rendering and gesture recognition:
+
+- A per-hand quaternion filter smooths the palm basis used by the OpenXR pose. It normalizes samples, handles quaternion sign equivalence (q and -q), interpolates along the shortest SLERP arc, and increases its response for faster measured angular movement.
+- The orientation filter is keyed by tracking identity and resets on invalid quaternions, timestamp rollback, or gaps longer than 220 ms. It does not predict orientation through an occlusion.
+- The 21 MediaPipe world landmarks are reconstructed into the OpenXR 26-joint layout as before. A conservative geometric pass now stabilizes all 19 measured/estimated finger-chain links: three thumb links, four links for each other finger, including the estimated metacarpal-to-MCP connection.
+- Each link learns its reference length slowly with a four-second time constant. A single-frame measurement outside the 82–118% envelope is only corrected by 35% toward the nearest envelope boundary. The reference adapts only while measurements remain within a wider 75–125% sanity band.
+- Calibration adaptation uses elapsed seconds rather than a fixed per-frame coefficient, so its rate does not scale directly with camera FPS. References reset on hand identity changes, invalid landmarks, timestamp rollback, and long tracking gaps.
+- These constraints affect only the reconstructed OpenXR joint sample. Raw MediaPipe landmarks used by pinch and natural gesture classification are unchanged; no camera-derived joint is promoted to a physically tracked 6DoF measurement.
+
+JVM tests cover small-rotation jitter suppression, faster response to rapid rotation, quaternion sign equivalence, identity/gap resets, invalid quaternion recovery, phalange-length outlier containment, and estimated metacarpal connection stability. Physical-device validation is still required to tune these thresholds against real camera noise, hand sizes, lighting and motion speed. No accuracy or FPS superiority over other applications is claimed without a controlled comparison.
