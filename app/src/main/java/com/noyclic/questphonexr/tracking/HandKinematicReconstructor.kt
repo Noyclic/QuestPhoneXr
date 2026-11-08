@@ -186,15 +186,15 @@ internal class HandKinematicReconstructor {
     }
 
     private companion object {
-        // OpenXR joint indices: thumb 2..5, index 7..10, middle 12..15,
+        // OpenXR joint indices: thumb 2..5, index 6..10, middle 11..15,
         // ring 17..20 and little finger 22..25. Constrain only measured
-        // phalange segments; estimated palm/metacarpal bases remain untouched.
+        // phalange segments; estimated base joints remain softly anchored to the MCPs.
         val FINGER_BONE_SEGMENTS = arrayOf(
             2 to 3, 3 to 4, 4 to 5,
-            7 to 8, 8 to 9, 9 to 10,
-            12 to 13, 13 to 14, 14 to 15,
-            17 to 18, 18 to 19, 19 to 20,
-            22 to 23, 23 to 24, 24 to 25
+            6 to 7, 7 to 8, 8 to 9, 9 to 10,
+            11 to 12, 12 to 13, 13 to 14, 14 to 15,
+            16 to 17, 17 to 18, 18 to 19, 19 to 20,
+            21 to 22, 22 to 23, 23 to 24, 24 to 25
         )
         const val MIN_BONE_LENGTH_METERS = 0.001f
         const val MIN_REFERENCE_ADAPTATION_RATIO = 0.75f
