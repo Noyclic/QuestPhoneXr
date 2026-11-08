@@ -37,6 +37,28 @@ class HandKinematicReconstructorTest {
     }
 
     @Test
+    fun eachFingerChainUsesOneSharedAdaptiveTemporalResponse() {
+        val reconstructor = HandKinematicReconstructor()
+        val first = sampleHand()
+        val initial = reconstructor.reconstruct(first, 1L, 100L)!!
+
+        // Translate all measured index-finger landmarks by the same amount.
+        // Each reconstructed joint in that finger should follow the movement
+        // by the same fraction instead of acquiring independent filter lag.
+        val moved = first.toMutableList().also { points ->
+            for (index in 5..8) points[index] = points[index].copy(x = points[index].x + 0.004f)
+        }
+        val filtered = reconstructor.reconstruct(moved, 1L, 116L)!!
+
+        val responses = (7..10).map { jointIndex ->
+            (filtered[jointIndex].x - initial[jointIndex].x) /
+                (moved[jointIndex - 2].x - first[jointIndex - 2].x)
+        }
+        assertTrue(responses.all { it > 0f && it < 1f })
+        assertTrue(responses.maxOrNull()!! - responses.minOrNull()!! < 0.0001f)
+    }
+
+    @Test
     fun softBoneLengthConstraintReducesSingleFrameFingerStretch() {
         val reconstructor = HandKinematicReconstructor()
         val first = sampleHand()
