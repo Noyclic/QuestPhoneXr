@@ -11,6 +11,7 @@ import kotlin.math.sqrt
  * not an additional sensor measurement.
  */
 internal class HandKinematicReconstructor {
+    private val boneLengthReferences = FloatArray(FINGER_BONE_SEGMENTS.size) { Float.NaN }
     private var previousRaw: List<HandPoint>? = null
     private var previousFiltered: List<HandPoint>? = null
     private var previousTimestampMs: Long = Long.MIN_VALUE
@@ -80,11 +81,76 @@ internal class HandKinematicReconstructor {
             }
         }
 
+        // Apply a light kinematic constraint after temporal filtering. MediaPipe's
+        // monocular world landmarks can make a finger bone appear to stretch for one
+        // frame; keeping a slowly learned segment-length reference stabilizes the
+        // OpenXR skeleton without changing the raw landmarks used by gestures.
+        val stabilized = constrainFingerBoneLengths(filtered, resetReference = mustReset)
+
         previousRaw = raw
-        previousFiltered = filtered
+        previousFiltered = stabilized
         previousTimestampMs = timestampMs
         previousTrackingId = trackingId
-        return filtered
+        return stabilized
+    }
+
+    /**
+     * Softly limits temporal bone-length wobble on the four phalange chains.
+     *
+     * This is deliberately conservative: it corrects only 35% of the difference,
+     * allows an 18% per-frame length envelope, and slowly adapts the reference when
+     * measurements remain plausible. Raw MediaPipe data and pinch decisions are
+     * untouched; only the reconstructed OpenXR joint positions use this constraint.
+     */
+    private fun constrainFingerBoneLengths(
+        points: List<HandPoint>,
+        resetReference: Boolean
+    ): List<HandPoint> {
+        if (resetReference) boneLengthReferences.fill(Float.NaN)
+        if (points.size != JOINT_COUNT) {
+            boneLengthReferences.fill(Float.NaN)
+            return points
+        }
+
+        val output = points.toMutableList()
+        for (segmentIndex in FINGER_BONE_SEGMENTS.indices) {
+            val (parentIndex, childIndex) = FINGER_BONE_SEGMENTS[segmentIndex]
+            val parent = output[parentIndex]
+            val child = output[childIndex]
+            val dx = child.x - parent.x
+            val dy = child.y - parent.y
+            val dz = child.z - parent.z
+            val measuredLength = sqrt(dx * dx + dy * dy + dz * dz)
+            if (!measuredLength.isFinite() || measuredLength < MIN_BONE_LENGTH_METERS) {
+                continue
+            }
+
+            var referenceLength = boneLengthReferences[segmentIndex]
+            if (!referenceLength.isFinite() || referenceLength <= MIN_BONE_LENGTH_METERS) {
+                boneLengthReferences[segmentIndex] = measuredLength
+                continue
+            }
+
+            val ratio = measuredLength / referenceLength
+            if (ratio in MIN_REFERENCE_ADAPTATION_RATIO..MAX_REFERENCE_ADAPTATION_RATIO) {
+                referenceLength += (measuredLength - referenceLength) * REFERENCE_ADAPTATION_ALPHA
+                boneLengthReferences[segmentIndex] = referenceLength
+            }
+
+            val boundedTargetLength = referenceLength * ratio.coerceIn(
+                MIN_BONE_LENGTH_RATIO,
+                MAX_BONE_LENGTH_RATIO
+            )
+            val correctedLength = measuredLength +
+                (boundedTargetLength - measuredLength) * BONE_CORRECTION_WEIGHT
+            val scale = correctedLength / measuredLength
+            output[childIndex] = HandPoint(
+                parent.x + dx * scale,
+                parent.y + dy * scale,
+                parent.z + dz * scale
+            )
+        }
+        return output
     }
 
     @Synchronized
@@ -93,6 +159,7 @@ internal class HandKinematicReconstructor {
         previousFiltered = null
         previousTimestampMs = Long.MIN_VALUE
         previousTrackingId = Long.MIN_VALUE
+        boneLengthReferences.fill(Float.NaN)
     }
 
     private fun distance(a: HandPoint, b: HandPoint): Float {
@@ -103,6 +170,23 @@ internal class HandKinematicReconstructor {
     }
 
     private companion object {
+        // OpenXR joint indices: thumb 2..5, index 7..10, middle 12..15,
+        // ring 17..20 and little finger 22..25. Constrain only measured
+        // phalange segments; estimated palm/metacarpal bases remain untouched.
+        val FINGER_BONE_SEGMENTS = arrayOf(
+            2 to 3, 3 to 4, 4 to 5,
+            7 to 8, 8 to 9, 9 to 10,
+            12 to 13, 13 to 14, 14 to 15,
+            17 to 18, 18 to 19, 19 to 20,
+            22 to 23, 23 to 24, 24 to 25
+        )
+        const val MIN_BONE_LENGTH_METERS = 0.001f
+        const val MIN_REFERENCE_ADAPTATION_RATIO = 0.75f
+        const val MAX_REFERENCE_ADAPTATION_RATIO = 1.25f
+        const val REFERENCE_ADAPTATION_ALPHA = 0.01f
+        const val MIN_BONE_LENGTH_RATIO = 0.82f
+        const val MAX_BONE_LENGTH_RATIO = 1.18f
+        const val BONE_CORRECTION_WEIGHT = 0.35f
         const val LANDMARK_COUNT = 21
         const val METACARPAL_BASE_RATIO = 0.58f
         const val BASE_ALPHA = 0.36f
