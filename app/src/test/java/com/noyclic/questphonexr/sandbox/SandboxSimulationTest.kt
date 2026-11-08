@@ -166,6 +166,53 @@ class SandboxSimulationTest {
     }
 
     @Test
+    fun heldCubeFollowsCameraPalmRotationWithoutChangingItsGrabOffset() {
+        val simulation = SandboxSimulation()
+
+        fun handPoints(turned: Boolean): List<HandPoint> {
+            val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+            // Place the pinch midpoint over the left starter cube.
+            points[4] = HandPoint(0.353f, 0.5545f, 0f)
+            points[8] = HandPoint(0.353f, 0.5545f, 0f)
+            if (turned) {
+                points[5] = HandPoint(0.5f, 0.41f, 0f)
+                points[17] = HandPoint(0.5f, 0.59f, 0f)
+            } else {
+                points[5] = HandPoint(0.59f, 0.5f, 0f)
+                points[17] = HandPoint(0.41f, 0.5f, 0f)
+            }
+            return points
+        }
+
+        val firstHand = TrackedHand(
+            points = handPoints(turned = false),
+            isPinching = true,
+            side = HandSide.LEFT
+        )
+        simulation.update(
+            emptyList(),
+            HandTrackingFrame(100L, listOf(firstHand)),
+            1f / 30f
+        )
+        val before = simulation.snapshot().objects.single { it.heldBy == HandSide.LEFT }
+        assertEquals(SandboxObjectType.CUBE, before.type)
+
+        val turnedHand = firstHand.copy(
+            points = handPoints(turned = true),
+            isPinching = true
+        )
+        simulation.update(
+            emptyList(),
+            HandTrackingFrame(133L, listOf(turnedHand)),
+            1f / 30f
+        )
+        val after = simulation.snapshot().objects.single { it.heldBy == HandSide.LEFT }
+
+        assertEquals(before.position, after.position)
+        assertTrue(kotlin.math.abs(after.rotationZRadians - before.rotationZRadians) > 1.4f)
+    }
+
+    @Test
     fun curledThreeFingerPowerGripGrabsWithoutPinching() {
         val simulation = SandboxSimulation()
         val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }

@@ -243,7 +243,8 @@ class SandboxRenderer : GLSurfaceView.Renderer {
                         item.position.z,
                         0.19f,
                         0.19f,
-                        0.19f
+                        0.19f,
+                        item.rotationZRadians
                     )
                     SandboxObjectType.CUBE -> drawMesh(
                         cubeMesh,
@@ -252,7 +253,8 @@ class SandboxRenderer : GLSurfaceView.Renderer {
                         item.position.z,
                         0.25f,
                         0.25f,
-                        0.25f
+                        0.25f,
+                        item.rotationZRadians
                     )
                     SandboxObjectType.TARGET -> drawMesh(
                         cubeMesh,
@@ -399,10 +401,14 @@ class SandboxRenderer : GLSurfaceView.Renderer {
         z: Float,
         scaleX: Float,
         scaleY: Float,
-        scaleZ: Float
+        scaleZ: Float,
+        rotationZRadians: Float = 0f
     ) {
         Matrix.setIdentityM(model, 0)
         Matrix.translateM(model, 0, x, y, z)
+        if (rotationZRadians.isFinite() && kotlin.math.abs(rotationZRadians) > 0.0001f) {
+            Matrix.rotateM(model, 0, rotationZRadians * 57.29578f, 0f, 0f, 1f)
+        }
         Matrix.scaleM(model, 0, scaleX, scaleY, scaleZ)
         drawTransformedMesh(mesh, model)
     }

@@ -7,6 +7,7 @@ import com.noyclic.questphonexr.tracking.HandSide
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.HandGestureEstimator
 import com.noyclic.questphonexr.tracking.TrackedHand
+import kotlin.math.atan2
 import kotlin.math.sqrt
 
 /**
@@ -229,7 +230,9 @@ data class SandboxObjectState(
     val type: SandboxObjectType,
     val position: SandboxVector3,
     val velocity: SandboxVector3,
-    val heldBy: HandSide? = null
+    val heldBy: HandSide? = null,
+    /** Approximate in-plane hand-relative rotation; not a full 3D object pose. */
+    val rotationZRadians: Float = 0f
 )
 
 data class SandboxHandState(
@@ -270,9 +273,11 @@ class SandboxSimulation {
         var velocity: SandboxVector3 = ZERO,
         var heldBy: HandSide? = null,
         /** Preserve where the object sits relative to the palm while it is held. */
-        var heldOffset: SandboxVector3? = null
+        var heldOffset: SandboxVector3? = null,
+        var rotationZRadians: Float = 0f,
+        var heldRotationOffsetRadians: Float? = null
     ) {
-        fun snapshot() = SandboxObjectState(id, type, position, velocity, heldBy)
+        fun snapshot() = SandboxObjectState(id, type, position, velocity, heldBy, rotationZRadians)
     }
 
     private data class ControllerState(
@@ -286,7 +291,9 @@ class SandboxSimulation {
         val pinching: Boolean = false,
         val naturalGripping: Boolean = false,
         /** Stable palm anchor used for full-hand object grasping. */
-        val graspCursor: SandboxVector3? = null
+        val graspCursor: SandboxVector3? = null,
+        /** Approximate wrist roll from the index-to-pinky MCP axis. */
+        val graspRotationRadians: Float? = null
     )
 
     private val objects = mutableListOf<MutableObject>()
@@ -478,10 +485,12 @@ class SandboxSimulation {
             else -> MAX_GRAB_DISTANCE
         }
         updateGrab(
-            HandSide.LEFT, left.grabbing, leftGrabAnchor, dt, left.trackingLost, leftGrabDistance
+            HandSide.LEFT, left.grabbing, leftGrabAnchor, dt, left.trackingLost,
+            leftGrabDistance, left.graspRotationRadians
         )
         updateGrab(
-            HandSide.RIGHT, right.grabbing, rightGrabAnchor, dt, right.trackingLost, rightGrabDistance
+            HandSide.RIGHT, right.grabbing, rightGrabAnchor, dt, right.trackingLost,
+            rightGrabDistance, right.graspRotationRadians
         )
         if (!browserInteractionMode) {
             applyFingerContacts(leftWorld, dt)
@@ -666,7 +675,8 @@ class SandboxSimulation {
             contactLandmarks = cameraLandmarks,
             pinching = pinching,
             naturalGripping = powerGripping,
-            graspCursor = palmAnchor(cameraLandmarks)
+            graspCursor = palmAnchor(cameraLandmarks),
+            graspRotationRadians = palmRotationRadians(cameraLandmarks)
         )
     }
 
@@ -697,6 +707,22 @@ class SandboxSimulation {
         if (palmPoints.isEmpty()) return null
         return palmPoints.reduce { total, point -> total + point } *
             (1f / palmPoints.size.toFloat())
+    }
+
+    /**
+     * Estimate the palm's rotation in the camera/world XY plane from the MCP axis.
+     * The estimate is used only to rotate a held Sandbox object; it is not advertised
+     * as a metric 3D wrist orientation.
+     */
+    private fun palmRotationRadians(landmarks: List<SandboxVector3>): Float? {
+        val indexMcp = landmarks.getOrNull(5) ?: return null
+        val pinkyMcp = landmarks.getOrNull(17) ?: return null
+        val dx = indexMcp.x - pinkyMcp.x
+        val dy = indexMcp.y - pinkyMcp.y
+        if (!dx.isFinite() || !dy.isFinite() ||
+            dx * dx + dy * dy < MIN_PALM_AXIS_LENGTH_SQUARED
+        ) return null
+        return atan2(dy, dx)
     }
 
     private fun applyFingerContacts(hand: ControllerState, deltaSeconds: Float) {
@@ -732,7 +758,8 @@ class SandboxSimulation {
         cursor: SandboxVector3,
         deltaSeconds: Float,
         dropWithoutThrow: Boolean,
-        maxGrabDistance: Float = MAX_GRAB_DISTANCE
+        maxGrabDistance: Float = MAX_GRAB_DISTANCE,
+        graspRotationRadians: Float? = null
     ) {
         val currentlyHeld = objects.firstOrNull { it.heldBy == hand }
 
@@ -743,12 +770,16 @@ class SandboxSimulation {
             if (nearest != null && (nearest.position - cursor).length() <= maxGrabDistance) {
                 nearest.heldBy = hand
                 nearest.heldOffset = nearest.position - cursor
+                nearest.heldRotationOffsetRadians = graspRotationRadians?.let {
+                    nearest.rotationZRadians - it
+                }
                 nearest.velocity = ZERO
             }
         } else if (!isPressed && currentlyHeld != null) {
             val targetPosition = cursor + (currentlyHeld.heldOffset ?: ZERO)
             currentlyHeld.heldBy = null
             currentlyHeld.heldOffset = null
+            currentlyHeld.heldRotationOffsetRadians = null
             currentlyHeld.velocity = if (dropWithoutThrow) {
                 ZERO
             } else {
@@ -764,6 +795,13 @@ class SandboxSimulation {
                 .times(1f / deltaSeconds)
                 .clamped(MAX_THROW_SPEED)
             held.position = targetPosition
+            if (graspRotationRadians != null) {
+                val rotationOffset = held.heldRotationOffsetRadians
+                    ?: (held.rotationZRadians - graspRotationRadians).also {
+                        held.heldRotationOffsetRadians = it
+                    }
+                held.rotationZRadians = graspRotationRadians + rotationOffset
+            }
         }
 
         if (hand == HandSide.LEFT) leftGrabbing = isPressed else rightGrabbing = isPressed
@@ -826,6 +864,7 @@ class SandboxSimulation {
         private val FINGERTIP_INDICES = intArrayOf(4, 8, 12, 16, 20)
         private const val INDEX_TIP_LANDMARK = 8
         private const val MAX_THROW_SPEED = 4.5f
+        private const val MIN_PALM_AXIS_LENGTH_SQUARED = 0.000625f
         private const val GRAVITY = 3.2f
         private const val FLOOR_Y = -1.18f
         private const val FLOOR_BOUNCE = 0.28f
