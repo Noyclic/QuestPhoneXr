@@ -36,6 +36,31 @@ class HandKinematicReconstructorTest {
     }
 
     @Test
+    fun softBoneLengthConstraintReducesSingleFrameFingerStretch() {
+        val reconstructor = HandKinematicReconstructor()
+        val first = sampleHand()
+        val initial = reconstructor.reconstruct(first, 1L, 100L)!!
+
+        // OpenXR index MCP/PIP correspond to MediaPipe landmarks 5 and 6.
+        // A one-frame depth jump on landmark 6 should not stretch that segment
+        // as much in the reconstructed joint buffer.
+        val noisy = first.toMutableList().also { point ->
+            point[6] = point[6].copy(y = point[6].y + 0.08f)
+        }
+        val reconstructed = reconstructor.reconstruct(noisy, 1L, 116L)!!
+
+        val referenceLength = distance(initial[7], initial[8])
+        val rawObservedLength = distance(noisy[5], noisy[6])
+        val stabilizedLength = distance(reconstructed[7], reconstructed[8])
+
+        assertTrue(referenceLength > 0.01f)
+        assertTrue(
+            kotlin.math.abs(stabilizedLength - referenceLength) <
+                kotlin.math.abs(rawObservedLength - referenceLength)
+        )
+    }
+
+    @Test
     fun resetsOnTrackingIdentityChangeAndLongGap() {
         val reconstructor = HandKinematicReconstructor()
         val first = sampleHand()
@@ -71,6 +96,13 @@ class HandKinematicReconstructorTest {
         assertNull(reconstructor.reconstruct(invalid, 1L, 116L))
         val recovered = reconstructor.reconstruct(sampleHand(), 1L, 132L)
         assertTrue(recovered != null)
+    }
+
+    private fun distance(a: HandPoint, b: HandPoint): Float {
+        val dx = a.x - b.x
+        val dy = a.y - b.y
+        val dz = a.z - b.z
+        return kotlin.math.sqrt(dx * dx + dy * dy + dz * dz)
     }
 
     private fun sampleHand(): List<HandPoint> = List(21) { index ->
