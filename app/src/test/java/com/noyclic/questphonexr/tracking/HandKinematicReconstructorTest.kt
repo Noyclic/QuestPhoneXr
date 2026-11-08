@@ -61,6 +61,31 @@ class HandKinematicReconstructorTest {
     }
 
     @Test
+    fun softConstraintStabilizesEstimatedMetacarpalToMcpConnection() {
+        val reconstructor = HandKinematicReconstructor()
+        val first = sampleHand()
+        val initial = reconstructor.reconstruct(first, 1L, 100L)!!
+
+        val noisy = first.toMutableList().also { point ->
+            point[5] = point[5].copy(x = point[5].x + 0.10f)
+        }
+        val reconstructed = reconstructor.reconstruct(noisy, 1L, 116L)!!
+
+        val referenceLength = distance(initial[6], initial[7])
+        val wrist = noisy[0]
+        val estimatedBase = HandPoint(
+            wrist.x + (noisy[5].x - wrist.x) * 0.58f,
+            wrist.y + (noisy[5].y - wrist.y) * 0.58f,
+            wrist.z + (noisy[5].z - wrist.z) * 0.58f
+        )
+        val rawLength = distance(estimatedBase, noisy[5])
+        val stabilizedLength = distance(reconstructed[6], reconstructed[7])
+
+        assertTrue(referenceLength > 0.001f)
+        assertTrue(abs(stabilizedLength - referenceLength) < abs(rawLength - referenceLength))
+    }
+
+    @Test
     fun resetsOnTrackingIdentityChangeAndLongGap() {
         val reconstructor = HandKinematicReconstructor()
         val first = sampleHand()
