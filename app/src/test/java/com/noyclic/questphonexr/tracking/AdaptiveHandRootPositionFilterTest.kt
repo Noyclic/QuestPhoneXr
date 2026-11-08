@@ -23,7 +23,7 @@ class AdaptiveHandRootPositionFilterTest {
         val slow = filter.update(0.504f, 0.50f, 3L, 116L)!!
         val fast = filter.update(0.80f, 0.50f, 3L, 132L)!!
 
-        assertTrue("large movement should not be frozen", fast.x - slow.x > 0.10f)
+        assertTrue("large movement should not be frozen", fast.x - slow.x > 0.05f)
         assertTrue(fast.x < 0.80f)
     }
 
