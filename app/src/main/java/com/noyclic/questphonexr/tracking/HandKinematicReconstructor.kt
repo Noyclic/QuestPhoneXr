@@ -95,7 +95,7 @@ internal class HandKinematicReconstructor {
     }
 
     /**
-     * Softly limits temporal bone-length wobble on the four phalange chains.
+     * Softly limits temporal bone-length wobble on the five finger phalange chains.
      *
      * This is deliberately conservative: it corrects only 35% of the difference,
      * allows an 18% per-frame length envelope, and slowly adapts the reference when
@@ -187,6 +187,7 @@ internal class HandKinematicReconstructor {
         const val MIN_BONE_LENGTH_RATIO = 0.82f
         const val MAX_BONE_LENGTH_RATIO = 1.18f
         const val BONE_CORRECTION_WEIGHT = 0.35f
+        const val JOINT_COUNT = 26
         const val LANDMARK_COUNT = 21
         const val METACARPAL_BASE_RATIO = 0.58f
         const val BASE_ALPHA = 0.36f
