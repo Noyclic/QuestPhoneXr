@@ -66,10 +66,14 @@ internal class AdaptiveHandOrientationFilter(
         val desiredResponse = (
             minimumResponsePerSecond + usefulAngularSpeed * angularVelocityGain
         ).coerceIn(minimumResponsePerSecond, maximumResponsePerSecond)
-        val adaptation = 1f - exp(-dt / RESPONSE_ADAPTATION_SECONDS)
+        val adaptation = (
+            1.0 - exp((-dt / RESPONSE_ADAPTATION_SECONDS).toDouble())
+        ).toFloat()
         responsePerSecond += (desiredResponse - responsePerSecond) * adaptation
 
-        val alpha = (1f - exp(-responsePerSecond * dt)).coerceIn(0f, 1f)
+        val alpha = (
+            1.0 - exp((-responsePerSecond * dt).toDouble())
+        ).toFloat().coerceIn(0f, 1f)
         val next = slerp(previousOutput, normalized, alpha) ?: run {
             reset()
             return null
