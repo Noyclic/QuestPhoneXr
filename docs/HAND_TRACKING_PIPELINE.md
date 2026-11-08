@@ -167,3 +167,14 @@ The EndXR camera-input encoder now has an additional orientation and skeletal-st
 - These constraints affect only the reconstructed OpenXR joint sample. Raw MediaPipe landmarks used by pinch and natural gesture classification are unchanged; no camera-derived joint is promoted to a physically tracked 6DoF measurement.
 
 JVM tests cover small-rotation jitter suppression, faster response to rapid rotation, quaternion sign equivalence, identity/gap resets, invalid quaternion recovery, phalange-length outlier containment, and estimated metacarpal connection stability. Physical-device validation is still required to tune these thresholds against real camera noise, hand sizes, lighting and motion speed. No accuracy or FPS superiority over other applications is claimed without a controlled comparison.
+
+## Adaptive palm-shape stabilization
+
+The OpenXR skeleton reconstruction also stabilizes the three neighboring knuckle gaps (index–middle, middle–ring and ring–little):
+
+- The correction is applied to an entire finger chain, including its estimated metacarpal base, rather than moving an isolated knuckle. This preserves the chain's internal articulation and avoids bending a finger merely to repair palm spacing.
+- Each gap has its own slowly adapting reference. A soft 86–114% envelope damps one-frame spread/compression outliers, while a 0.70-second reference time constant allows sustained intentional finger splay to become the new shape.
+- Two short position-based passes resolve coupling through the shared middle and ring chains. The thumb is intentionally excluded so opposition remains unrestricted.
+- This stage runs after the adaptive per-joint temporal filter and before the finger-segment length pass. It affects only reconstructed OpenXR joints; raw landmarks, pinch and gesture classification are unchanged.
+
+Regression tests cover a single-frame MCP displacement and sustained finger splay. Real-hand tuning still requires physical-device testing across different hand sizes, camera angles and motion speeds.
