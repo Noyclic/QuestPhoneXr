@@ -62,6 +62,49 @@ class HandKinematicReconstructorTest {
     }
 
     @Test
+    fun palmConstraintSoftensSingleFrameKnuckleSpacingOutlier() {
+        val reconstructor = HandKinematicReconstructor()
+        val first = sampleHand()
+        val initial = reconstructor.reconstruct(first, 1L, 100L)!!
+
+        // MediaPipe landmark 9 is the middle-finger MCP. A one-frame lateral
+        // jump should not make the middle knuckle detach from its neighbors.
+        val noisy = first.toMutableList().also { points ->
+            points[9] = points[9].copy(x = points[9].x - 0.12f)
+        }
+        val reconstructed = reconstructor.reconstruct(noisy, 1L, 116L)!!
+
+        val referenceGap = distance(initial[7], initial[12])
+        val rawGap = distance(noisy[5], noisy[9])
+        val stabilizedGap = distance(reconstructed[7], reconstructed[12])
+
+        assertTrue(referenceGap > 0.002f)
+        assertTrue(abs(stabilizedGap - referenceGap) < abs(rawGap - referenceGap))
+    }
+
+    @Test
+    fun palmConstraintAdaptsToSustainedFingerSplay() {
+        val reconstructor = HandKinematicReconstructor()
+        val first = sampleHand()
+        val initial = reconstructor.reconstruct(first, 1L, 100L)!!
+        val initialGap = distance(initial[7], initial[12])
+        var latest = initial
+
+        // Hold a deliberately wider middle-finger MCP position over time.
+        // The spacing reference must follow this sustained pose rather than
+        // permanently forcing the hand back to its first observed shape.
+        val splayed = first.toMutableList().also { points ->
+            points[9] = points[9].copy(x = -0.06f)
+        }
+        for (frame in 1..60) {
+            latest = reconstructor.reconstruct(splayed, 1L, 100L + frame * 16L)!!
+        }
+
+        val adaptedGap = distance(latest[7], latest[12])
+        assertTrue(adaptedGap > initialGap * 1.5f)
+    }
+
+    @Test
     fun softConstraintStabilizesEstimatedMetacarpalToMcpConnection() {
         val reconstructor = HandKinematicReconstructor()
         val first = sampleHand()
