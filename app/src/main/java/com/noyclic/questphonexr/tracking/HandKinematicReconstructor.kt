@@ -182,6 +182,16 @@ internal class HandKinematicReconstructor {
                     shiftX, shiftY, shiftZ)
             }
         }
+
+        // The palm joint is defined as the center of the four non-thumb MCPs.
+        // Recompute it after moving complete finger chains so the PALM anchor
+        // cannot lag behind the corrected knuckle constellation.
+        val knuckleIndices = PALM_KNUCKLE_INDICES
+        output[PALM_JOINT_INDEX] = HandPoint(
+            knuckleIndices.sumOf { output[it].x.toDouble() } / knuckleIndices.size,
+            knuckleIndices.sumOf { output[it].y.toDouble() } / knuckleIndices.size,
+            knuckleIndices.sumOf { output[it].z.toDouble() } / knuckleIndices.size
+        ).let { HandPoint(it.x.toFloat(), it.y.toFloat(), it.z.toFloat()) }
         return output
     }
 
@@ -308,6 +318,8 @@ internal class HandKinematicReconstructor {
             16 to 17, 17 to 18, 18 to 19, 19 to 20,
             21 to 22, 22 to 23, 23 to 24, 24 to 25
         )
+        const val PALM_JOINT_INDEX = 0
+        val PALM_KNUCKLE_INDICES = intArrayOf(7, 12, 17, 22)
         const val MIN_PALM_GAP_METERS = 0.002f
         const val MIN_PALM_GAP_RATIO = 0.86f
         const val MAX_PALM_GAP_RATIO = 1.14f
