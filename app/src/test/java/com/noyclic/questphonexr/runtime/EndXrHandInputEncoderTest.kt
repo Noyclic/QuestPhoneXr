@@ -45,6 +45,29 @@ class EndXrHandInputEncoderTest {
     }
 
     @Test
+    fun smoothsEstimatedPalmTranslationWithoutChangingRawPinchInput() {
+        val firstHand = trackedHand(HandSide.LEFT, centerX = 0.5f).copy(trackingId = 42L)
+        val movedHand = trackedHand(HandSide.LEFT, centerX = 0.70f).copy(
+            trackingId = 42L,
+            pinchStrength = 0.91f,
+            isPinching = true
+        )
+
+        EndXrHandInputEncoder.encode(HandTrackingFrame(100L, listOf(firstHand)))
+        val moved = EndXrHandInputEncoder.encode(HandTrackingFrame(116L, listOf(movedHand)))
+
+        val rawImageCenterX = 0.70f - 0.0125f
+        val estimatedDistance = 2.55f * 0.18f / 0.20f
+        val unsmoothedX = (rawImageCenterX - 0.5f) * estimatedDistance * 2.4f
+
+        assertTrue("palm root should be smoothed on the camera plane", moved.leftPose.x < unsmoothedX)
+        assertEquals("raw pinch strength must not be delayed by root smoothing",
+            0.91f, moved.leftRow[1], 0.0001f)
+        assertTrue(moved.leftRow[0] == 1f)
+        assertTrue(moved.leftRow[1] > 0.8f)
+    }
+
+    @Test
     fun endXrSkeletonUsesRawMediaPipeWorldLandmarksNotRenderSmoothedPoints() {
         val baseline = trackedHand(HandSide.LEFT, centerX = 0.5f)
         val shiftedRawWorld = baseline.worldPoints.toMutableList().also {
