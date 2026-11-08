@@ -292,9 +292,7 @@ internal class HandKinematicReconstructor {
     }
 
     private companion object {
-        // OpenXR joint indices: thumb 2..5, index 6..10, middle 11..15,
-        // ring 17..20 and little finger 22..25. Constrain only measured
-        // phalange segments; estimated base joints remain softly anchored to the MCPs.
+        // Joint pair and complete finger-chain ranges for a neighboring MCP gap.
         private data class PalmGapPair(
             val leftMcp: Int,
             val rightMcp: Int,
@@ -311,6 +309,9 @@ internal class HandKinematicReconstructor {
             PalmGapPair(12, 17, 11, 15, 16, 20),
             PalmGapPair(17, 22, 16, 20, 21, 25)
         )
+        // OpenXR order: thumb 2..5, index 6..10, middle 11..15,
+        // ring 16..20 and little finger 21..25. Estimated base links are
+        // included so the reconstructed chain remains internally coherent.
         val FINGER_BONE_SEGMENTS = arrayOf(
             2 to 3, 3 to 4, 4 to 5,
             6 to 7, 7 to 8, 8 to 9, 9 to 10,
