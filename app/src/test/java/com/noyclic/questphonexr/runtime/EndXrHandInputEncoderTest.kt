@@ -68,6 +68,61 @@ class EndXrHandInputEncoderTest {
     }
 
     @Test
+    fun reusesEncodedPoseForDuplicateCameraSampleButKeepsGestureRowFresh() {
+        val firstHand = trackedHand(HandSide.LEFT, 0.5f).copy(
+            trackingId = 42L,
+            rawTimestampMs = 100L,
+            pinchStrength = 0.93f,
+            isPinching = true
+        )
+        val first = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(100L, listOf(firstHand))
+        )
+
+        // A short detector miss may return the last raw landmark timestamp,
+        // while the tracking manager has already released the pinch state.
+        val repeatedHand = trackedHand(HandSide.LEFT, 0.78f).copy(
+            trackingId = 42L,
+            rawTimestampMs = 100L,
+            pinchStrength = 0f,
+            isPinching = false
+        )
+        val repeated = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(116L, listOf(repeatedHand))
+        )
+
+        assertEquals(first.leftPose, repeated.leftPose)
+        assertEquals(first.leftJoints.values.toList(), repeated.leftJoints.values.toList())
+        assertEquals(0f, repeated.leftRow[1], 0.0001f)
+        assertFalse(repeated.leftRow[1] > 0f)
+    }
+
+    @Test
+    fun expiresDuplicateCameraSampleAfterReacquisitionWindow() {
+        val firstHand = trackedHand(HandSide.LEFT, 0.5f).copy(
+            trackingId = 7L,
+            rawTimestampMs = 100L
+        )
+        val first = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(100L, listOf(firstHand))
+        )
+        assertTrue(first.leftPose.active)
+
+        val stale = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(241L, listOf(firstHand))
+        )
+        assertFalse(stale.leftPose.active)
+        assertFalse(stale.leftJoints.active)
+
+        val reacquiredHand = firstHand.copy(rawTimestampMs = 250L)
+        val reacquired = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(250L, listOf(reacquiredHand))
+        )
+        assertTrue(reacquired.leftPose.active)
+        assertTrue(reacquired.leftJoints.active)
+    }
+
+    @Test
     fun endXrSkeletonUsesRawMediaPipeWorldLandmarksNotRenderSmoothedPoints() {
         val baseline = trackedHand(HandSide.LEFT, centerX = 0.5f)
         val shiftedRawWorld = baseline.worldPoints.toMutableList().also {
