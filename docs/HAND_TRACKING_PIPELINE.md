@@ -178,3 +178,4 @@ The OpenXR skeleton reconstruction also stabilizes the three neighboring knuckle
 - This stage runs after the adaptive per-joint temporal filter and before the finger-segment length pass. It affects only reconstructed OpenXR joints; raw landmarks, pinch and gesture classification are unchanged.
 
 Regression tests cover a single-frame MCP displacement and sustained finger splay. Real-hand tuning still requires physical-device testing across different hand sizes, camera angles and motion speeds.
+- After all constraints run, the OpenXR `PALM` joint is recalculated as the center of the final four proximal knuckle joints. This prevents the palm anchor from remaining at its pre-correction location.
