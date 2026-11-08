@@ -187,11 +187,12 @@ internal class HandKinematicReconstructor {
         // Recompute it after moving complete finger chains so the PALM anchor
         // cannot lag behind the corrected knuckle constellation.
         val knuckleIndices = PALM_KNUCKLE_INDICES
+        val knuckleCount = knuckleIndices.size.toDouble()
         output[PALM_JOINT_INDEX] = HandPoint(
-            knuckleIndices.sumOf { output[it].x.toDouble() } / knuckleIndices.size,
-            knuckleIndices.sumOf { output[it].y.toDouble() } / knuckleIndices.size,
-            knuckleIndices.sumOf { output[it].z.toDouble() } / knuckleIndices.size
-        ).let { HandPoint(it.x.toFloat(), it.y.toFloat(), it.z.toFloat()) }
+            (knuckleIndices.sumOf { output[it].x.toDouble() } / knuckleCount).toFloat(),
+            (knuckleIndices.sumOf { output[it].y.toDouble() } / knuckleCount).toFloat(),
+            (knuckleIndices.sumOf { output[it].z.toDouble() } / knuckleCount).toFloat()
+        )
         return output
     }
 
