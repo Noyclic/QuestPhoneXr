@@ -6,6 +6,20 @@ import org.junit.Test
 
 class SandboxHandMeshGeometryTest {
     @Test
+    fun visualScaleShrinksAroundPalmCenterWithoutMovingItsPivot() {
+        val center = -0.4f
+        val point = 0.6f
+
+        assertEquals(center, SandboxHandMeshGeometry.scaleVisualCoordinate(center, center), 0.0001f)
+        assertEquals(
+            (point - center) * SandboxHandMeshGeometry.VISUAL_SCALE,
+            SandboxHandMeshGeometry.scaleVisualCoordinate(point, center) - center,
+            0.0001f
+        )
+        assertTrue(SandboxHandMeshGeometry.VISUAL_SCALE in 0.70f..0.90f)
+    }
+
+    @Test
     fun fiveDigitChainsCoverAllMediaPipeFingerBonesWithoutInvalidIndices() {
         val chains = SandboxHandMeshGeometry.FINGER_CHAINS
 
