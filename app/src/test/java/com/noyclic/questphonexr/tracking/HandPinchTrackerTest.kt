@@ -116,7 +116,7 @@ class HandPinchTrackerTest {
 
     @Test
     fun nonFiniteDepthLandmarkResetsPinchState() {
-        val estimator = PinchEstimator()
+        val estimator = PinchEstimator(smoothing = 1f)
         val closed = points(pinch = true)
         assertTrue(estimator.update(closed, 5_000L).isPinching)
 
@@ -131,7 +131,7 @@ class HandPinchTrackerTest {
 
     @Test
     fun depthWeightCanBeDisabledForImageOnlyCompatibility() {
-        val estimator = PinchEstimator(depthWeight = 0f)
+        val estimator = PinchEstimator(smoothing = 1f, depthWeight = 0f)
         val sameImageCoordinates = points(pinch = true).toMutableList().also {
             it[4] = it[4].copy(z = -0.15f)
             it[8] = it[8].copy(z = 0.15f)
