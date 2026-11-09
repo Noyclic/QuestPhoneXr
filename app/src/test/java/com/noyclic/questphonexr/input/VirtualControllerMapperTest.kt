@@ -126,6 +126,8 @@ class VirtualControllerMapperTest {
             pressedKeyCodes = setOf(
                 GamepadButtonCodes.BUTTON_A,
                 GamepadButtonCodes.BUTTON_B,
+                GamepadButtonCodes.BUTTON_X,
+                GamepadButtonCodes.BUTTON_Y,
                 GamepadButtonCodes.BUTTON_L1,
                 GamepadButtonCodes.BUTTON_R1
             ),
