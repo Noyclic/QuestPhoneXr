@@ -5,6 +5,7 @@ import com.noyclic.questphonexr.tracking.HandSide
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.TrackedHand
 import kotlin.math.sqrt
+import kotlin.math.abs
 
 /**
  * Combines camera hand tracking and assigned Android gamepads into stable left/right states.
@@ -14,48 +15,78 @@ class VirtualControllerMapper {
 
     fun map(
         handFrame: HandTrackingFrame,
-        physicalControllers: List<PhysicalControllerSnapshot>
+        physicalControllers: List<PhysicalControllerSnapshot>,
+        bindings: ControllerBindingProfile = ControllerBindingProfile.DEFAULT
     ): VirtualControllerFrame {
-        // A tracked frame contains at most two usable sides. Select them directly
-        // rather than allocating a filtered list and temporary map on every result.
-        var leftHand: TrackedHand? = null
-        var rightHand: TrackedHand? = null
-        for (hand in handFrame.hands) {
-            when (hand.side) {
-                HandSide.LEFT -> leftHand = hand
-                HandSide.RIGHT -> rightHand = hand
-                HandSide.UNKNOWN -> Unit
-            }
-        }
+        val handsBySide = handFrame.hands
+            .filter { it.side != HandSide.UNKNOWN }
+            .associateBy { it.side }
 
         return VirtualControllerFrame(
             timestampMs = handFrame.timestampMs,
-            left = mapSide(HandSide.LEFT, leftHand, physicalControllers),
-            right = mapSide(HandSide.RIGHT, rightHand, physicalControllers)
+            left = mapSide(HandSide.LEFT, handsBySide[HandSide.LEFT], physicalControllers, bindings.left),
+            right = mapSide(HandSide.RIGHT, handsBySide[HandSide.RIGHT], physicalControllers, bindings.right)
         )
     }
 
     private fun mapSide(
         side: HandSide,
         hand: TrackedHand?,
-        physicalControllers: List<PhysicalControllerSnapshot>
+        physicalControllers: List<PhysicalControllerSnapshot>,
+        binding: ControllerHandBinding
     ): VirtualControllerState {
         val physical = physicalControllers.firstOrNull { it.hand == side }
+            ?: physicalControllers.firstOrNull { it.mapToBothHands }
         val pressedKeys = physical?.pressedKeyCodes.orEmpty()
-        val digitalTrigger = if (
-            GamepadButtonCodes.BUTTON_L2 in pressedKeys ||
-            GamepadButtonCodes.BUTTON_R2 in pressedKeys
-        ) 1f else 0f
-        val trigger = maxOf(
-            hand?.pinchStrength ?: 0f,
-            physical?.leftTrigger ?: 0f,
-            physical?.rightTrigger ?: 0f,
-            digitalTrigger
-        ).coerceIn(0f, 1f)
-        val digitalGrip = if (
-            GamepadButtonCodes.BUTTON_L1 in pressedKeys ||
-            GamepadButtonCodes.BUTTON_R1 in pressedKeys
-        ) 1f else 0f
+        val selectedTrigger = when (binding.triggerSource) {
+            TriggerAxisSource.LEFT_TRIGGER -> maxOf(
+                physical?.leftTrigger ?: 0f,
+                if (GamepadButtonCodes.BUTTON_L2 in pressedKeys) 1f else 0f
+            )
+            TriggerAxisSource.RIGHT_TRIGGER -> maxOf(
+                physical?.rightTrigger ?: 0f,
+                if (GamepadButtonCodes.BUTTON_R2 in pressedKeys) 1f else 0f
+            )
+            TriggerAxisSource.EITHER -> maxOf(
+                physical?.leftTrigger ?: 0f,
+                physical?.rightTrigger ?: 0f,
+                if (GamepadButtonCodes.BUTTON_L2 in pressedKeys ||
+                    GamepadButtonCodes.BUTTON_R2 in pressedKeys
+                ) 1f else 0f
+            )
+            TriggerAxisSource.CUSTOM_AXIS -> customTriggerValue(binding, physical)
+            TriggerAxisSource.NONE -> 0f
+        }
+        val trigger = maxOf(hand?.pinchStrength ?: 0f, selectedTrigger).coerceIn(0f, 1f)
+        val digitalGrip = if (binding.gripKeyCode != 0 && binding.gripKeyCode in pressedKeys) {
+            1f
+        } else {
+            0f
+        }
+        val selectedStickSource = when (binding.stickSource) {
+            StickAxisSource.AUTO -> if (physical?.mapToBothHands == true && side == HandSide.RIGHT) {
+                StickAxisSource.RIGHT
+            } else {
+                StickAxisSource.LEFT
+            }
+            else -> binding.stickSource
+        }
+        val selectedStick = when (selectedStickSource) {
+            StickAxisSource.LEFT -> physical?.let { it.stickX to it.stickY } ?: (0f to 0f)
+            StickAxisSource.RIGHT -> physical?.let { it.rightStickX to it.rightStickY } ?: (0f to 0f)
+            StickAxisSource.NONE -> 0f to 0f
+            StickAxisSource.AUTO -> 0f to 0f
+        }
+        val virtualButtons = buildSet {
+            fun mapButton(target: VirtualGamepadButton, sourceKeyCode: Int) {
+                if (sourceKeyCode > 0 && sourceKeyCode in pressedKeys) add(target)
+            }
+            mapButton(VirtualGamepadButton.A, binding.buttonAKeyCode)
+            mapButton(VirtualGamepadButton.B, binding.buttonBKeyCode)
+            mapButton(VirtualGamepadButton.X, binding.buttonXKeyCode)
+            mapButton(VirtualGamepadButton.Y, binding.buttonYKeyCode)
+            mapButton(VirtualGamepadButton.MENU, binding.menuKeyCode)
+        }
 
         val source = when {
             hand != null && physical != null -> ControllerInputSource.HAND_AND_GAMEPAD
@@ -71,12 +102,53 @@ class VirtualControllerMapper {
             trigger = trigger,
             grip = maxOf(hand?.let(::estimateGripStrength) ?: 0f, digitalGrip),
             pinchPressed = hand?.isPinching ?: false,
-            stickX = physical?.stickX ?: 0f,
-            stickY = physical?.stickY ?: 0f,
+            stickX = selectedStick.first.coerceIn(-1f, 1f),
+            stickY = selectedStick.second.coerceIn(-1f, 1f),
             pressedKeyCodes = physical?.pressedKeyCodes ?: emptySet(),
             source = source,
-            physicalDeviceName = physical?.deviceName
+            physicalDeviceName = physical?.deviceName,
+            physicalDeviceId = physical?.deviceId,
+            virtualButtons = virtualButtons
         )
+    }
+
+    /**
+     * Re-expresses mapped physical controls for the Sandbox simulation. Camera-only
+     * hands are omitted; their landmarks continue through the independent hand frame.
+     */
+    fun toPhysicalSnapshots(frame: VirtualControllerFrame): List<PhysicalControllerSnapshot> =
+        listOf(frame.left, frame.right).mapNotNull { state ->
+            val deviceId = state.physicalDeviceId ?: return@mapNotNull null
+            val pressed = state.pressedKeyCodes.toMutableSet()
+            if (state.grip >= DIGITAL_GRIP_THRESHOLD) pressed += GamepadButtonCodes.BUTTON_L1
+            PhysicalControllerSnapshot(
+                deviceId = deviceId,
+                deviceName = state.physicalDeviceName ?: "Android gamepad",
+                hand = state.hand,
+                stickX = state.stickX,
+                stickY = state.stickY,
+                rightStickX = 0f,
+                rightStickY = 0f,
+                leftTrigger = state.trigger,
+                rightTrigger = 0f,
+                pressedKeyCodes = pressed,
+                updatedAtMs = frame.timestampMs
+            )
+        }
+
+    private fun customTriggerValue(
+        binding: ControllerHandBinding,
+        physical: PhysicalControllerSnapshot?
+    ): Float {
+        val axis = binding.customTriggerAxis ?: return 0f
+        val raw = physical?.analogAxes?.get(axis) ?: return 0f
+        val rest = binding.customTriggerRestValue ?: 0f
+        val pressed = binding.customTriggerPressedValue ?: 1f
+        val travel = pressed - rest
+        if (!raw.isFinite() || !rest.isFinite() || !pressed.isFinite() ||
+            !travel.isFinite() || abs(travel) < MIN_CUSTOM_TRIGGER_TRAVEL
+        ) return 0f
+        return ((raw - rest) / travel).coerceIn(0f, 1f)
     }
 
     private fun toPose(hand: TrackedHand): HandPoseSample? {
@@ -110,17 +182,15 @@ class VirtualControllerMapper {
         val wrist = points.getOrNull(0) ?: return 0f
         val middleMcp = points.getOrNull(9) ?: return 0f
         val palmLength = distance(wrist, middleMcp).coerceAtLeast(MIN_PALM_LENGTH)
-        val thumbTip = points.getOrNull(8) ?: return 0f
-        val indexTip = points.getOrNull(12) ?: return 0f
-        val middleTip = points.getOrNull(16) ?: return 0f
-        val pinkyTip = points.getOrNull(20) ?: return 0f
-        val averageRatio = (
-            (distance(wrist, thumbTip) / palmLength).toDouble() +
-                (distance(wrist, indexTip) / palmLength).toDouble() +
-                (distance(wrist, middleTip) / palmLength).toDouble() +
-                (distance(wrist, pinkyTip) / palmLength).toDouble()
-            ) / FINGER_TIP_COUNT
-        return ((OPEN_HAND_RATIO - averageRatio.toFloat()) / GRIP_RANGE).coerceIn(0f, 1f)
+        val tipIndices = intArrayOf(8, 12, 16, 20)
+        val tipDistances = tipIndices
+            .map { points.getOrNull(it) }
+            .filterNotNull()
+            .map { distance(wrist, it) / palmLength }
+        if (tipDistances.size != tipIndices.size) return 0f
+
+        val averageRatio = tipDistances.average().toFloat()
+        return ((OPEN_HAND_RATIO - averageRatio) / GRIP_RANGE).coerceIn(0f, 1f)
     }
 
     private fun vector(point: HandPoint) = Vector3f(point.x, point.y, point.z)
@@ -134,9 +204,10 @@ class VirtualControllerMapper {
 
     private companion object {
         const val LANDMARK_COUNT = 21
+        const val MIN_CUSTOM_TRIGGER_TRAVEL = 0.001f
+        const val DIGITAL_GRIP_THRESHOLD = 0.5f
         const val MIN_PALM_LENGTH = 0.0001f
         const val OPEN_HAND_RATIO = 2.05f
         const val GRIP_RANGE = 1.15f
-        const val FINGER_TIP_COUNT = 4
     }
 }

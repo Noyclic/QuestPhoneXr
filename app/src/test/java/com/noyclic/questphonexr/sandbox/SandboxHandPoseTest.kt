@@ -165,4 +165,66 @@ class SandboxHandPoseTest {
         assertTrue(mapped.all { kotlin.math.abs(it.z + 2.55f) < 0.0001f })
     }
 
+
+    @Test
+    fun timestampedDepthIgnoresDuplicateAndOutOfOrderSamples() {
+        val estimator = MonocularHandDepthEstimator()
+        val narrow = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+        narrow[5] = HandPoint(0.40f, 0.4f, 0f)
+        narrow[17] = HandPoint(0.22f, 0.4f, 0f)
+        val initial = estimator.update(narrow, 1_000L)!!
+
+        val wide = narrow.toMutableList().also {
+            it[5] = HandPoint(0.46f, 0.4f, 0f)
+            it[17] = HandPoint(0.22f, 0.4f, 0f)
+        }
+        val updated = estimator.update(wide, 1_033L)!!
+        assertTrue(updated < initial)
+
+        val duplicateDifferentPose = narrow.toMutableList().also {
+            it[5] = HandPoint(0.35f, 0.4f, 0f)
+            it[17] = HandPoint(0.22f, 0.4f, 0f)
+        }
+        assertEquals(updated, estimator.update(duplicateDifferentPose, 1_033L)!!, 0f)
+        assertEquals(updated, estimator.update(narrow, 1_020L)!!, 0f)
+    }
+
+    @Test
+    fun timestampedDepthResponseIsIndependentOfCameraSampleRate() {
+        fun landmarks(palmWidth: Float): List<HandPoint> =
+            MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }.also {
+                it[5] = HandPoint(0.5f, 0.4f, 0f)
+                it[17] = HandPoint(0.5f - palmWidth, 0.4f, 0f)
+            }
+
+        val at30Fps = MonocularHandDepthEstimator()
+        val at60Fps = MonocularHandDepthEstimator()
+        at30Fps.update(landmarks(0.18f), 1_000L)
+        at60Fps.update(landmarks(0.18f), 1_000L)
+        var depth30 = 0f
+        var depth60 = 0f
+        for (frame in 1..30) {
+            depth30 = at30Fps.update(landmarks(0.10f), 1_000L + frame * 33L)!!
+        }
+        for (frame in 1..60) {
+            depth60 = at60Fps.update(landmarks(0.10f), 1_000L + frame * 16L)!!
+        }
+        assertEquals(depth30, depth60, 0.08f)
+    }
+
+    @Test
+    fun timestampedDepthResetsItsRateHistoryAfterLongTrackingGap() {
+        val estimator = MonocularHandDepthEstimator()
+        val narrow = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+        narrow[5] = HandPoint(0.40f, 0.4f, 0f)
+        narrow[17] = HandPoint(0.22f, 0.4f, 0f)
+        estimator.update(narrow, 1_000L)
+        val wide = narrow.toMutableList().also {
+            it[5] = HandPoint(0.46f, 0.4f, 0f)
+            it[17] = HandPoint(0.22f, 0.4f, 0f)
+        }
+        val afterGap = estimator.update(wide, 1_400L)!!
+        assertEquals(1.9125f, afterGap, 0.0001f)
+    }
+
 }

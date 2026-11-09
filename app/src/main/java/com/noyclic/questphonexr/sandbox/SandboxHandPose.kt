@@ -1,6 +1,7 @@
 package com.noyclic.questphonexr.sandbox
 
 import com.noyclic.questphonexr.tracking.HandPoint
+import kotlin.math.pow
 
 /** Maps MediaPipe image landmarks across the wider free-space sandbox reach volume, not just the platform footprint. */
 internal object SandboxHandPoseMapper {
@@ -77,19 +78,37 @@ internal object SandboxHandPoseMapper {
 
 /**
  * Estimates hand distance from apparent palm width. This is monocular, relative depth:
- * it is useful for interaction but is not a metric 6DoF room pose.
- */
-internal class MonocularHandDepthEstimator(
+ * it is useful for interaction but is not a metrinternal class MonocularHandDepthEstimator(
     private val referencePalmWidth: Float = 0.18f,
     private val referenceDistanceMeters: Float = 2.55f,
     private val minimumDistanceMeters: Float = 1.0f,
     private val maximumDistanceMeters: Float = 4.5f,
-    private val smoothing: Float = 0.50f,
-    private val maximumStepMeters: Float = 0.45f
+    private val smoothing: Float = 0.28f,
+    private val maximumStepMeters: Float = 0.22f
 ) {
     private var filteredDistance: Float? = null
+    private var lastTimestampMs = 0L
 
-    fun update(points: List<HandPoint>): Float? {
+    /** Legacy sample-count overload retained for callers without source timestamps. */
+    fun update(points: List<HandPoint>): Float? =
+        updateMeasured(points, elapsedMs = null)
+
+    /**
+     * Timestamp-aware update for camera frames. Duplicate/out-of-order samples
+     * cannot keep nudging the depth estimate during faster Sandbox rendering.
+     */
+    fun update(points: List<HandPoint>, timestampMs: Long): Float? {
+        if (timestampMs <= 0L) return update(points)
+        val previousTimestamp = lastTimestampMs
+        if (previousTimestamp > 0L && timestampMs <= previousTimestamp) {
+            return filteredDistance
+        }
+        lastTimestampMs = timestampMs
+        val elapsedMs = if (previousTimestamp > 0L) timestampMs - previousTimestamp else null
+        return updateMeasured(points, elapsedMs)
+    }
+
+    private fun updateMeasured(points: List<HandPoint>, elapsedMs: Long?): Float? {
         val indexMcp = points.getOrNull(5) ?: return filteredDistance
         val pinkyMcp = points.getOrNull(17) ?: return filteredDistance
         val dx = indexMcp.x - pinkyMcp.x
@@ -100,9 +119,26 @@ internal class MonocularHandDepthEstimator(
         val measured = (referenceDistanceMeters * referencePalmWidth / palmWidth)
             .coerceIn(minimumDistanceMeters, maximumDistanceMeters)
         val previous = filteredDistance
-        val next = if (previous == null) measured else {
+        val next = if (previous == null) {
+            measured
+        } else if (elapsedMs == null) {
             val desiredStep = (measured - previous) * smoothing
             previous + desiredStep.coerceIn(-maximumStepMeters, maximumStepMeters)
+        } else if (elapsedMs > MAX_CONTINUOUS_GAP_MS) {
+            measured
+        } else {
+            val deltaSeconds = (elapsedMs / 1_000f).coerceIn(
+                MIN_DELTA_SECONDS,
+                MAX_DELTA_SECONDS
+            )
+            // Preserve the configured response at the reference rate while
+            // making the filter independent of how often the frame is sampled.
+            val alpha = (
+                1f - (1f - smoothing).pow(deltaSeconds * REFERENCE_FPS)
+                ).coerceIn(0f, 1f)
+            val maximumStep = maximumStepMeters * REFERENCE_FPS * deltaSeconds
+            val desiredStep = (measured - previous) * alpha
+            previous + desiredStep.coerceIn(-maximumStep, maximumStep)
         }
         filteredDistance = next
         return next
@@ -110,9 +146,14 @@ internal class MonocularHandDepthEstimator(
 
     fun reset() {
         filteredDistance = null
+        lastTimestampMs = 0L
     }
 
     private companion object {
         const val MIN_VALID_PALM_WIDTH = 0.035f
+        const val REFERENCE_FPS = 30f
+        const val MIN_DELTA_SECONDS = 0.001f
+        const val MAX_DELTA_SECONDS = 0.25f
+        const val MAX_CONTINUOUS_GAP_MS = 250L
     }
 }

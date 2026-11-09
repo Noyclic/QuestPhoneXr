@@ -5,7 +5,6 @@ import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import com.noyclic.questphonexr.tracking.HandSide
-import kotlin.math.abs
 
 /**
  * Captures standard Android gamepad/joystick events. Joy-Con devices can be assigned to a
@@ -18,12 +17,14 @@ class AndroidGamepadInputAdapter(
         val deviceId: Int,
         var deviceName: String,
         var hand: HandSide? = null,
+        var mapToBothHands: Boolean = false,
         var stickX: Float = 0f,
         var stickY: Float = 0f,
         var rightStickX: Float = 0f,
         var rightStickY: Float = 0f,
         var leftTrigger: Float = 0f,
         var rightTrigger: Float = 0f,
+        val analogAxes: MutableMap<Int, Float> = linkedMapOf(),
         val pressedKeyCodes: MutableSet<Int> = linkedSetOf(),
         var updatedAtMs: Long = 0L
     ) {
@@ -38,7 +39,9 @@ class AndroidGamepadInputAdapter(
             leftTrigger = leftTrigger,
             rightTrigger = rightTrigger,
             pressedKeyCodes = pressedKeyCodes.toSet(),
-            updatedAtMs = updatedAtMs
+            updatedAtMs = updatedAtMs,
+            mapToBothHands = mapToBothHands,
+            analogAxes = analogAxes.toMap()
         )
     }
 
@@ -66,12 +69,31 @@ class AndroidGamepadInputAdapter(
         val snapshot = synchronized(lock) {
             val state = devices[deviceId] ?: return
             if (hand != null) {
-                // One physical controller per virtual hand prevents nondeterministic selection.
+                // A dual-mapped pad occupies both virtual hands.
+                // A side-specific controller overrides a dual-mapped pad for that side;
+                // keep the latter alive for the other virtual hand.
                 devices.values
                     .filter { it.deviceId != deviceId && it.hand == hand }
                     .forEach { it.hand = null }
             }
             state.hand = hand
+            state.mapToBothHands = false
+            snapshotLocked()
+        }
+        onChanged?.invoke(snapshot)
+    }
+
+    /** Use one full gamepad as both virtual hands (left/right stick and triggers stay separate). */
+    fun assignDeviceToBothHands(deviceId: Int) {
+        val snapshot = synchronized(lock) {
+            val state = devices[deviceId] ?: return
+            // Keep separately assigned left/right controllers. The exact-side device wins
+            // in VirtualControllerMapper while this pad remains the fallback for the other hand.
+            devices.values
+                .filter { it.deviceId != deviceId && it.mapToBothHands }
+                .forEach { it.mapToBothHands = false }
+            state.hand = null
+            state.mapToBothHands = true
             snapshotLocked()
         }
         onChanged?.invoke(snapshot)
@@ -115,21 +137,28 @@ class AndroidGamepadInputAdapter(
                 event.getAxisValue(MotionEvent.AXIS_Y)
             )
             val rightStick = StickAxisFilter.normalize(
-                axisWithFallback(event, MotionEvent.AXIS_RX, MotionEvent.AXIS_Z),
-                axisWithFallback(event, MotionEvent.AXIS_RY, MotionEvent.AXIS_RZ)
+                axisWithFallback(event, device, MotionEvent.AXIS_RX, MotionEvent.AXIS_Z),
+                axisWithFallback(event, device, MotionEvent.AXIS_RY, MotionEvent.AXIS_RZ)
             )
             state.stickX = leftStick.x
             state.stickY = leftStick.y
             state.rightStickX = rightStick.x
             state.rightStickY = rightStick.y
+            device.motionRanges.forEach { range ->
+                state.analogAxes[range.axis] = GamepadAxisNormalizer.normalizeTrigger(
+                    event.getAxisValue(range.axis),
+                    range.min,
+                    range.max
+                )
+            }
             state.leftTrigger = maxOf(
-                event.getAxisValue(MotionEvent.AXIS_LTRIGGER),
-                event.getAxisValue(MotionEvent.AXIS_BRAKE)
-            ).coerceIn(0f, 1f)
+                triggerAxisValue(event, device, MotionEvent.AXIS_LTRIGGER),
+                triggerAxisValue(event, device, MotionEvent.AXIS_BRAKE)
+            )
             state.rightTrigger = maxOf(
-                event.getAxisValue(MotionEvent.AXIS_RTRIGGER),
-                event.getAxisValue(MotionEvent.AXIS_GAS)
-            ).coerceIn(0f, 1f)
+                triggerAxisValue(event, device, MotionEvent.AXIS_RTRIGGER),
+                triggerAxisValue(event, device, MotionEvent.AXIS_GAS)
+            )
             state.updatedAtMs = SystemClock.uptimeMillis()
             snapshotLocked()
         }
@@ -137,10 +166,41 @@ class AndroidGamepadInputAdapter(
         return true
     }
 
-    private fun axisWithFallback(event: MotionEvent, preferredAxis: Int, fallbackAxis: Int): Float {
-        val preferred = event.getAxisValue(preferredAxis)
-        return if (abs(preferred) > AXIS_FALLBACK_EPSILON) {
-            preferred
+    /**
+     * Read an analog trigger using the axis range declared by Android. Some generic HID
+     * devices expose a trigger as [-1, 1] rather than [0, 1]; normalizing the range keeps
+     * the released value at zero and the fully pressed value at one.
+     */
+    private fun triggerAxisValue(
+        event: MotionEvent,
+        device: InputDevice,
+        axis: Int
+    ): Float {
+        val raw = event.getAxisValue(axis)
+        val range = device.getMotionRange(axis, event.source)
+            ?: device.getMotionRange(axis)
+        return if (range != null) {
+            GamepadAxisNormalizer.normalizeTrigger(raw, range.min, range.max)
+        } else {
+            raw.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+        }
+    }
+
+    /**
+     * Prefer the declared RX/RY axes even when they are centered at zero. Falling back
+     * based on the current value can accidentally read Z/RZ (which some pads use for
+     * other controls) whenever a valid right stick happens to be neutral.
+     */
+    private fun axisWithFallback(
+        event: MotionEvent,
+        device: InputDevice,
+        preferredAxis: Int,
+        fallbackAxis: Int
+    ): Float {
+        val preferredRange = device.getMotionRange(preferredAxis, event.source)
+            ?: device.getMotionRange(preferredAxis)
+        return if (preferredRange != null) {
+            event.getAxisValue(preferredAxis)
         } else {
             event.getAxisValue(fallbackAxis)
         }
@@ -159,9 +219,5 @@ class AndroidGamepadInputAdapter(
         val gamepad = (source and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
         val joystick = (source and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK
         return gamepad || joystick
-    }
-
-    private companion object {
-        const val AXIS_FALLBACK_EPSILON = 0.001f
     }
 }

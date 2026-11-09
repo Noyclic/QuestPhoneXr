@@ -46,6 +46,10 @@ import android.text.InputType
 import java.util.Locale
 import java.io.File
 import com.noyclic.questphonexr.input.AndroidGamepadInputAdapter
+import com.noyclic.questphonexr.input.ControllerBindingProfile
+import com.noyclic.questphonexr.input.ControllerBindingStore
+import com.noyclic.questphonexr.input.ControllerBindingsActivity
+import com.noyclic.questphonexr.input.VirtualGamepadButton
 import com.noyclic.questphonexr.input.GamepadButtonCodes
 import com.noyclic.questphonexr.input.VirtualControllerMapper
 import com.noyclic.questphonexr.input.VirtualControllerState
@@ -83,6 +87,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private val inputManager by lazy { getSystemService(INPUT_SERVICE) as InputManager }
     private val simulation = SandboxSimulation()
     private val virtualControllerMapper = VirtualControllerMapper()
+    private var controllerBindingProfile = ControllerBindingProfile.DEFAULT
     @Volatile private var controllerSnapshots: List<PhysicalControllerSnapshot> = emptyList()
     @Volatile private var latestHandFrame = HandTrackingFrame(0L, emptyList())
     @Volatile private var latestHandFrameReceivedAtMs = 0L
@@ -274,12 +279,16 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     trackingSender?.publish(latestHands)
                 }
                 publishOpenXrInput(hands, snapshot)
+                val mappedControllers = virtualControllerMapper.map(
+                    hands, snapshot, controllerBindingProfile
+                )
+                val simulationControllers = virtualControllerMapper.toPhysicalSnapshots(mappedControllers)
                 val cameraToWorldRotation = renderer.cameraToWorldRotation()
                 glView.queueEvent {
                     // Use GL-thread time for presentation so interpolation follows actual rendering.
                     val renderTimeMs = SystemClock.uptimeMillis()
                     simulation.update(
-                        snapshot,
+                        simulationControllers,
                         hands,
                         deltaSeconds,
                         cameraToWorldRotation,
@@ -300,6 +309,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        controllerBindingProfile = ControllerBindingStore.load(this)
         requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         applyImmersiveMode()
@@ -556,11 +566,11 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
     private fun nativeInputRow(state: VirtualControllerState): FloatArray {
         var buttons = 0
-        if (GamepadButtonCodes.BUTTON_A in state.pressedKeyCodes) buttons = buttons or (1 shl 0)
-        if (GamepadButtonCodes.BUTTON_B in state.pressedKeyCodes) buttons = buttons or (1 shl 1)
-        if (GamepadButtonCodes.BUTTON_X in state.pressedKeyCodes) buttons = buttons or (1 shl 2)
-        if (GamepadButtonCodes.BUTTON_Y in state.pressedKeyCodes) buttons = buttons or (1 shl 3)
-        if (GamepadButtonCodes.BUTTON_START in state.pressedKeyCodes) buttons = buttons or (1 shl 4)
+        if (VirtualGamepadButton.A in state.virtualButtons) buttons = buttons or (1 shl 0)
+        if (VirtualGamepadButton.B in state.virtualButtons) buttons = buttons or (1 shl 1)
+        if (VirtualGamepadButton.X in state.virtualButtons) buttons = buttons or (1 shl 2)
+        if (VirtualGamepadButton.Y in state.virtualButtons) buttons = buttons or (1 shl 3)
+        if (VirtualGamepadButton.MENU in state.virtualButtons) buttons = buttons or (1 shl 4)
         return floatArrayOf(
             if (state.source != ControllerInputSource.NONE) 1f else 0f,
             state.trigger.coerceIn(0f, 1f), state.grip.coerceIn(0f, 1f),
@@ -573,7 +583,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         handFrame: HandTrackingFrame = latestHandFrame,
         controllers: List<PhysicalControllerSnapshot> = controllerSnapshots
     ) {
-        val frame = virtualControllerMapper.map(handFrame, controllers)
+        val frame = virtualControllerMapper.map(handFrame, controllers, controllerBindingProfile)
         val left = nativeInputRow(frame.left)
         val right = nativeInputRow(frame.right)
         val cameraInput = EndXrHandInputEncoder.encode(handFrame)
@@ -706,7 +716,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     }
 
     private fun showOpenXrInputDiagnostic() {
-        val frame = virtualControllerMapper.map(latestHandFrame, controllerSnapshots)
+        val frame = virtualControllerMapper.map(latestHandFrame, controllerSnapshots, controllerBindingProfile)
         fun describe(label: String, state: VirtualControllerState): String = buildString {
             append(label).append(": ").append(state.source.name).append('\n')
             append("  trigger=").append(String.format(Locale.US, "%.2f", state.trigger))
@@ -856,6 +866,12 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             )
             buttons.addView(
                 controlButton("Контроллеры") { showControllerAssignmentDialog() },
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            )
+            buttons.addView(
+                controlButton("Бинды") {
+                    startActivity(Intent(this@SandboxActivity, ControllerBindingsActivity::class.java))
+                },
                 LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             )
             buttons.addView(
@@ -1860,9 +1876,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         }
 
         val labels = connected.map { controller ->
-            val assigned = when (controller.hand) {
-                com.noyclic.questphonexr.tracking.HandSide.LEFT -> "левая рука"
-                com.noyclic.questphonexr.tracking.HandSide.RIGHT -> "правая рука"
+            val assigned = when {
+                controller.mapToBothHands -> "обе руки"
+                controller.hand == com.noyclic.questphonexr.tracking.HandSide.LEFT -> "левая рука"
+                controller.hand == com.noyclic.questphonexr.tracking.HandSide.RIGHT -> "правая рука"
                 else -> "не назначен"
             }
             controller.deviceName + " · ID " + controller.deviceId + " · " + assigned
@@ -1871,16 +1888,28 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             .setTitle("Назначение Joy-Con")
             .setItems(labels.toTypedArray()) { _, index ->
                 val selected = connected[index]
-                val options = arrayOf("Левая рука", "Правая рука", "Снять назначение")
+                val options = arrayOf(
+                    "Левая рука",
+                    "Правая рука",
+                    "Обе руки · один геймпад",
+                    "Снять назначение"
+                )
                 AlertDialog.Builder(this)
                     .setTitle(selected.deviceName)
                     .setItems(options) { _, handIndex ->
-                        val hand = when (handIndex) {
-                            0 -> com.noyclic.questphonexr.tracking.HandSide.LEFT
-                            1 -> com.noyclic.questphonexr.tracking.HandSide.RIGHT
-                            else -> null
+                        when (handIndex) {
+                            0 -> gamepadInput.assignDevice(
+                                selected.deviceId,
+                                com.noyclic.questphonexr.tracking.HandSide.LEFT
+                            )
+                            1 -> gamepadInput.assignDevice(
+                                selected.deviceId,
+                                com.noyclic.questphonexr.tracking.HandSide.RIGHT
+                            )
+                            2 -> gamepadInput.assignDeviceToBothHands(selected.deviceId)
+                            else -> gamepadInput.assignDevice(selected.deviceId, null)
                         }
-                        gamepadInput.assignDevice(selected.deviceId, hand)
+                        updateStatus()
                     }
                     .show()
             }
@@ -2036,10 +2065,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private fun statusText(): String {
         val controllers = controllerSnapshots
         val leftConnected = controllers.any {
-            it.hand == com.noyclic.questphonexr.tracking.HandSide.LEFT
+            it.hand == com.noyclic.questphonexr.tracking.HandSide.LEFT || it.mapToBothHands
         }
         val rightConnected = controllers.any {
-            it.hand == com.noyclic.questphonexr.tracking.HandSide.RIGHT
+            it.hand == com.noyclic.questphonexr.tracking.HandSide.RIGHT || it.mapToBothHands
         }
         val scene = simulation.snapshot()
         val serviceRunning = EndXrHandTrackingService.isRunning()
@@ -2209,6 +2238,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
             }
         }
+        controllerBindingProfile = ControllerBindingStore.load(this)
         inputManager.registerInputDeviceListener(this, Handler(Looper.getMainLooper()))
         controllerSnapshots = gamepadInput.refreshConnectedDevices()
         if (EndXrHandTrackingService.isRunning()) {

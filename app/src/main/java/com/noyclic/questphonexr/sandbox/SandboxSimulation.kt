@@ -589,7 +589,14 @@ class SandboxSimulation {
     ): ControllerState {
         val physical = controllers.firstOrNull { it.hand == hand }
         val depthEstimator = if (hand == HandSide.LEFT) leftDepthEstimator else rightDepthEstimator
-        val estimatedDistance = trackedHand?.let { depthEstimator.update(it.points) }
+        val estimatedDistance = trackedHand?.let { tracked ->
+            val sampleTimestampMs = tracked.rawTimestampMs
+            if (sampleTimestampMs > 0L) {
+                depthEstimator.update(tracked.points, sampleTimestampMs)
+            } else {
+                depthEstimator.update(tracked.points)
+            }
+        }
         val cameraLandmarks = trackedHand?.let { tracked ->
             SandboxHandPoseMapper.map(
                 points = tracked.points,

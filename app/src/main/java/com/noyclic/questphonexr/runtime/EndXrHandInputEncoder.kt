@@ -244,7 +244,7 @@ internal object EndXrHandInputEncoder {
         val stableImageCenter = rootPositionFilter.update(
             imageCenter.x, imageCenter.y, hand.trackingId, sampleTimestampMs
         ) ?: return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
-        val distance = depthEstimator.update(hand.rawPoints)?.takeIf { it.isFinite() }
+        val distance = depthEstimator.update(hand.rawPoints, sampleTimestampMs)?.takeIf { it.isFinite() }
             ?: DEFAULT_HAND_DISTANCE_METERS
 
         val x = ((stableImageCenter.x - 0.5f) * distance * HORIZONTAL_FOV_SCALE)
