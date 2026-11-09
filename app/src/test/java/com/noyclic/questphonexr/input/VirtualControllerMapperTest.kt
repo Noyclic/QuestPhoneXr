@@ -110,4 +110,110 @@ class VirtualControllerMapperTest {
             worldPoints = points
         )
     }
+
+    @Test
+    fun oneDualMappedGamepadDrivesBothHandsWithIndependentTriggersAndSticks() {
+        val physical = PhysicalControllerSnapshot(
+            deviceId = 99,
+            deviceName = "Generic Bluetooth Gamepad",
+            hand = null,
+            stickX = 0.15f,
+            stickY = -0.25f,
+            rightStickX = 0.65f,
+            rightStickY = 0.75f,
+            leftTrigger = 0.35f,
+            rightTrigger = 0.85f,
+            pressedKeyCodes = setOf(
+                GamepadButtonCodes.BUTTON_A,
+                GamepadButtonCodes.BUTTON_B,
+                GamepadButtonCodes.BUTTON_L1,
+                GamepadButtonCodes.BUTTON_R1
+            ),
+            updatedAtMs = 500L,
+            mapToBothHands = true
+        )
+
+        val frame = mapper.map(HandTrackingFrame(510L, emptyList()), listOf(physical))
+
+        assertEquals(ControllerInputSource.GAMEPAD, frame.left.source)
+        assertEquals(ControllerInputSource.GAMEPAD, frame.right.source)
+        assertEquals(0.35f, frame.left.trigger, 0.001f)
+        assertEquals(0.85f, frame.right.trigger, 0.001f)
+        assertEquals(0.15f, frame.left.stickX, 0.001f)
+        assertEquals(0.65f, frame.right.stickX, 0.001f)
+        assertTrue(VirtualGamepadButton.A in frame.left.virtualButtons)
+        assertTrue(VirtualGamepadButton.A in frame.right.virtualButtons)
+
+        val simulationControllers = mapper.toPhysicalSnapshots(frame)
+        assertEquals(2, simulationControllers.size)
+        assertEquals(HandSide.LEFT, simulationControllers[0].hand)
+        assertEquals(HandSide.RIGHT, simulationControllers[1].hand)
+    }
+
+    @Test
+    fun customBindingsCanSwapTriggersSticksGripAndFaceButtons() {
+        val physical = PhysicalControllerSnapshot(
+            deviceId = 101,
+            deviceName = "Custom HID Pad",
+            hand = HandSide.LEFT,
+            stickX = -0.2f,
+            stickY = 0.1f,
+            rightStickX = 0.7f,
+            rightStickY = -0.6f,
+            leftTrigger = 0.1f,
+            rightTrigger = 0.9f,
+            pressedKeyCodes = setOf(
+                GamepadButtonCodes.BUTTON_X,
+                GamepadButtonCodes.BUTTON_B
+            ),
+            updatedAtMs = 600L
+        )
+        val customLeft = ControllerHandBinding.LEFT_DEFAULT.copy(
+            triggerSource = TriggerAxisSource.RIGHT_TRIGGER,
+            gripKeyCode = GamepadButtonCodes.BUTTON_X,
+            stickSource = StickAxisSource.RIGHT,
+            buttonAKeyCode = GamepadButtonCodes.BUTTON_B,
+            buttonBKeyCode = 0
+        )
+        val bindings = ControllerBindingProfile(
+            left = customLeft,
+            right = ControllerHandBinding.RIGHT_DEFAULT
+        )
+
+        val left = mapper.map(
+            HandTrackingFrame(610L, emptyList()),
+            listOf(physical),
+            bindings
+        ).left
+
+        assertEquals(0.9f, left.trigger, 0.001f)
+        assertEquals(1f, left.grip, 0f)
+        assertEquals(0.7f, left.stickX, 0.001f)
+        assertEquals(-0.6f, left.stickY, 0.001f)
+        assertTrue(VirtualGamepadButton.A in left.virtualButtons)
+        assertFalse(VirtualGamepadButton.B in left.virtualButtons)
+        // Original Android key codes remain available to game-specific adapters.
+        assertTrue(GamepadButtonCodes.BUTTON_B in left.pressedKeyCodes)
+    }
+
+    @Test
+    fun digitalTriggerKeyStillWorksWhenControllerDoesNotExposeAnAnalogTriggerAxis() {
+        val physical = PhysicalControllerSnapshot(
+            deviceId = 8,
+            deviceName = "Digital Trigger Pad",
+            hand = HandSide.RIGHT,
+            stickX = 0f,
+            stickY = 0f,
+            rightStickX = 0f,
+            rightStickY = 0f,
+            leftTrigger = 0f,
+            rightTrigger = 0f,
+            pressedKeyCodes = setOf(GamepadButtonCodes.BUTTON_R2),
+            updatedAtMs = 700L
+        )
+
+        val frame = mapper.map(HandTrackingFrame(710L, emptyList()), listOf(physical))
+
+        assertEquals(1f, frame.right.trigger, 0f)
+    }
 }
