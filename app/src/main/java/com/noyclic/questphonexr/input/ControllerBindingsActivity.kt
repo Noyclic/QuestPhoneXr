@@ -131,8 +131,10 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
         statusView.text = when {
             captureTarget?.isGrip == true -> "Нажми физическую кнопку, которая должна выполнять Grip."
             captureTarget != null -> "Нажми нужную физическую кнопку на подключённом геймпаде."
+            triggerAxisCaptureHand != null && triggerAxisCaptureBaseline.isEmpty() ->
+                "Оставь курок отпущенным, слегка двинь стик и отпусти его для нейтрального сэмпла."
             triggerAxisCaptureHand != null ->
-                "Оставь курок отпущенным, затем нажми его до конца для захвата оси."
+                "Нейтральная позиция записана. Теперь нажми курок до конца."
             else -> connectedSummary()
         }
     }
@@ -368,7 +370,15 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
         val hand = triggerAxisCaptureHand ?: return
         val deviceId = triggerAxisCaptureDeviceId ?: return
         val device = latestDevices.firstOrNull { it.deviceId == deviceId } ?: return
+        if (triggerAxisCaptureBaseline.isEmpty()) {
+            triggerAxisCaptureBaseline = device.analogAxes.toMap()
+            if (triggerAxisCaptureBaseline.isNotEmpty()) {
+                statusView.text = "Нейтральная позиция записана. Теперь нажми курок до конца."
+            }
+            return
+        }
         val candidate = device.analogAxes.entries.mapNotNull { (axis, value) ->
+            if (axis in NON_TRIGGER_AXES) return@mapNotNull null
             val baseline = triggerAxisCaptureBaseline[axis] ?: return@mapNotNull null
             val travel = value - baseline
             if (kotlin.math.abs(travel) >= MIN_TRIGGER_AXIS_CAPTURE_DELTA) {
@@ -569,5 +579,13 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
 
     private companion object {
         const val MIN_TRIGGER_AXIS_CAPTURE_DELTA = 0.18f
+        val NON_TRIGGER_AXES = setOf(
+            MotionEvent.AXIS_X,
+            MotionEvent.AXIS_Y,
+            MotionEvent.AXIS_RX,
+            MotionEvent.AXIS_RY,
+            MotionEvent.AXIS_HAT_X,
+            MotionEvent.AXIS_HAT_Y
+        )
     }
 }
