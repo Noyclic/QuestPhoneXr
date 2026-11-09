@@ -8,6 +8,7 @@ import com.noyclic.questphonexr.tracking.HandPoint
 import com.noyclic.questphonexr.tracking.HandSide
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.TrackedHand
+import com.noyclic.questphonexr.vr.PhoneVrMath
 import kotlin.math.sqrt
 
 /**
@@ -40,6 +41,8 @@ internal object EndXrHandInputEncoder {
     private val mapper = VirtualControllerMapper()
     private val leftDepthEstimator = MonocularHandDepthEstimator()
     private val rightDepthEstimator = MonocularHandDepthEstimator()
+    private val leftOrientationSmoother = PalmOrientationSmoother()
+    private val rightOrientationSmoother = PalmOrientationSmoother()
 
     @Synchronized
     fun encode(frame: HandTrackingFrame): EndXrEncodedHandInput {
@@ -48,10 +51,16 @@ internal object EndXrHandInputEncoder {
         val left = hands[HandSide.LEFT]
         val right = hands[HandSide.RIGHT]
 
-        val leftPose = encodePose(left, leftDepthEstimator)
-        val rightPose = encodePose(right, rightDepthEstimator)
-        if (left == null) leftDepthEstimator.reset()
-        if (right == null) rightDepthEstimator.reset()
+        val leftPose = encodePose(left, leftDepthEstimator, leftOrientationSmoother, frame.timestampMs)
+        val rightPose = encodePose(right, rightDepthEstimator, rightOrientationSmoother, frame.timestampMs)
+        if (left == null) {
+            leftDepthEstimator.reset()
+            leftOrientationSmoother.reset()
+        }
+        if (right == null) {
+            rightDepthEstimator.reset()
+            rightOrientationSmoother.reset()
+        }
 
         return EndXrEncodedHandInput(
             leftRow = encodeState(mapped.left),
@@ -63,14 +72,25 @@ internal object EndXrHandInputEncoder {
 
     private fun encodePose(
         hand: TrackedHand?,
-        depthEstimator: MonocularHandDepthEstimator
+        depthEstimator: MonocularHandDepthEstimator,
+        orientationSmoother: PalmOrientationSmoother,
+        timestampMs: Long
     ): EndXrHandPoseSample {
         if (hand == null || hand.points.size < LANDMARK_COUNT ||
             hand.worldPoints.size < LANDMARK_COUNT
-        ) return EndXrHandPoseSample.EMPTY
+        ) {
+            orientationSmoother.reset()
+            return EndXrHandPoseSample.EMPTY
+        }
 
-        val imageCenter = average(hand.points, PALM_INDICES) ?: return EndXrHandPoseSample.EMPTY
-        val worldCenter = average(hand.worldPoints, PALM_INDICES) ?: return EndXrHandPoseSample.EMPTY
+        val imageCenter = average(hand.points, PALM_INDICES) ?: run {
+            orientationSmoother.reset()
+            return EndXrHandPoseSample.EMPTY
+        }
+        val worldCenter = average(hand.worldPoints, PALM_INDICES) ?: run {
+            orientationSmoother.reset()
+            return EndXrHandPoseSample.EMPTY
+        }
         val distance = depthEstimator.update(hand.points)?.takeIf { it.isFinite() }
             ?: DEFAULT_HAND_DISTANCE_METERS
 
@@ -81,7 +101,12 @@ internal object EndXrHandInputEncoder {
         val z = (-distance + worldCenter.z.coerceIn(-MAX_LOCAL_DEPTH_METERS, MAX_LOCAL_DEPTH_METERS) *
             LOCAL_DEPTH_SCALE).coerceIn(-MAX_HAND_DISTANCE_METERS, -0.25f)
 
-        val orientation = palmOrientation(hand.worldPoints) ?: return EndXrHandPoseSample.EMPTY
+        val rawOrientation = palmOrientation(hand.worldPoints) ?: run {
+            orientationSmoother.reset()
+            return EndXrHandPoseSample.EMPTY
+        }
+        val orientation = orientationSmoother.update(rawOrientation, timestampMs)
+            ?: return EndXrHandPoseSample.EMPTY
         return EndXrHandPoseSample.fromCameraPose(
             x = x, y = y, z = z,
             qx = orientation[0], qy = orientation[1],
@@ -174,6 +199,79 @@ internal object EndXrHandInputEncoder {
         0f,
         0f
     )
+
+    /**
+     * Per-hand temporal quaternion filter. Duplicate callbacks are ignored so the
+     * foreground service and Sandbox render loop cannot advance one sample twice.
+     */
+    private class PalmOrientationSmoother {
+        private var previous: FloatArray? = null
+        private var previousTimestampMs = 0L
+
+        fun update(raw: FloatArray, timestampMs: Long): FloatArray? {
+            val normalized = PhoneVrMath.normalizedQuaternion(raw) ?: return null
+            val current = previous
+
+            if (current == null || timestampMs <= 0L || previousTimestampMs <= 0L) {
+                previous = normalized
+                previousTimestampMs = timestampMs.coerceAtLeast(0L)
+                return normalized.copyOf()
+            }
+
+            // Ignore duplicate and out-of-order results; never rewind a tracked pose.
+            if (timestampMs <= previousTimestampMs) return current.copyOf()
+
+            val elapsedMs = timestampMs - previousTimestampMs
+            if (elapsedMs > MAX_CONTINUOUS_GAP_MS) {
+                previous = normalized
+                previousTimestampMs = timestampMs
+                return normalized.copyOf()
+            }
+
+            val deltaSeconds = (elapsedMs / 1_000f).coerceIn(
+                MIN_DELTA_SECONDS,
+                MAX_DELTA_SECONDS
+            )
+            val dot = kotlin.math.abs(
+                current[0] * normalized[0] +
+                    current[1] * normalized[1] +
+                    current[2] * normalized[2] +
+                    current[3] * normalized[3]
+            ).coerceIn(0f, 1f)
+            val angularSpeed = (
+                2.0 * kotlin.math.acos(dot.toDouble()) / deltaSeconds.toDouble()
+                ).toFloat()
+            val fastMotion = (
+                (angularSpeed - LOW_ANGULAR_SPEED_RAD_S) /
+                    (HIGH_ANGULAR_SPEED_RAD_S - LOW_ANGULAR_SPEED_RAD_S)
+                ).coerceIn(0f, 1f)
+            val timeConstant = BASE_TIME_CONSTANT_SECONDS *
+                (1f - FAST_MOTION_REDUCTION * fastMotion)
+            val alpha = (
+                1f - kotlin.math.exp(-deltaSeconds / timeConstant)
+                ).coerceIn(0f, 1f)
+
+            val filtered = PhoneVrMath.slerpQuat(current, normalized, alpha) ?: return null
+            previous = filtered
+            previousTimestampMs = timestampMs
+            return filtered.copyOf()
+        }
+
+        fun reset() {
+            previous = null
+            previousTimestampMs = 0L
+        }
+
+        private companion object {
+            const val BASE_TIME_CONSTANT_SECONDS = 0.045f
+            const val FAST_MOTION_REDUCTION = 0.50f
+            const val LOW_ANGULAR_SPEED_RAD_S = 1.5f
+            const val HIGH_ANGULAR_SPEED_RAD_S = 8f
+            const val MIN_DELTA_SECONDS = 0.001f
+            const val MAX_DELTA_SECONDS = 0.1f
+            const val MAX_CONTINUOUS_GAP_MS = 250L
+        }
+    }
 
     private const val LANDMARK_COUNT = 21
     private val PALM_INDICES = intArrayOf(0, 5, 9, 13, 17)
