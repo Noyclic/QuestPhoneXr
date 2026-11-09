@@ -1,6 +1,7 @@
 package com.noyclic.questphonexr.sandbox
 
 import com.noyclic.questphonexr.tracking.HandPoint
+import kotlin.math.pow
 
 /** Maps MediaPipe image landmarks across the wider free-space sandbox reach volume, not just the platform footprint. */
 internal object SandboxHandPoseMapper {
@@ -123,7 +124,7 @@ internal class MonocularHandDepthEstimator(
             // Preserve the configured response at the reference rate while
             // making the filter independent of how often the frame is sampled.
             val alpha = (
-                1f - kotlin.math.pow(1f - smoothing, deltaSeconds * REFERENCE_FPS)
+                1f - (1f - smoothing).pow(deltaSeconds * REFERENCE_FPS)
                 ).coerceIn(0f, 1f)
             val maximumStep = maximumStepMeters * REFERENCE_FPS * deltaSeconds
             val desiredStep = (measured - previous) * alpha
