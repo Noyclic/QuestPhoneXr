@@ -8,6 +8,7 @@ enum class TriggerAxisSource {
     LEFT_TRIGGER,
     RIGHT_TRIGGER,
     EITHER,
+    CUSTOM_AXIS,
     NONE
 }
 
@@ -41,7 +42,9 @@ data class ControllerHandBinding(
     val buttonBKeyCode: Int,
     val buttonXKeyCode: Int,
     val buttonYKeyCode: Int,
-    val menuKeyCode: Int
+    val menuKeyCode: Int,
+    /** Android MotionEvent axis id captured from this controller; used by CUSTOM_AXIS. */
+    val customTriggerAxis: Int? = null
 ) {
     fun keyCodeFor(button: VirtualGamepadButton): Int = when (button) {
         VirtualGamepadButton.A -> buttonAKeyCode
@@ -151,6 +154,7 @@ object ControllerBindingStore {
             prefs.getString("$prefix.trigger", null),
             defaults.triggerSource
         ),
+        customTriggerAxis = prefs.getInt("$prefix.customTriggerAxis", -1).takeIf { it >= 0 },
         gripKeyCode = prefs.getInt("$prefix.grip", defaults.gripKeyCode).coerceAtLeast(0),
         stickSource = enumValue(
             prefs.getString("$prefix.stick", null),
@@ -169,6 +173,7 @@ object ControllerBindingStore {
         binding: ControllerHandBinding
     ) {
         editor.putString("$prefix.trigger", binding.triggerSource.name)
+        editor.putInt("$prefix.customTriggerAxis", binding.customTriggerAxis ?: -1)
         editor.putInt("$prefix.grip", binding.gripKeyCode.coerceAtLeast(0))
         editor.putString("$prefix.stick", binding.stickSource.name)
         editor.putInt("$prefix.a", binding.buttonAKeyCode.coerceAtLeast(0))
