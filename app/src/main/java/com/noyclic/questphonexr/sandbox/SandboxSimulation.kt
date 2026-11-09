@@ -195,10 +195,12 @@ class SandboxSimulation {
             .filter { it.side != HandSide.UNKNOWN }
             .associateBy { it.side }
         val leftRaw = controllerFor(
-            HandSide.LEFT, controllers, handsBySide[HandSide.LEFT], cameraToWorldRotation
+            HandSide.LEFT, controllers, handsBySide[HandSide.LEFT],
+            cameraToWorldRotation, handFrame.timestampMs
         )
         val rightRaw = controllerFor(
-            HandSide.RIGHT, controllers, handsBySide[HandSide.RIGHT], cameraToWorldRotation
+            HandSide.RIGHT, controllers, handsBySide[HandSide.RIGHT],
+            cameraToWorldRotation, handFrame.timestampMs
         )
         val leftTrackingLost = leftCameraTracked && !leftRaw.cameraTracked &&
             leftGrabbing && !leftRaw.grabbing
@@ -307,12 +309,13 @@ class SandboxSimulation {
         hand: HandSide,
         controllers: List<PhysicalControllerSnapshot>,
         trackedHand: TrackedHand?,
-        cameraToWorldRotation: FloatArray?
+        cameraToWorldRotation: FloatArray?,
+        frameTimestampMs: Long
     ): ControllerState {
         val physical = controllers.firstOrNull { it.hand == hand }
         val depthEstimator = if (hand == HandSide.LEFT) leftDepthEstimator else rightDepthEstimator
         val cameraLandmarks = trackedHand?.let { tracked ->
-            val estimatedDistance = depthEstimator.update(tracked.points)
+            val estimatedDistance = depthEstimator.update(tracked.points, frameTimestampMs)
             SandboxHandPoseMapper.map(
                 points = tracked.points,
                 calibration = handCalibration,
