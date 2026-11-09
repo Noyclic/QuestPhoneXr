@@ -24,6 +24,7 @@ class AndroidGamepadInputAdapter(
         var rightStickY: Float = 0f,
         var leftTrigger: Float = 0f,
         var rightTrigger: Float = 0f,
+        val analogAxes: MutableMap<Int, Float> = linkedMapOf(),
         val pressedKeyCodes: MutableSet<Int> = linkedSetOf(),
         var updatedAtMs: Long = 0L
     ) {
@@ -39,7 +40,8 @@ class AndroidGamepadInputAdapter(
             rightTrigger = rightTrigger,
             pressedKeyCodes = pressedKeyCodes.toSet(),
             updatedAtMs = updatedAtMs,
-            mapToBothHands = mapToBothHands
+            mapToBothHands = mapToBothHands,
+            analogAxes = analogAxes.toMap()
         )
     }
 
@@ -142,6 +144,13 @@ class AndroidGamepadInputAdapter(
             state.stickY = leftStick.y
             state.rightStickX = rightStick.x
             state.rightStickY = rightStick.y
+            device.motionRanges.forEach { range ->
+                state.analogAxes[range.axis] = GamepadAxisNormalizer.normalizeTrigger(
+                    event.getAxisValue(range.axis),
+                    range.min,
+                    range.max
+                )
+            }
             state.leftTrigger = maxOf(
                 triggerAxisValue(event, device, MotionEvent.AXIS_LTRIGGER),
                 triggerAxisValue(event, device, MotionEvent.AXIS_BRAKE)
