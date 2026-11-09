@@ -252,4 +252,101 @@ class EndXrHandInputEncoderTest {
 
         assertEquals(EndXrHandPoseSample.EMPTY, pose)
     }
+
+    @Test
+    fun duplicateFrameTimestampDoesNotAdvancePositionOrDepthEstimatorTwice() {
+        val first = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(9_000L, listOf(trackedHand(HandSide.LEFT, 0.5f)))
+        ).leftPose
+        val duplicateTimestamp = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(9_000L, listOf(trackedHand(HandSide.LEFT, 0.9f)))
+        ).leftPose
+
+        assertEquals(first.x, duplicateTimestamp.x, 0.0001f)
+        assertEquals(first.y, duplicateTimestamp.y, 0.0001f)
+        assertEquals(first.z, duplicateTimestamp.z, 0.0001f)
+        assertEquals(first.qx, duplicateTimestamp.qx, 0.0001f)
+        assertEquals(first.qy, duplicateTimestamp.qy, 0.0001f)
+        assertEquals(first.qz, duplicateTimestamp.qz, 0.0001f)
+        assertEquals(first.qw, duplicateTimestamp.qw, 0.0001f)
+    }
+
+    @Test
+    fun positionFilterLimitsSingleFrameTeleportAndRemainsFinite() {
+        val first = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(10_000L, listOf(trackedHand(HandSide.LEFT, 0.5f)))
+        ).leftPose
+        val jumped = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(10_016L, listOf(trackedHand(HandSide.LEFT, 0.95f)))
+        ).leftPose
+
+        val displacement = kotlin.math.sqrt(
+            (jumped.x - first.x) * (jumped.x - first.x) +
+                (jumped.y - first.y) * (jumped.y - first.y) +
+                (jumped.z - first.z) * (jumped.z - first.z)
+        )
+        assertTrue(jumped.active)
+        assertTrue(displacement > 0f)
+        assertTrue("Position update must respect the per-frame speed bound", displacement <= 0.14f)
+        assertTrue(listOf(jumped.x, jumped.y, jumped.z).all(Float::isFinite))
+    }
+
+    @Test
+    fun positionSmoothingRemainsConsistentAtThirtyAndSixtySamplesPerSecond() {
+        fun simulate(frameRate: Int): EndXrHandPoseSample {
+            EndXrHandInputEncoder.encode(HandTrackingFrame(0L, emptyList()))
+            var latest = EndXrHandInputEncoder.encode(
+                HandTrackingFrame(20_000L, listOf(trackedHand(HandSide.LEFT, 0.45f)))
+            ).leftPose
+            for (frame in 1..frameRate) {
+                val progress = frame.toFloat() / frameRate
+                val timestamp = 20_000L + frame * 1_000L / frameRate
+                latest = EndXrHandInputEncoder.encode(
+                    HandTrackingFrame(
+                        timestamp,
+                        listOf(trackedHand(HandSide.LEFT, 0.45f + 0.1f * progress))
+                    )
+                ).leftPose
+            }
+            return latest
+        }
+
+        val at30Fps = simulate(30)
+        val at60Fps = simulate(60)
+        assertEquals(at30Fps.x, at60Fps.x, 0.05f)
+        assertEquals(at30Fps.y, at60Fps.y, 0.05f)
+        assertEquals(at30Fps.z, at60Fps.z, 0.05f)
+    }
+
+    @Test
+    fun longPositionSampleGapReinitializesInsteadOfDraggingAcrossLostTime() {
+        EndXrHandInputEncoder.encode(
+            HandTrackingFrame(30_000L, listOf(trackedHand(HandSide.LEFT, 0.45f)))
+        )
+        val reacquired = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(30_300L, listOf(trackedHand(HandSide.LEFT, 0.75f)))
+        ).leftPose
+
+        val expectedDistance = 2.55f * 0.18f / 0.20f
+        val expectedX = (0.74f - 0.5f) * expectedDistance * 2.4f
+        assertEquals(expectedX, reacquired.x, 0.01f)
+    }
+
+    @Test
+    fun leftAndRightPositionFiltersRemainIndependent() {
+        val left = trackedHand(HandSide.LEFT, 0.4f)
+        val right = trackedHand(HandSide.RIGHT, 0.7f)
+        EndXrHandInputEncoder.encode(HandTrackingFrame(40_000L, listOf(left, right)))
+
+        val updated = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(
+                40_016L,
+                listOf(trackedHand(HandSide.LEFT, 0.6f), right)
+            )
+        )
+
+        assertTrue(updated.leftPose.x > 0f)
+        val expectedRightX = (0.69f - 0.5f) * (2.55f * 0.18f / 0.20f) * 2.4f
+        assertEquals(expectedRightX, updated.rightPose.x, 0.01f)
+    }
 }
