@@ -30,7 +30,8 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
 
     private data class CaptureTarget(
         val hand: HandSide,
-        val button: VirtualGamepadButton
+        val button: VirtualGamepadButton? = null,
+        val isGrip: Boolean = false
     )
 
     private val inputManager by lazy { getSystemService(INPUT_SERVICE) as InputManager }
@@ -44,6 +45,9 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
     private var profile = ControllerBindingProfile.DEFAULT
     private var tab = Tab.AXES
     private var captureTarget: CaptureTarget? = null
+    private var triggerAxisCaptureHand: HandSide? = null
+    private var triggerAxisCaptureDeviceId: Int? = null
+    private var triggerAxisCaptureBaseline: Map<Int, Float> = emptyMap()
     private var latestDevices: List<PhysicalControllerSnapshot> = emptyList()
 
     private lateinit var page: LinearLayout
@@ -123,7 +127,10 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
             Tab.TEST -> renderTestPage()
         }
         statusView.text = when {
+            captureTarget?.isGrip == true -> "Нажми физическую кнопку, которая должна выполнять Grip."
             captureTarget != null -> "Нажми нужную физическую кнопку на подключённом геймпаде."
+            triggerAxisCaptureHand != null ->
+                "Оставь курок отпущенным, затем нажми его до конца для захвата оси."
             else -> connectedSummary()
         }
     }
@@ -161,11 +168,23 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
             listOf(
                 "Левый аналоговый курок (L2)" to TriggerAxisSource.LEFT_TRIGGER,
                 "Правый аналоговый курок (R2)" to TriggerAxisSource.RIGHT_TRIGGER,
-                "Любой курок" to TriggerAxisSource.EITHER,
+                "Любой стандартный курок" to TriggerAxisSource.EITHER,
+                "Захваченная нестандартная ось" to TriggerAxisSource.CUSTOM_AXIS,
                 "Отключено" to TriggerAxisSource.NONE
             ),
             binding.triggerSource
         ) { value -> updateHand(hand) { it.copy(triggerSource = value) } }
+        container.addView(text(
+            "Своя ось курка: " + (binding.customTriggerAxis?.toString() ?: "не захвачена"),
+            12f, 0xFFB8C5D5.toInt()
+        ))
+        container.addView(button("Сканировать ось курка") {
+            startTriggerAxisCapture(hand)
+        })
+        container.addView(button("Захватить кнопку Grip") {
+            captureTarget = CaptureTarget(hand, isGrip = true)
+            renderPage()
+        })
 
         addChoice(
             container,
@@ -274,8 +293,12 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
                         .append(format(device.rightStickX)).append(", ").append(format(device.rightStickY)).append('\n')
                     append("Курки L2/R2: ")
                         .append(format(device.leftTrigger)).append(" / ").append(format(device.rightTrigger)).append('\n')
-                    append("Нажатые key codes: ")
-                        .append(device.pressedKeyCodes.sorted().joinToString().ifBlank { "—" })
+                            append("Нажатые key codes: ")
+                        .append(device.pressedKeyCodes.sorted().joinToString().ifBlank { "—" }).append('\n')
+                    append("Аналоговые оси: ")
+                        .append(device.analogAxes.entries.sortedBy { it.key }
+                            .joinToString { "AXIS_" + it.key + "=" + format(it.value) }
+                            .ifBlank { "не объявлены Android" })
                 }
             }
         }
@@ -296,10 +319,54 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
         if (!isGamepad(device.sources)) return false
 
         captureTarget = null
-        updateHand(target.hand) { it.withButton(target.button, event.keyCode) }
-        statusView.text = "Назначено: " + target.button.name + " ← " + keyLabel(event.keyCode)
-        Toast.makeText(this, "Бинд сохранён", Toast.LENGTH_SHORT).show()
+        if (target.isGrip) {
+            updateHand(target.hand) { it.copy(gripKeyCode = event.keyCode) }
+            Toast.makeText(this, "Кнопка Grip назначена: " + keyLabel(event.keyCode), Toast.LENGTH_SHORT).show()
+        } else {
+            val button = target.button ?: return false
+            updateHand(target.hand) { it.withButton(button, event.keyCode) }
+            Toast.makeText(this, "Бинд сохранён: " + keyLabel(event.keyCode), Toast.LENGTH_SHORT).show()
+        }
         return true
+    }
+
+    private fun startTriggerAxisCapture(hand: HandSide) {
+        val device = latestDevices.firstOrNull()
+        if (device == null) {
+            Toast.makeText(this, "Сначала подключи нужный геймпад.", Toast.LENGTH_LONG).show()
+            return
+        }
+        triggerAxisCaptureHand = hand
+        triggerAxisCaptureDeviceId = device.deviceId
+        triggerAxisCaptureBaseline = device.analogAxes.toMap()
+        captureTarget = null
+        renderPage()
+    }
+
+    private fun captureChangedTriggerAxis() {
+        val hand = triggerAxisCaptureHand ?: return
+        val deviceId = triggerAxisCaptureDeviceId ?: return
+        val device = latestDevices.firstOrNull { it.deviceId == deviceId } ?: return
+        val candidate = device.analogAxes.entries.mapNotNull { (axis, value) ->
+            val baseline = triggerAxisCaptureBaseline[axis] ?: value
+            val increase = value - baseline
+            if (increase >= MIN_TRIGGER_AXIS_CAPTURE_DELTA) axis to increase else null
+        }.maxByOrNull { it.second } ?: return
+
+        triggerAxisCaptureHand = null
+        triggerAxisCaptureDeviceId = null
+        triggerAxisCaptureBaseline = emptyMap()
+        updateHand(hand) {
+            it.copy(
+                triggerSource = TriggerAxisSource.CUSTOM_AXIS,
+                customTriggerAxis = candidate.first
+            )
+        }
+        Toast.makeText(
+            this,
+            "Курок назначен на Android axis " + candidate.first,
+            Toast.LENGTH_LONG
+        ).show()
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
@@ -321,6 +388,7 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
 
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
         if (gamepadInput.onMotionEvent(event)) {
+            captureChangedTriggerAxis()
             updateTestReadout()
             return true
         }
@@ -452,4 +520,8 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
 
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).toInt()
+
+    private companion object {
+        const val MIN_TRIGGER_AXIS_CAPTURE_DELTA = 0.18f
+    }
 }
