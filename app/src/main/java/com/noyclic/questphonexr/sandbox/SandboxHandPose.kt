@@ -202,25 +202,30 @@ internal class SandboxHandPoseSmoother(
             DEFAULT_DELTA_SECONDS
         }
 
-        var totalDistance = 0f
-        for (index in target.indices) {
-            totalDistance += distance(current[index], target[index])
+        // Filter each landmark independently. A single fast fingertip should catch up
+        // without forcing the entire palm to use the same low-smoothing response.
+        val baseTimeConstant = if (response >= 1f) {
+            0f
+        } else {
+            -1f / (60f * kotlin.math.ln(1f - response))
         }
-        val averageSpeed = totalDistance / target.size / dt
-        val motion = (
-            (averageSpeed - LOW_MOTION_SPEED) /
-                (HIGH_MOTION_SPEED - LOW_MOTION_SPEED)
-            ).coerceIn(0f, 1f)
-
-        // Convert the legacy 60 Hz response into a time constant, then shorten
-        // that constant during fast motion so the filtered hand does not trail.
-        val baseTimeConstant = -1f / (60f * kotlin.math.ln(1f - response))
-        val timeConstant = baseTimeConstant * (1f - FAST_MOTION_TIME_REDUCTION * motion)
-        val alpha = (
-            1f - kotlin.math.exp(-dt / timeConstant)
-            ).coerceIn(0f, 1f)
-
-        return filter(target, alpha)
+        val filtered = target.mapIndexed { index, next ->
+            val displacement = distance(current[index], next)
+            val speed = displacement / dt
+            val motion = (
+                (speed - LOW_MOTION_SPEED) /
+                    (HIGH_MOTION_SPEED - LOW_MOTION_SPEED)
+                ).coerceIn(0f, 1f)
+            val timeConstant = baseTimeConstant * (1f - FAST_MOTION_TIME_REDUCTION * motion)
+            val alpha = if (timeConstant <= MIN_TIME_CONSTANT_SECONDS) {
+                1f
+            } else {
+                (1f - kotlin.math.exp(-dt / timeConstant)).coerceIn(0f, 1f)
+            }
+            current[index] + (next - current[index]) * alpha
+        }
+        previous = filtered
+        return filtered
     }
 
     private fun filter(
@@ -261,5 +266,6 @@ internal class SandboxHandPoseSmoother(
         const val LOW_MOTION_SPEED = 0.35f
         const val HIGH_MOTION_SPEED = 2.25f
         const val FAST_MOTION_TIME_REDUCTION = 0.65f
+        const val MIN_TIME_CONSTANT_SECONDS = 0.0001f
     }
 }

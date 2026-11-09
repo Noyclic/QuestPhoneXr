@@ -99,4 +99,44 @@ class HandPinchTrackerTest {
             it[4] = HandPoint(if (pinch) 0.49f else 0.20f, 0.50f, 0f)
             it[8] = HandPoint(if (pinch) 0.51f else 0.80f, 0.50f, 0f)
         }
+
+    @Test
+    fun depthSeparatedFingertipsDoNotTriggerPinchFromTwoDimensionalOverlap() {
+        val estimator = PinchEstimator()
+        val overlappingInImageButSeparatedInDepth = points(pinch = true).toMutableList().also {
+            it[4] = it[4].copy(z = -0.15f)
+            it[8] = it[8].copy(z = 0.15f)
+        }
+
+        val signal = estimator.update(overlappingInImageButSeparatedInDepth, 4_000L)
+
+        assertFalse("Depth-separated fingertips must not look like a pinch", signal.isPinching)
+        assertEquals(0f, signal.strength, 0.001f)
+    }
+
+    @Test
+    fun nonFiniteDepthLandmarkResetsPinchState() {
+        val estimator = PinchEstimator()
+        val closed = points(pinch = true)
+        assertTrue(estimator.update(closed, 5_000L).isPinching)
+
+        val invalid = closed.toMutableList().also {
+            it[4] = it[4].copy(z = Float.NaN)
+        }
+        val signal = estimator.update(invalid, 5_033L)
+
+        assertFalse(signal.isPinching)
+        assertEquals(0f, signal.strength, 0.0001f)
+    }
+
+    @Test
+    fun depthWeightCanBeDisabledForImageOnlyCompatibility() {
+        val estimator = PinchEstimator(depthWeight = 0f)
+        val sameImageCoordinates = points(pinch = true).toMutableList().also {
+            it[4] = it[4].copy(z = -0.15f)
+            it[8] = it[8].copy(z = 0.15f)
+        }
+
+        assertTrue(estimator.update(sameImageCoordinates, 6_000L).isPinching)
+    }
 }

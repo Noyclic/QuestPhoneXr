@@ -300,4 +300,35 @@ class SandboxHandPoseTest {
 
         assertEquals(4.5f, reacquired, 0.001f)
     }
+
+    @Test
+    fun adaptiveSmoothingRespondsPerJointInsteadOfAveragingAcrossThePalm() {
+        val smoother = SandboxHandPoseSmoother()
+        val origin = List(21) { SandboxVector3(0f, 0f, -2.5f) }
+        smoother.update(origin, 1f / 60f)
+
+        val target = origin.toMutableList().also {
+            // One fingertip makes a small but quick movement while the palm barely moves.
+            it[8] = SandboxVector3(0.08f, 0f, -2.5f)
+            it[0] = SandboxVector3(0.02f, 0f, -2.5f)
+        }
+        val filtered = smoother.update(target, 1f / 60f)
+        val fingertipFraction = filtered[8].x / target[8].x
+        val wristFraction = filtered[0].x / target[0].x
+
+        assertTrue("Fast fingertip motion should respond faster than the slow wrist motion",
+            fingertipFraction > wristFraction)
+        assertTrue("The fingertip must not teleport to its target", fingertipFraction < 1f)
+        assertTrue("The wrist should remain more strongly smoothed", wristFraction < 0.8f)
+    }
+
+    @Test
+    fun responseOneDisablesSmoothingWithoutCreatingAnInfiniteTimeConstant() {
+        val smoother = SandboxHandPoseSmoother(response = 1f)
+        val origin = List(21) { SandboxVector3(0f, 0f, -2.5f) }
+        val target = List(21) { SandboxVector3(0.2f, -0.1f, -2.4f) }
+
+        smoother.update(origin, 1f / 60f)
+        assertEquals(target, smoother.update(target, 1f / 60f))
+    }
 }
