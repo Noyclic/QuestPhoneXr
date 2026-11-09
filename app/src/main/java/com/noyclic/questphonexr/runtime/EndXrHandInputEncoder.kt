@@ -39,10 +39,8 @@ internal object EndXrHandInputEncoder {
     }
 
     private val mapper = VirtualControllerMapper()
-    private val leftDepthEstimator = MonocularHandDepthEstimator()
-    private val rightDepthEstimator = MonocularHandDepthEstimator()
-    private val leftOrientationSmoother = PalmOrientationSmoother()
-    private val rightOrientationSmoother = PalmOrientationSmoother()
+    private val leftPoseState = HandPoseState()
+    private val rightPoseState = HandPoseState()
 
     @Synchronized
     fun encode(frame: HandTrackingFrame): EndXrEncodedHandInput {
@@ -51,16 +49,8 @@ internal object EndXrHandInputEncoder {
         val left = hands[HandSide.LEFT]
         val right = hands[HandSide.RIGHT]
 
-        val leftPose = encodePose(left, leftDepthEstimator, leftOrientationSmoother, frame.timestampMs)
-        val rightPose = encodePose(right, rightDepthEstimator, rightOrientationSmoother, frame.timestampMs)
-        if (left == null) {
-            leftDepthEstimator.reset()
-            leftOrientationSmoother.reset()
-        }
-        if (right == null) {
-            rightDepthEstimator.reset()
-            rightOrientationSmoother.reset()
-        }
+        val leftPose = encodePose(left, leftPoseState, frame.timestampMs)
+        val rightPose = encodePose(right, rightPoseState, frame.timestampMs)
 
         return EndXrEncodedHandInput(
             leftRow = encodeState(mapped.left),
@@ -72,26 +62,25 @@ internal object EndXrHandInputEncoder {
 
     private fun encodePose(
         hand: TrackedHand?,
-        depthEstimator: MonocularHandDepthEstimator,
-        orientationSmoother: PalmOrientationSmoother,
+        state: HandPoseState,
         timestampMs: Long
     ): EndXrHandPoseSample {
+        // Sandbox renders at a higher cadence than MediaPipe inference. Return the
+        // cached result for duplicate/out-of-order callbacks instead of repeatedly
+        // advancing the monocular depth estimator and temporal filters on one frame.
+        if (timestampMs > 0L && state.lastTimestampMs > 0L &&
+            timestampMs <= state.lastTimestampMs
+        ) return state.lastPose
+
         if (hand == null || hand.points.size < LANDMARK_COUNT ||
             hand.worldPoints.size < LANDMARK_COUNT
-        ) {
-            orientationSmoother.reset()
-            return EndXrHandPoseSample.EMPTY
-        }
+        ) return state.invalidate(timestampMs)
 
-        val imageCenter = average(hand.points, PALM_INDICES) ?: run {
-            orientationSmoother.reset()
-            return EndXrHandPoseSample.EMPTY
-        }
-        val worldCenter = average(hand.worldPoints, PALM_INDICES) ?: run {
-            orientationSmoother.reset()
-            return EndXrHandPoseSample.EMPTY
-        }
-        val distance = depthEstimator.update(hand.points)?.takeIf { it.isFinite() }
+        val imageCenter = average(hand.points, PALM_INDICES)
+            ?: return state.invalidate(timestampMs)
+        val worldCenter = average(hand.worldPoints, PALM_INDICES)
+            ?: return state.invalidate(timestampMs)
+        val distance = state.depthEstimator.update(hand.points)?.takeIf { it.isFinite() }
             ?: DEFAULT_HAND_DISTANCE_METERS
 
         val x = ((imageCenter.x - 0.5f) * distance * HORIZONTAL_FOV_SCALE)
@@ -101,17 +90,130 @@ internal object EndXrHandInputEncoder {
         val z = (-distance + worldCenter.z.coerceIn(-MAX_LOCAL_DEPTH_METERS, MAX_LOCAL_DEPTH_METERS) *
             LOCAL_DEPTH_SCALE).coerceIn(-MAX_HAND_DISTANCE_METERS, -0.25f)
 
-        val rawOrientation = palmOrientation(hand.worldPoints) ?: run {
-            orientationSmoother.reset()
-            return EndXrHandPoseSample.EMPTY
-        }
-        val orientation = orientationSmoother.update(rawOrientation, timestampMs)
-            ?: return EndXrHandPoseSample.EMPTY
-        return EndXrHandPoseSample.fromCameraPose(
-            x = x, y = y, z = z,
+        val position = state.positionSmoother.update(x, y, z, timestampMs)
+            ?: return state.invalidate(timestampMs)
+        val rawOrientation = palmOrientation(hand.worldPoints)
+            ?: return state.invalidate(timestampMs)
+        val orientation = state.orientationSmoother.update(rawOrientation, timestampMs)
+            ?: return state.invalidate(timestampMs)
+        val pose = EndXrHandPoseSample.fromCameraPose(
+            x = position[0], y = position[1], z = position[2],
             qx = orientation[0], qy = orientation[1],
             qz = orientation[2], qw = orientation[3]
         )
+        if (!pose.active) return state.invalidate(timestampMs)
+        state.store(timestampMs, pose)
+        return pose
+    }
+
+    /** All temporal state is per hand; a missing left hand cannot reset the right hand. */
+    private class HandPoseState {
+        val depthEstimator = MonocularHandDepthEstimator()
+        val positionSmoother = PalmPositionSmoother()
+        val orientationSmoother = PalmOrientationSmoother()
+        var lastTimestampMs: Long = 0L
+            private set
+        var lastPose: EndXrHandPoseSample = EndXrHandPoseSample.EMPTY
+            private set
+
+        fun store(timestampMs: Long, pose: EndXrHandPoseSample) {
+            lastTimestampMs = timestampMs.coerceAtLeast(0L)
+            lastPose = pose
+        }
+
+        fun invalidate(timestampMs: Long): EndXrHandPoseSample {
+            depthEstimator.reset()
+            positionSmoother.reset()
+            orientationSmoother.reset()
+            store(timestampMs, EndXrHandPoseSample.EMPTY)
+            return lastPose
+        }
+    }
+
+    /**
+     * Time-based position filter with a hard per-sample displacement bound.
+     * It reduces low-motion jitter while following faster movements more closely.
+     */
+    private class PalmPositionSmoother {
+        private var previous: FloatArray? = null
+        private var previousTimestampMs = 0L
+
+        fun update(x: Float, y: Float, z: Float, timestampMs: Long): FloatArray? {
+            val measured = floatArrayOf(x, y, z)
+            if (!measured.all(Float::isFinite)) return null
+
+            val current = previous
+            if (current == null || timestampMs <= 0L || previousTimestampMs <= 0L) {
+                previous = measured
+                previousTimestampMs = timestampMs.coerceAtLeast(0L)
+                return measured.copyOf()
+            }
+            if (timestampMs <= previousTimestampMs) return current.copyOf()
+
+            val elapsedMs = timestampMs - previousTimestampMs
+            if (elapsedMs > MAX_CONTINUOUS_GAP_MS) {
+                previous = measured
+                previousTimestampMs = timestampMs
+                return measured.copyOf()
+            }
+
+            val deltaSeconds = (elapsedMs / 1_000f).coerceIn(
+                MIN_DELTA_SECONDS,
+                MAX_DELTA_SECONDS
+            )
+            val dx = measured[0] - current[0]
+            val dy = measured[1] - current[1]
+            val dz = measured[2] - current[2]
+            val rawDistance = sqrt(dx * dx + dy * dy + dz * dz)
+            if (!rawDistance.isFinite()) return null
+
+            val rawSpeed = rawDistance / deltaSeconds
+            val maximumStep = MAX_POSITION_SPEED_METERS_PER_SECOND * deltaSeconds
+            val clampScale = if (rawDistance > maximumStep && rawDistance > 0f) {
+                maximumStep / rawDistance
+            } else {
+                1f
+            }
+            val limitedTarget = floatArrayOf(
+                current[0] + dx * clampScale,
+                current[1] + dy * clampScale,
+                current[2] + dz * clampScale
+            )
+
+            val fastMotion = (
+                (rawSpeed - LOW_MOTION_SPEED_METERS_PER_SECOND) /
+                    (HIGH_MOTION_SPEED_METERS_PER_SECOND - LOW_MOTION_SPEED_METERS_PER_SECOND)
+                ).coerceIn(0f, 1f)
+            val timeConstant = BASE_TIME_CONSTANT_SECONDS *
+                (1f - FAST_MOTION_REDUCTION * fastMotion)
+            val alpha = (
+                1f - kotlin.math.exp(-deltaSeconds / timeConstant)
+                ).coerceIn(0f, 1f)
+
+            val filtered = FloatArray(3) { index ->
+                current[index] + (limitedTarget[index] - current[index]) * alpha
+            }
+            if (!filtered.all(Float::isFinite)) return null
+            previous = filtered
+            previousTimestampMs = timestampMs
+            return filtered.copyOf()
+        }
+
+        fun reset() {
+            previous = null
+            previousTimestampMs = 0L
+        }
+
+        private companion object {
+            const val BASE_TIME_CONSTANT_SECONDS = 0.060f
+            const val FAST_MOTION_REDUCTION = 0.55f
+            const val LOW_MOTION_SPEED_METERS_PER_SECOND = 0.25f
+            const val HIGH_MOTION_SPEED_METERS_PER_SECOND = 3.5f
+            const val MAX_POSITION_SPEED_METERS_PER_SECOND = 8f
+            const val MIN_DELTA_SECONDS = 0.001f
+            const val MAX_DELTA_SECONDS = 0.1f
+            const val MAX_CONTINUOUS_GAP_MS = 250L
+        }
     }
 
     private fun average(points: List<HandPoint>, indices: IntArray): Vec3? {
