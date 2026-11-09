@@ -175,7 +175,12 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
             binding.triggerSource
         ) { value -> updateHand(hand) { it.copy(triggerSource = value) } }
         container.addView(text(
-            "Своя ось курка: " + (binding.customTriggerAxis?.toString() ?: "не захвачена"),
+            "Своя ось курка: " + (binding.customTriggerAxis?.let { axis ->
+                "AXIS_" + axis + " · покой " +
+                    (binding.customTriggerRestValue?.let(::format) ?: "0.00") +
+                    " → нажатие " +
+                    (binding.customTriggerPressedValue?.let(::format) ?: "1.00")
+            } ?: "не захвачена"),
             12f, 0xFFB8C5D5.toInt()
         ))
         container.addView(button("Сканировать ось курка") {
@@ -348,10 +353,14 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
         val deviceId = triggerAxisCaptureDeviceId ?: return
         val device = latestDevices.firstOrNull { it.deviceId == deviceId } ?: return
         val candidate = device.analogAxes.entries.mapNotNull { (axis, value) ->
-            val baseline = triggerAxisCaptureBaseline[axis] ?: value
-            val increase = value - baseline
-            if (increase >= MIN_TRIGGER_AXIS_CAPTURE_DELTA) axis to increase else null
-        }.maxByOrNull { it.second } ?: return
+            val baseline = triggerAxisCaptureBaseline[axis] ?: return@mapNotNull null
+            val travel = value - baseline
+            if (kotlin.math.abs(travel) >= MIN_TRIGGER_AXIS_CAPTURE_DELTA) {
+                Triple(axis, baseline, value)
+            } else {
+                null
+            }
+        }.maxByOrNull { kotlin.math.abs(it.third - it.second) } ?: return
 
         triggerAxisCaptureHand = null
         triggerAxisCaptureDeviceId = null
@@ -359,7 +368,9 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
         updateHand(hand) {
             it.copy(
                 triggerSource = TriggerAxisSource.CUSTOM_AXIS,
-                customTriggerAxis = candidate.first
+                customTriggerAxis = candidate.first,
+                customTriggerRestValue = candidate.second,
+                customTriggerPressedValue = candidate.third
             )
         }
         Toast.makeText(
