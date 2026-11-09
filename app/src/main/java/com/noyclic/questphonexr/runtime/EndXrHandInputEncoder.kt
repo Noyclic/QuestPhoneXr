@@ -211,7 +211,7 @@ internal object EndXrHandInputEncoder {
             const val HIGH_MOTION_SPEED_METERS_PER_SECOND = 3.5f
             const val MAX_POSITION_SPEED_METERS_PER_SECOND = 8f
             const val MIN_DELTA_SECONDS = 0.001f
-            const val MAX_DELTA_SECONDS = 0.1f
+            const val MAX_DELTA_SECONDS = 0.25f
             const val MAX_CONTINUOUS_GAP_MS = 250L
         }
     }
