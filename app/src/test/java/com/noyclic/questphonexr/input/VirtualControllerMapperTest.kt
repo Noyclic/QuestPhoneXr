@@ -252,4 +252,47 @@ class VirtualControllerMapperTest {
         assertFalse(VirtualGamepadButton.X in frame.right.virtualButtons)
         assertFalse(VirtualGamepadButton.Y in frame.right.virtualButtons)
     }
+
+    @Test
+    fun sideSpecificPadOverridesDualMappedPadWithoutLosingOtherHand() {
+        val sharedPad = PhysicalControllerSnapshot(
+            deviceId = 200,
+            deviceName = "Full Size Pad",
+            hand = null,
+            stickX = 0.1f,
+            stickY = 0.2f,
+            rightStickX = 0.3f,
+            rightStickY = 0.4f,
+            leftTrigger = 0.25f,
+            rightTrigger = 0.5f,
+            pressedKeyCodes = emptySet(),
+            updatedAtMs = 900L,
+            mapToBothHands = true
+        )
+        val rightJoyCon = PhysicalControllerSnapshot(
+            deviceId = 201,
+            deviceName = "Right Joy-Con",
+            hand = HandSide.RIGHT,
+            stickX = -0.8f,
+            stickY = 0.6f,
+            rightStickX = 0f,
+            rightStickY = 0f,
+            leftTrigger = 0f,
+            rightTrigger = 0.9f,
+            pressedKeyCodes = emptySet(),
+            updatedAtMs = 901L
+        )
+
+        val frame = mapper.map(
+            HandTrackingFrame(910L, emptyList()),
+            listOf(sharedPad, rightJoyCon)
+        )
+
+        assertEquals(200, frame.left.physicalDeviceId)
+        assertEquals(201, frame.right.physicalDeviceId)
+        assertEquals(0.25f, frame.left.trigger, 0.001f)
+        assertEquals(0.9f, frame.right.trigger, 0.001f)
+        assertEquals(0.1f, frame.left.stickX, 0.001f)
+        assertEquals(-0.8f, frame.right.stickX, 0.001f)
+    }
 }
