@@ -92,4 +92,82 @@ class EndXrHandInputEncoderTest {
         )
         assertEquals(1f, norm, 0.001f)
     }
+
+    @Test
+    fun temporalPalmOrientationUsesShortestPathAndSmoothsRotation() {
+        val first = trackedHand(HandSide.LEFT, 0.5f)
+        val turned = rotateWorldAroundY(first, Math.toRadians(90.0).toFloat())
+
+        val initial = EndXrHandInputEncoder.encode(HandTrackingFrame(1_000L, listOf(first))).leftPose
+        val smoothed = EndXrHandInputEncoder.encode(HandTrackingFrame(1_016L, listOf(turned))).leftPose
+
+        assertTrue(initial.active)
+        assertTrue(smoothed.active)
+        assertQuaternionNormalized(smoothed)
+        val progressRadians = 2.0 * kotlin.math.acos(kotlin.math.abs(smoothed.qw).coerceIn(0f, 1f))
+        assertTrue("Orientation should progress toward the new palm basis", progressRadians > 0.01)
+        assertTrue("Orientation should not jump to the full measured rotation", progressRadians < Math.PI / 2.0)
+    }
+
+    @Test
+    fun temporalPalmOrientationDoesNotAdvanceTwiceForTheSameFrameTimestamp() {
+        val first = trackedHand(HandSide.LEFT, 0.5f)
+        val turned = rotateWorldAroundY(first, Math.toRadians(90.0).toFloat())
+
+        val initial = EndXrHandInputEncoder.encode(HandTrackingFrame(2_000L, listOf(first))).leftPose
+        val duplicate = EndXrHandInputEncoder.encode(HandTrackingFrame(2_000L, listOf(turned))).leftPose
+
+        assertEquals(initial.qx, duplicate.qx, 0.0001f)
+        assertEquals(initial.qy, duplicate.qy, 0.0001f)
+        assertEquals(initial.qz, duplicate.qz, 0.0001f)
+        assertEquals(initial.qw, duplicate.qw, 0.0001f)
+    }
+
+    @Test
+    fun leftAndRightPalmOrientationFiltersRemainIndependent() {
+        val identityLeft = trackedHand(HandSide.LEFT, 0.4f)
+        val identityRight = trackedHand(HandSide.RIGHT, 0.7f)
+        val turnedLeft = rotateWorldAroundY(identityLeft, Math.toRadians(90.0).toFloat())
+
+        EndXrHandInputEncoder.encode(
+            HandTrackingFrame(3_000L, listOf(identityLeft, identityRight))
+        )
+        val encoded = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(3_016L, listOf(turnedLeft, identityRight))
+        )
+
+        assertTrue(kotlin.math.abs(encoded.leftPose.qy) > 0.01f)
+        assertEquals(0f, encoded.rightPose.qy, 0.001f)
+        assertQuaternionNormalized(encoded.leftPose)
+        assertQuaternionNormalized(encoded.rightPose)
+    }
+
+    @Test
+    fun trackingLossResetsPalmOrientationFilterBeforeReacquisition() {
+        val initial = trackedHand(HandSide.LEFT, 0.5f)
+        val turned = rotateWorldAroundY(initial, Math.toRadians(90.0).toFloat())
+
+        EndXrHandInputEncoder.encode(HandTrackingFrame(4_000L, listOf(initial)))
+        EndXrHandInputEncoder.encode(HandTrackingFrame(4_016L, emptyList()))
+        val reacquired = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(4_032L, listOf(turned))
+        ).leftPose
+
+        assertTrue(reacquired.active)
+        assertEquals(kotlin.math.sin(Math.PI / 4.0).toFloat(), reacquired.qy, 0.002f)
+        assertEquals(kotlin.math.cos(Math.PI / 4.0).toFloat(), reacquired.qw, 0.002f)
+    }
+
+    private fun rotateWorldAroundY(hand: TrackedHand, angleRadians: Float): TrackedHand {
+        val cosine = kotlin.math.cos(angleRadians)
+        val sine = kotlin.math.sin(angleRadians)
+        val rotated = hand.worldPoints.map { point ->
+            HandPoint(
+                x = cosine * point.x + sine * point.z,
+                y = point.y,
+                z = -sine * point.x + cosine * point.z
+            )
+        }
+        return hand.copy(worldPoints = rotated)
+    }
 }
