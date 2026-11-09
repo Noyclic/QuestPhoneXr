@@ -336,7 +336,9 @@ class EndXrHandInputEncoderTest {
     fun leftAndRightPositionFiltersRemainIndependent() {
         val left = trackedHand(HandSide.LEFT, 0.4f)
         val right = trackedHand(HandSide.RIGHT, 0.7f)
-        EndXrHandInputEncoder.encode(HandTrackingFrame(40_000L, listOf(left, right)))
+        val initial = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(40_000L, listOf(left, right))
+        )
 
         val updated = EndXrHandInputEncoder.encode(
             HandTrackingFrame(
@@ -345,7 +347,10 @@ class EndXrHandInputEncoderTest {
             )
         )
 
-        assertTrue(updated.leftPose.x > 0f)
+        val expectedLeftTargetX = (0.59f - 0.5f) * (2.55f * 0.18f / 0.20f) * 2.4f
+        assertTrue(updated.leftPose.active)
+        assertTrue("Left hand should move toward its new camera position", updated.leftPose.x > initial.leftPose.x)
+        assertTrue("Temporal smoothing should prevent a one-frame teleport", updated.leftPose.x < expectedLeftTargetX)
         val expectedRightX = (0.69f - 0.5f) * (2.55f * 0.18f / 0.20f) * 2.4f
         assertEquals(expectedRightX, updated.rightPose.x, 0.01f)
     }
