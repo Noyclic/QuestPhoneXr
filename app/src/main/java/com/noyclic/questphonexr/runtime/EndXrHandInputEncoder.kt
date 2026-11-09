@@ -263,8 +263,8 @@ internal object EndXrHandInputEncoder {
         }
 
         private companion object {
-            const val BASE_TIME_CONSTANT_SECONDS = 0.045f
-            const val FAST_MOTION_REDUCTION = 0.50f
+            const val BASE_TIME_CONSTANT_SECONDS = 0.085f
+            const val FAST_MOTION_REDUCTION = 0.45f
             const val LOW_ANGULAR_SPEED_RAD_S = 1.5f
             const val HIGH_ANGULAR_SPEED_RAD_S = 8f
             const val MIN_DELTA_SECONDS = 0.001f
