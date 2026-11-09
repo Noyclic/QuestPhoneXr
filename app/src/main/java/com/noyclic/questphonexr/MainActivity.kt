@@ -36,6 +36,7 @@ import com.noyclic.questphonexr.catalog.GameInputProfile
 import com.noyclic.questphonexr.catalog.ProfiledVrGameInputAdapter
 import com.noyclic.questphonexr.catalog.GameLibraryActivity
 import com.noyclic.questphonexr.input.AndroidGamepadInputAdapter
+import com.noyclic.questphonexr.input.ControllerBindingStore
 import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
 import com.noyclic.questphonexr.input.VirtualControllerFrame
 import com.noyclic.questphonexr.input.VirtualControllerMapper
@@ -59,6 +60,7 @@ class MainActivity : ComponentActivity(), InputManager.InputDeviceListener {
 
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val virtualControllerMapper = VirtualControllerMapper()
+    private val controllerBindingProfile by lazy { ControllerBindingStore.load(this) }
     private val gamepadInput = AndroidGamepadInputAdapter { snapshots ->
         runOnUiThread { updateVirtualControllerSnapshot(snapshots) }
     }
@@ -338,14 +340,14 @@ class MainActivity : ComponentActivity(), InputManager.InputDeviceListener {
     private fun updateVirtualControllerSnapshot(
         snapshots: List<PhysicalControllerSnapshot> = gamepadInput.snapshots()
     ) {
-        latestVirtualControllers = virtualControllerMapper.map(lastHandFrame, snapshots)
+        latestVirtualControllers = virtualControllerMapper.map(lastHandFrame, snapshots, controllerBindingProfile)
         renderDiagnostics()
     }
 
     private fun renderDiagnostics() {
         if (!::statusView.isInitialized) return
         val frame = latestVirtualControllers
-            ?: virtualControllerMapper.map(lastHandFrame, gamepadInput.snapshots())
+            ?: virtualControllerMapper.map(lastHandFrame, gamepadInput.snapshots(), controllerBindingProfile)
         latestVirtualControllers = frame
 
         val assigned = gamepadInput.snapshots()
