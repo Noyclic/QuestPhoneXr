@@ -53,6 +53,8 @@ class VirtualControllerMapper {
                     GamepadButtonCodes.BUTTON_R2 in pressedKeys
                 ) 1f else 0f
             )
+            TriggerAxisSource.CUSTOM_AXIS ->
+                binding.customTriggerAxis?.let { physical?.analogAxes?.get(it) } ?: 0f
             TriggerAxisSource.NONE -> 0f
         }
         val trigger = maxOf(hand?.pinchStrength ?: 0f, selectedTrigger).coerceIn(0f, 1f)
