@@ -13,6 +13,8 @@ enum class TriggerAxisSource {
 
 /** Physical stick pair routed to a virtual controller. */
 enum class StickAxisSource {
+    /** Uses the assigned device's main stick; dual-mapped full pads use left/right sticks per hand. */
+    AUTO,
     LEFT,
     RIGHT,
     NONE
@@ -61,7 +63,7 @@ data class ControllerHandBinding(
         val LEFT_DEFAULT = ControllerHandBinding(
             triggerSource = TriggerAxisSource.LEFT_TRIGGER,
             gripKeyCode = GamepadButtonCodes.BUTTON_L1,
-            stickSource = StickAxisSource.LEFT,
+            stickSource = StickAxisSource.AUTO,
             buttonAKeyCode = GamepadButtonCodes.BUTTON_A,
             buttonBKeyCode = GamepadButtonCodes.BUTTON_B,
             buttonXKeyCode = GamepadButtonCodes.BUTTON_X,
@@ -71,7 +73,7 @@ data class ControllerHandBinding(
         val RIGHT_DEFAULT = ControllerHandBinding(
             triggerSource = TriggerAxisSource.RIGHT_TRIGGER,
             gripKeyCode = GamepadButtonCodes.BUTTON_R1,
-            stickSource = StickAxisSource.RIGHT,
+            stickSource = StickAxisSource.AUTO,
             buttonAKeyCode = GamepadButtonCodes.BUTTON_A,
             buttonBKeyCode = GamepadButtonCodes.BUTTON_B,
             buttonXKeyCode = GamepadButtonCodes.BUTTON_X,
