@@ -154,6 +154,8 @@ class SandboxSimulation {
         rightCursorSmoother.reset()
         leftHandPoseSmoother.reset()
         rightHandPoseSmoother.reset()
+        leftDepthEstimator.reset()
+        rightDepthEstimator.reset()
     }
 
     @Synchronized
@@ -163,6 +165,8 @@ class SandboxSimulation {
         rightHandPoseSmoother.reset()
         leftCursorSmoother.reset()
         rightCursorSmoother.reset()
+        leftDepthEstimator.reset()
+        rightDepthEstimator.reset()
         leftLandmarks = emptyList()
         rightLandmarks = emptyList()
     }
