@@ -18,6 +18,7 @@ class AndroidGamepadInputAdapter(
         val deviceId: Int,
         var deviceName: String,
         var hand: HandSide? = null,
+        var mapToBothHands: Boolean = false,
         var stickX: Float = 0f,
         var stickY: Float = 0f,
         var rightStickX: Float = 0f,
@@ -38,7 +39,8 @@ class AndroidGamepadInputAdapter(
             leftTrigger = leftTrigger,
             rightTrigger = rightTrigger,
             pressedKeyCodes = pressedKeyCodes.toSet(),
-            updatedAtMs = updatedAtMs
+            updatedAtMs = updatedAtMs,
+            mapToBothHands = mapToBothHands
         )
     }
 
@@ -66,12 +68,33 @@ class AndroidGamepadInputAdapter(
         val snapshot = synchronized(lock) {
             val state = devices[deviceId] ?: return
             if (hand != null) {
-                // One physical controller per virtual hand prevents nondeterministic selection.
+                // A dual-mapped pad occupies both virtual hands.
                 devices.values
-                    .filter { it.deviceId != deviceId && it.hand == hand }
-                    .forEach { it.hand = null }
+                    .filter { it.deviceId != deviceId && (it.hand == hand || it.mapToBothHands) }
+                    .forEach {
+                        it.hand = null
+                        it.mapToBothHands = false
+                    }
             }
             state.hand = hand
+            state.mapToBothHands = false
+            snapshotLocked()
+        }
+        onChanged?.invoke(snapshot)
+    }
+
+    /** Use one full gamepad as both virtual hands (left/right stick and triggers stay separate). */
+    fun assignDeviceToBothHands(deviceId: Int) {
+        val snapshot = synchronized(lock) {
+            val state = devices[deviceId] ?: return
+            devices.values
+                .filter { it.deviceId != deviceId }
+                .forEach {
+                    it.hand = null
+                    it.mapToBothHands = false
+                }
+            state.hand = null
+            state.mapToBothHands = true
             snapshotLocked()
         }
         onChanged?.invoke(snapshot)
