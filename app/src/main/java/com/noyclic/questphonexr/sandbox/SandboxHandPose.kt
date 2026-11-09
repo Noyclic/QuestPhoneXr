@@ -1,6 +1,7 @@
 package com.noyclic.questphonexr.sandbox
 
 import com.noyclic.questphonexr.tracking.HandPoint
+import kotlin.math.pow
 
 /** Maps MediaPipe image landmarks across the wider free-space sandbox reach volume, not just the platform footprint. */
 internal object SandboxHandPoseMapper {
@@ -76,8 +77,28 @@ internal class MonocularHandDepthEstimator(
     private val maximumStepMeters: Float = 0.22f
 ) {
     private var filteredDistance: Float? = null
+    private var lastTimestampMs = 0L
 
-    fun update(points: List<HandPoint>): Float? {
+    /** Legacy sample-count overload retained for callers without source timestamps. */
+    fun update(points: List<HandPoint>): Float? =
+        updateMeasured(points, elapsedMs = null)
+
+    /**
+     * Timestamp-aware update for camera frames. Duplicate/out-of-order samples
+     * cannot keep nudging the depth estimate during faster Sandbox rendering.
+     */
+    fun update(points: List<HandPoint>, timestampMs: Long): Float? {
+        if (timestampMs <= 0L) return update(points)
+        val previousTimestamp = lastTimestampMs
+        if (previousTimestamp > 0L && timestampMs <= previousTimestamp) {
+            return filteredDistance
+        }
+        lastTimestampMs = timestampMs
+        val elapsedMs = if (previousTimestamp > 0L) timestampMs - previousTimestamp else null
+        return updateMeasured(points, elapsedMs)
+    }
+
+    private fun updateMeasured(points: List<HandPoint>, elapsedMs: Long?): Float? {
         val indexMcp = points.getOrNull(5) ?: return filteredDistance
         val pinkyMcp = points.getOrNull(17) ?: return filteredDistance
         val dx = indexMcp.x - pinkyMcp.x
@@ -88,9 +109,26 @@ internal class MonocularHandDepthEstimator(
         val measured = (referenceDistanceMeters * referencePalmWidth / palmWidth)
             .coerceIn(minimumDistanceMeters, maximumDistanceMeters)
         val previous = filteredDistance
-        val next = if (previous == null) measured else {
+        val next = if (previous == null) {
+            measured
+        } else if (elapsedMs == null) {
             val desiredStep = (measured - previous) * smoothing
             previous + desiredStep.coerceIn(-maximumStepMeters, maximumStepMeters)
+        } else if (elapsedMs > MAX_CONTINUOUS_GAP_MS) {
+            measured
+        } else {
+            val deltaSeconds = (elapsedMs / 1_000f).coerceIn(
+                MIN_DELTA_SECONDS,
+                MAX_DELTA_SECONDS
+            )
+            // Preserve the configured response at the reference rate while
+            // making the filter independent of how often the frame is sampled.
+            val alpha = (
+                1f - (1f - smoothing).pow(deltaSeconds * REFERENCE_FPS)
+                ).coerceIn(0f, 1f)
+            val maximumStep = maximumStepMeters * REFERENCE_FPS * deltaSeconds
+            val desiredStep = (measured - previous) * alpha
+            previous + desiredStep.coerceIn(-maximumStep, maximumStep)
         }
         filteredDistance = next
         return next
@@ -98,10 +136,15 @@ internal class MonocularHandDepthEstimator(
 
     fun reset() {
         filteredDistance = null
+        lastTimestampMs = 0L
     }
 
     private companion object {
         const val MIN_VALID_PALM_WIDTH = 0.035f
+        const val REFERENCE_FPS = 30f
+        const val MIN_DELTA_SECONDS = 0.001f
+        const val MAX_DELTA_SECONDS = 0.25f
+        const val MAX_CONTINUOUS_GAP_MS = 250L
     }
 }
 
@@ -159,25 +202,30 @@ internal class SandboxHandPoseSmoother(
             DEFAULT_DELTA_SECONDS
         }
 
-        var totalDistance = 0f
-        for (index in target.indices) {
-            totalDistance += distance(current[index], target[index])
+        // Filter each landmark independently. A single fast fingertip should catch up
+        // without forcing the entire palm to use the same low-smoothing response.
+        val baseTimeConstant = if (response >= 1f) {
+            0f
+        } else {
+            -1f / (60f * kotlin.math.ln(1f - response))
         }
-        val averageSpeed = totalDistance / target.size / dt
-        val motion = (
-            (averageSpeed - LOW_MOTION_SPEED) /
-                (HIGH_MOTION_SPEED - LOW_MOTION_SPEED)
-            ).coerceIn(0f, 1f)
-
-        // Convert the legacy 60 Hz response into a time constant, then shorten
-        // that constant during fast motion so the filtered hand does not trail.
-        val baseTimeConstant = -1f / (60f * kotlin.math.ln(1f - response))
-        val timeConstant = baseTimeConstant * (1f - FAST_MOTION_TIME_REDUCTION * motion)
-        val alpha = (
-            1f - kotlin.math.exp(-dt / timeConstant)
-            ).coerceIn(0f, 1f)
-
-        return filter(target, alpha)
+        val filtered = target.mapIndexed { index, next ->
+            val displacement = distance(current[index], next)
+            val speed = displacement / dt
+            val motion = (
+                (speed - LOW_MOTION_SPEED) /
+                    (HIGH_MOTION_SPEED - LOW_MOTION_SPEED)
+                ).coerceIn(0f, 1f)
+            val timeConstant = baseTimeConstant * (1f - FAST_MOTION_TIME_REDUCTION * motion)
+            val alpha = if (timeConstant <= MIN_TIME_CONSTANT_SECONDS) {
+                1f
+            } else {
+                (1f - kotlin.math.exp(-dt / timeConstant)).coerceIn(0f, 1f)
+            }
+            current[index] + (next - current[index]) * alpha
+        }
+        previous = filtered
+        return filtered
     }
 
     private fun filter(
@@ -218,5 +266,6 @@ internal class SandboxHandPoseSmoother(
         const val LOW_MOTION_SPEED = 0.35f
         const val HIGH_MOTION_SPEED = 2.25f
         const val FAST_MOTION_TIME_REDUCTION = 0.65f
+        const val MIN_TIME_CONSTANT_SECONDS = 0.0001f
     }
 }
