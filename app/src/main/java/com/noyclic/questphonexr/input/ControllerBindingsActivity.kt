@@ -426,6 +426,7 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
         super.onResume()
         inputManager.registerInputDeviceListener(this, Handler(Looper.getMainLooper()))
         updateConnectedDevices(gamepadInput.refreshConnectedDevices())
+        renderPage()
     }
 
     override fun onPause() {
@@ -436,8 +437,8 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
     }
 
     override fun onInputDeviceAdded(deviceId: Int) {
-        latestDevices = gamepadInput.refreshConnectedDevices()
-        updateTestReadout()
+        updateConnectedDevices(gamepadInput.refreshConnectedDevices())
+        renderPage()
     }
 
     override fun onInputDeviceRemoved(deviceId: Int) {
@@ -450,8 +451,8 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
     }
 
     override fun onInputDeviceChanged(deviceId: Int) {
-        latestDevices = gamepadInput.refreshConnectedDevices()
-        updateTestReadout()
+        updateConnectedDevices(gamepadInput.refreshConnectedDevices())
+        renderPage()
     }
 
     private fun updateConnectedDevices(devices: List<PhysicalControllerSnapshot>) {
