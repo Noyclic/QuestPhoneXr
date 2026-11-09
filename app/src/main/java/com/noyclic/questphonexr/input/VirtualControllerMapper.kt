@@ -38,11 +38,20 @@ class VirtualControllerMapper {
             ?: physicalControllers.firstOrNull { it.mapToBothHands }
         val pressedKeys = physical?.pressedKeyCodes.orEmpty()
         val selectedTrigger = when (binding.triggerSource) {
-            TriggerAxisSource.LEFT_TRIGGER -> physical?.leftTrigger ?: 0f
-            TriggerAxisSource.RIGHT_TRIGGER -> physical?.rightTrigger ?: 0f
+            TriggerAxisSource.LEFT_TRIGGER -> maxOf(
+                physical?.leftTrigger ?: 0f,
+                if (GamepadButtonCodes.BUTTON_L2 in pressedKeys) 1f else 0f
+            )
+            TriggerAxisSource.RIGHT_TRIGGER -> maxOf(
+                physical?.rightTrigger ?: 0f,
+                if (GamepadButtonCodes.BUTTON_R2 in pressedKeys) 1f else 0f
+            )
             TriggerAxisSource.EITHER -> maxOf(
                 physical?.leftTrigger ?: 0f,
-                physical?.rightTrigger ?: 0f
+                physical?.rightTrigger ?: 0f,
+                if (GamepadButtonCodes.BUTTON_L2 in pressedKeys ||
+                    GamepadButtonCodes.BUTTON_R2 in pressedKeys
+                ) 1f else 0f
             )
             TriggerAxisSource.NONE -> 0f
         }
@@ -52,10 +61,19 @@ class VirtualControllerMapper {
         } else {
             0f
         }
-        val selectedStick = when (binding.stickSource) {
+        val selectedStickSource = when (binding.stickSource) {
+            StickAxisSource.AUTO -> if (physical?.mapToBothHands == true && side == HandSide.RIGHT) {
+                StickAxisSource.RIGHT
+            } else {
+                StickAxisSource.LEFT
+            }
+            else -> binding.stickSource
+        }
+        val selectedStick = when (selectedStickSource) {
             StickAxisSource.LEFT -> physical?.let { it.stickX to it.stickY } ?: (0f to 0f)
             StickAxisSource.RIGHT -> physical?.let { it.rightStickX to it.rightStickY } ?: (0f to 0f)
             StickAxisSource.NONE -> 0f to 0f
+            StickAxisSource.AUTO -> 0f to 0f
         }
         val virtualButtons = buildSet {
             fun mapButton(target: VirtualGamepadButton, sourceKeyCode: Int) {
