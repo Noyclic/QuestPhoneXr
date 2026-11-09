@@ -180,6 +180,7 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
             container,
             "Стик движения",
             listOf(
+                "Авто · рекомендуемый режим" to StickAxisSource.AUTO,
                 "Левый стик" to StickAxisSource.LEFT,
                 "Правый стик" to StickAxisSource.RIGHT,
                 "Не использовать" to StickAxisSource.NONE
@@ -394,19 +395,17 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
             android.R.layout.simple_spinner_item,
             options.map { it.first }
         ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
-        spinner.setSelection(options.indexOfFirst { it.second == selected }.coerceAtLeast(0), false)
+        var selectedPosition = options.indexOfFirst { it.second == selected }.coerceAtLeast(0)
+        spinner.setSelection(selectedPosition, false)
         spinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-            private var firstSelection = true
             override fun onItemSelected(
                 parentView: android.widget.AdapterView<*>?,
                 view: android.view.View?,
                 position: Int,
                 id: Long
             ) {
-                if (firstSelection) {
-                    firstSelection = false
-                    return
-                }
+                if (position == selectedPosition) return
+                selectedPosition = position
                 options.getOrNull(position)?.second?.let(onChange)
             }
 
