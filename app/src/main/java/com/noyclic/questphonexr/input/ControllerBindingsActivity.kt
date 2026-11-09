@@ -230,6 +230,11 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
                 statusView.text = "Нажми кнопку для " + virtualButton.name + " (" + hand.name + ")."
                 renderPage()
             })
+            row.addView(button("Очистить") {
+                captureTarget = null
+                updateHand(hand) { it.withButton(virtualButton, 0) }
+                Toast.makeText(this, virtualButton.name + " отключена", Toast.LENGTH_SHORT).show()
+            })
             container.addView(row)
         }
     }
