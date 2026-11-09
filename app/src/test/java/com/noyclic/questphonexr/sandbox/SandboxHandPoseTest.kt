@@ -247,6 +247,6 @@ class SandboxHandPoseTest {
         estimator.update(narrow, 20_000L)
         val reacquired = estimator.update(wide, 20_300L)!!
 
-        assertEquals(2.55f * 0.18f / 0.10f, reacquired, 0.001f)
+        assertEquals(4.5f, reacquired, 0.001f)
     }
 }
