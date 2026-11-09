@@ -37,6 +37,7 @@ import com.noyclic.questphonexr.catalog.ProfiledVrGameInputAdapter
 import com.noyclic.questphonexr.catalog.GameLibraryActivity
 import com.noyclic.questphonexr.input.AndroidGamepadInputAdapter
 import com.noyclic.questphonexr.input.ControllerBindingStore
+import com.noyclic.questphonexr.input.ControllerBindingsActivity
 import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
 import com.noyclic.questphonexr.input.VirtualControllerFrame
 import com.noyclic.questphonexr.input.VirtualControllerMapper
@@ -166,6 +167,13 @@ class MainActivity : ComponentActivity(), InputManager.InputDeviceListener {
             isAllCaps = false
             setOnClickListener { showControllerAssignmentDialog() }
         }
+        val bindingsButton = Button(this).apply {
+            text = "Настроить бинды кнопок, стиков и курков"
+            isAllCaps = false
+            setOnClickListener {
+                startActivity(Intent(this@MainActivity, ControllerBindingsActivity::class.java))
+            }
+        }
         val controlsRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(
@@ -183,6 +191,10 @@ class MainActivity : ComponentActivity(), InputManager.InputDeviceListener {
             setBackgroundColor(0xCC101319.toInt())
             addView(statusView)
             addView(controlsRow)
+            addView(bindingsButton, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
             addView(backButton, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -360,9 +372,11 @@ class MainActivity : ComponentActivity(), InputManager.InputDeviceListener {
         latestVirtualControllers = frame
 
         val assigned = gamepadInput.snapshots()
-            .filter { it.hand != null }
-            .joinToString { it.deviceName + " → " + it.hand?.name }
-            .ifBlank { "нет назначенных геймпадов" }
+            .filter { it.hand != null || it.mapToBothHands }
+            .joinToString {
+                it.deviceName + " → " + if (it.mapToBothHands) "ОБЕ РУКИ" else it.hand?.name
+            }
+            .ifBlank { "нет назначенных контроллеров" }
 
         val actionFrame = selectedGameAdapter?.map(frame)
         val actionsText = actionFrame?.actions
