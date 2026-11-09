@@ -68,12 +68,11 @@ class AndroidGamepadInputAdapter(
             val state = devices[deviceId] ?: return
             if (hand != null) {
                 // A dual-mapped pad occupies both virtual hands.
+                // A side-specific controller overrides a dual-mapped pad for that side;
+                // keep the latter alive for the other virtual hand.
                 devices.values
-                    .filter { it.deviceId != deviceId && (it.hand == hand || it.mapToBothHands) }
-                    .forEach {
-                        it.hand = null
-                        it.mapToBothHands = false
-                    }
+                    .filter { it.deviceId != deviceId && it.hand == hand }
+                    .forEach { it.hand = null }
             }
             state.hand = hand
             state.mapToBothHands = false
@@ -86,12 +85,11 @@ class AndroidGamepadInputAdapter(
     fun assignDeviceToBothHands(deviceId: Int) {
         val snapshot = synchronized(lock) {
             val state = devices[deviceId] ?: return
+            // Keep separately assigned left/right controllers. The exact-side device wins
+            // in VirtualControllerMapper while this pad remains the fallback for the other hand.
             devices.values
-                .filter { it.deviceId != deviceId }
-                .forEach {
-                    it.hand = null
-                    it.mapToBothHands = false
-                }
+                .filter { it.deviceId != deviceId && it.mapToBothHands }
+                .forEach { it.mapToBothHands = false }
             state.hand = null
             state.mapToBothHands = true
             snapshotLocked()
@@ -145,18 +143,38 @@ class AndroidGamepadInputAdapter(
             state.rightStickX = rightStick.x
             state.rightStickY = rightStick.y
             state.leftTrigger = maxOf(
-                event.getAxisValue(MotionEvent.AXIS_LTRIGGER),
-                event.getAxisValue(MotionEvent.AXIS_BRAKE)
-            ).coerceIn(0f, 1f)
+                triggerAxisValue(event, device, MotionEvent.AXIS_LTRIGGER),
+                triggerAxisValue(event, device, MotionEvent.AXIS_BRAKE)
+            )
             state.rightTrigger = maxOf(
-                event.getAxisValue(MotionEvent.AXIS_RTRIGGER),
-                event.getAxisValue(MotionEvent.AXIS_GAS)
-            ).coerceIn(0f, 1f)
+                triggerAxisValue(event, device, MotionEvent.AXIS_RTRIGGER),
+                triggerAxisValue(event, device, MotionEvent.AXIS_GAS)
+            )
             state.updatedAtMs = SystemClock.uptimeMillis()
             snapshotLocked()
         }
         onChanged?.invoke(snapshot)
         return true
+    }
+
+    /**
+     * Read an analog trigger using the axis range declared by Android. Some generic HID
+     * devices expose a trigger as [-1, 1] rather than [0, 1]; normalizing the range keeps
+     * the released value at zero and the fully pressed value at one.
+     */
+    private fun triggerAxisValue(
+        event: MotionEvent,
+        device: InputDevice,
+        axis: Int
+    ): Float {
+        val raw = event.getAxisValue(axis)
+        val range = device.getMotionRange(axis, event.source)
+            ?: device.getMotionRange(axis)
+        return if (range != null) {
+            GamepadAxisNormalizer.normalizeTrigger(raw, range.min, range.max)
+        } else {
+            raw.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+        }
     }
 
     /**
