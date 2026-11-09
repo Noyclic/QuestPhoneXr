@@ -290,8 +290,8 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
         val device = InputDevice.getDevice(event.deviceId) ?: return false
         if (!isGamepad(device.sources)) return false
 
-        updateHand(target.hand) { it.withButton(target.button, event.keyCode) }
         captureTarget = null
+        updateHand(target.hand) { it.withButton(target.button, event.keyCode) }
         statusView.text = "Назначено: " + target.button.name + " ← " + keyLabel(event.keyCode)
         Toast.makeText(this, "Бинд сохранён", Toast.LENGTH_SHORT).show()
         return true
