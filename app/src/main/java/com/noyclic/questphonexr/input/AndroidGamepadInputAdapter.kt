@@ -5,7 +5,6 @@ import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import com.noyclic.questphonexr.tracking.HandSide
-import kotlin.math.abs
 
 /**
  * Captures standard Android gamepad/joystick events. Joy-Con devices can be assigned to a
@@ -138,8 +137,8 @@ class AndroidGamepadInputAdapter(
                 event.getAxisValue(MotionEvent.AXIS_Y)
             )
             val rightStick = StickAxisFilter.normalize(
-                axisWithFallback(event, MotionEvent.AXIS_RX, MotionEvent.AXIS_Z),
-                axisWithFallback(event, MotionEvent.AXIS_RY, MotionEvent.AXIS_RZ)
+                axisWithFallback(event, device, MotionEvent.AXIS_RX, MotionEvent.AXIS_Z),
+                axisWithFallback(event, device, MotionEvent.AXIS_RY, MotionEvent.AXIS_RZ)
             )
             state.stickX = leftStick.x
             state.stickY = leftStick.y
@@ -160,10 +159,21 @@ class AndroidGamepadInputAdapter(
         return true
     }
 
-    private fun axisWithFallback(event: MotionEvent, preferredAxis: Int, fallbackAxis: Int): Float {
-        val preferred = event.getAxisValue(preferredAxis)
-        return if (abs(preferred) > AXIS_FALLBACK_EPSILON) {
-            preferred
+    /**
+     * Prefer the declared RX/RY axes even when they are centered at zero. Falling back
+     * based on the current value can accidentally read Z/RZ (which some pads use for
+     * other controls) whenever a valid right stick happens to be neutral.
+     */
+    private fun axisWithFallback(
+        event: MotionEvent,
+        device: InputDevice,
+        preferredAxis: Int,
+        fallbackAxis: Int
+    ): Float {
+        val preferredRange = device.getMotionRange(preferredAxis, event.source)
+            ?: device.getMotionRange(preferredAxis)
+        return if (preferredRange != null) {
+            event.getAxisValue(preferredAxis)
         } else {
             event.getAxisValue(fallbackAxis)
         }
@@ -182,9 +192,5 @@ class AndroidGamepadInputAdapter(
         val gamepad = (source and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
         val joystick = (source and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK
         return gamepad || joystick
-    }
-
-    private companion object {
-        const val AXIS_FALLBACK_EPSILON = 0.001f
     }
 }
