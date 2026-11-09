@@ -210,4 +210,46 @@ class EndXrHandInputEncoderTest {
         assertEquals(kotlin.math.sin(Math.PI / 4.0).toFloat(), afterGap.qy, 0.002f)
         assertEquals(kotlin.math.cos(Math.PI / 4.0).toFloat(), afterGap.qw, 0.002f)
     }
+
+    @Test
+    fun rejectsNearlyCollinearPalmBasisInsteadOfAmplifyingLandmarkNoise() {
+        val base = trackedHand(HandSide.LEFT, 0.5f)
+        val almostCollinear = base.worldPoints.toMutableList().also {
+            it[0] = HandPoint(0f, 0f, 0f)
+            it[5] = HandPoint(0.04f, 0f, 0f)
+            it[9] = HandPoint(0.02f, 0.0001f, 0f)
+            it[17] = HandPoint(-0.04f, 0f, 0f)
+        }
+        val pose = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(6_000L, listOf(base.copy(worldPoints = almostCollinear)))
+        ).leftPose
+
+        assertEquals(EndXrHandPoseSample.EMPTY, pose)
+    }
+
+    @Test
+    fun rejectsCollapsedPalmWorldLandmarks() {
+        val base = trackedHand(HandSide.RIGHT, 0.5f)
+        val collapsed = base.worldPoints.map { point ->
+            HandPoint(point.x * 0.01f, point.y * 0.01f, point.z * 0.01f)
+        }
+        val pose = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(7_000L, listOf(base.copy(worldPoints = collapsed)))
+        ).rightPose
+
+        assertEquals(EndXrHandPoseSample.EMPTY, pose)
+    }
+
+    @Test
+    fun rejectsNonFinitePalmLandmarkBeforeQuaternionConversion() {
+        val base = trackedHand(HandSide.LEFT, 0.5f)
+        val invalid = base.worldPoints.toMutableList().also {
+            it[9] = HandPoint(Float.NaN, 0.05f, 0f)
+        }
+        val pose = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(8_000L, listOf(base.copy(worldPoints = invalid)))
+        ).leftPose
+
+        assertEquals(EndXrHandPoseSample.EMPTY, pose)
+    }
 }
