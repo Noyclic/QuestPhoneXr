@@ -295,4 +295,71 @@ class VirtualControllerMapperTest {
         assertEquals(0.1f, frame.left.stickX, 0.001f)
         assertEquals(-0.8f, frame.right.stickX, 0.001f)
     }
+
+    @Test
+    fun customCapturedAnalogAxisDrivesSelectedVirtualTrigger() {
+        val physical = PhysicalControllerSnapshot(
+            deviceId = 301,
+            deviceName = "Generic HID Controller",
+            hand = HandSide.LEFT,
+            stickX = 0f,
+            stickY = 0f,
+            rightStickX = 0f,
+            rightStickY = 0f,
+            leftTrigger = 0f,
+            rightTrigger = 0f,
+            pressedKeyCodes = emptySet(),
+            updatedAtMs = 1000L,
+            analogAxes = mapOf(17 to 0.72f)
+        )
+        val leftBinding = ControllerHandBinding.LEFT_DEFAULT.copy(
+            triggerSource = TriggerAxisSource.CUSTOM_AXIS,
+            customTriggerAxis = 17
+        )
+        val profile = ControllerBindingProfile(
+            left = leftBinding,
+            right = ControllerHandBinding.RIGHT_DEFAULT
+        )
+
+        val frame = mapper.map(
+            HandTrackingFrame(1010L, emptyList()),
+            listOf(physical),
+            profile
+        )
+
+        assertEquals(0.72f, frame.left.trigger, 0.001f)
+        assertEquals(0f, frame.right.trigger, 0f)
+    }
+
+    @Test
+    fun missingCustomAxisIsNeutralRatherThanReadingAnotherTrigger() {
+        val physical = PhysicalControllerSnapshot(
+            deviceId = 302,
+            deviceName = "Partially Mapped Pad",
+            hand = HandSide.LEFT,
+            stickX = 0f,
+            stickY = 0f,
+            rightStickX = 0f,
+            rightStickY = 0f,
+            leftTrigger = 1f,
+            rightTrigger = 0.9f,
+            pressedKeyCodes = emptySet(),
+            updatedAtMs = 1100L
+        )
+        val profile = ControllerBindingProfile(
+            left = ControllerHandBinding.LEFT_DEFAULT.copy(
+                triggerSource = TriggerAxisSource.CUSTOM_AXIS,
+                customTriggerAxis = 99
+            ),
+            right = ControllerHandBinding.RIGHT_DEFAULT
+        )
+
+        val frame = mapper.map(
+            HandTrackingFrame(1110L, emptyList()),
+            listOf(physical),
+            profile
+        )
+
+        assertEquals(0f, frame.left.trigger, 0f)
+    }
 }
