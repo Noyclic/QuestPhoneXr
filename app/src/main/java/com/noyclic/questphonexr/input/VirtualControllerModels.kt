@@ -45,7 +45,9 @@ data class PhysicalControllerSnapshot(
     val pressedKeyCodes: Set<Int>,
     val updatedAtMs: Long,
     /** One full-size pad may drive both virtual hands using its separate left/right controls. */
-    val mapToBothHands: Boolean = false
+    val mapToBothHands: Boolean = false,
+    /** MotionRange-normalized 0..1 values for axes exposed by this Android input device. */
+    val analogAxes: Map<Int, Float> = emptyMap()
 )
 
 enum class ControllerInputSource {
