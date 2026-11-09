@@ -37,8 +37,7 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
     private val inputManager by lazy { getSystemService(INPUT_SERVICE) as InputManager }
     private val gamepadInput = AndroidGamepadInputAdapter { snapshots ->
         runOnUiThread {
-            latestDevices = snapshots
-            updateTestReadout()
+            updateConnectedDevices(snapshots)
         }
     }
 
@@ -48,6 +47,7 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
     private var triggerAxisCaptureHand: HandSide? = null
     private var triggerAxisCaptureDeviceId: Int? = null
     private var triggerAxisCaptureBaseline: Map<Int, Float> = emptyMap()
+    private var selectedCaptureDeviceId: Int? = null
     private var latestDevices: List<PhysicalControllerSnapshot> = emptyList()
 
     private lateinit var page: LinearLayout
@@ -100,6 +100,7 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
         root.addView(button("Вернуть стандартную раскладку") {
             profile = ControllerBindingStore.reset(this)
             captureTarget = null
+            cancelTriggerAxisCapture()
             renderPage()
             Toast.makeText(this, "Стандартные бинды восстановлены", Toast.LENGTH_SHORT).show()
         }, LinearLayout.LayoutParams(
@@ -115,6 +116,7 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
     private fun tabButton(label: String, target: Tab) = button(label) {
         tab = target
         captureTarget = null
+        cancelTriggerAxisCapture()
         renderPage()
     }
 
@@ -136,6 +138,19 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
     }
 
     private fun renderAxesPage() {
+        if (latestDevices.isNotEmpty()) {
+            addChoice(
+                page,
+                "Геймпад для сканирования оси",
+                latestDevices.map { (it.deviceName + " · ID " + it.deviceId) to it.deviceId },
+                selectedCaptureDeviceId ?: latestDevices.first().deviceId
+            ) { deviceId -> selectedCaptureDeviceId = deviceId }
+        } else {
+            page.addView(text(
+                "Подключи контроллер перед сканированием нестандартной оси курка.",
+                12f, 0xFFFFD28A.toInt()
+            ))
+        }
         page.addView(text(
             "Выбери, какие физические курки и стики будут управлять каждой виртуальной рукой. " +
                 "Это подходит для обычных Bluetooth/USB-геймпадов и пары Joy-Con.",
@@ -336,7 +351,8 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
     }
 
     private fun startTriggerAxisCapture(hand: HandSide) {
-        val device = latestDevices.firstOrNull()
+        val device = latestDevices.firstOrNull { it.deviceId == selectedCaptureDeviceId }
+            ?: latestDevices.firstOrNull()
         if (device == null) {
             Toast.makeText(this, "Сначала подключи нужный геймпад.", Toast.LENGTH_LONG).show()
             return
@@ -409,12 +425,13 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
     override fun onResume() {
         super.onResume()
         inputManager.registerInputDeviceListener(this, Handler(Looper.getMainLooper()))
-        latestDevices = gamepadInput.refreshConnectedDevices()
-        updateTestReadout()
+        updateConnectedDevices(gamepadInput.refreshConnectedDevices())
     }
 
     override fun onPause() {
         inputManager.unregisterInputDeviceListener(this)
+        cancelTriggerAxisCapture()
+        captureTarget = null
         super.onPause()
     }
 
@@ -425,13 +442,30 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
 
     override fun onInputDeviceRemoved(deviceId: Int) {
         gamepadInput.onDeviceRemoved(deviceId)
-        latestDevices = gamepadInput.snapshots()
-        updateTestReadout()
+        updateConnectedDevices(gamepadInput.snapshots())
+        if (triggerAxisCaptureDeviceId == deviceId) {
+            cancelTriggerAxisCapture()
+            renderPage()
+        }
     }
 
     override fun onInputDeviceChanged(deviceId: Int) {
         latestDevices = gamepadInput.refreshConnectedDevices()
         updateTestReadout()
+    }
+
+    private fun updateConnectedDevices(devices: List<PhysicalControllerSnapshot>) {
+        latestDevices = devices
+        if (devices.none { it.deviceId == selectedCaptureDeviceId }) {
+            selectedCaptureDeviceId = devices.firstOrNull()?.deviceId
+        }
+        updateTestReadout()
+    }
+
+    private fun cancelTriggerAxisCapture() {
+        triggerAxisCaptureHand = null
+        triggerAxisCaptureDeviceId = null
+        triggerAxisCaptureBaseline = emptyMap()
     }
 
     private fun connectedSummary(): String =
