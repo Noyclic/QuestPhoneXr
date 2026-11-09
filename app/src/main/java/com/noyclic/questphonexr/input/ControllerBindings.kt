@@ -60,12 +60,14 @@ data class ControllerHandBinding(
     }
 
     companion object {
+        // Match the familiar VR hand split: X/Y on the left hand, A/B on the right.
+        // This avoids mirroring every face button to both hands when one full-size pad is shared.
         val LEFT_DEFAULT = ControllerHandBinding(
             triggerSource = TriggerAxisSource.LEFT_TRIGGER,
             gripKeyCode = GamepadButtonCodes.BUTTON_L1,
             stickSource = StickAxisSource.AUTO,
-            buttonAKeyCode = GamepadButtonCodes.BUTTON_A,
-            buttonBKeyCode = GamepadButtonCodes.BUTTON_B,
+            buttonAKeyCode = 0,
+            buttonBKeyCode = 0,
             buttonXKeyCode = GamepadButtonCodes.BUTTON_X,
             buttonYKeyCode = GamepadButtonCodes.BUTTON_Y,
             menuKeyCode = GamepadButtonCodes.BUTTON_START
@@ -76,9 +78,9 @@ data class ControllerHandBinding(
             stickSource = StickAxisSource.AUTO,
             buttonAKeyCode = GamepadButtonCodes.BUTTON_A,
             buttonBKeyCode = GamepadButtonCodes.BUTTON_B,
-            buttonXKeyCode = GamepadButtonCodes.BUTTON_X,
-            buttonYKeyCode = GamepadButtonCodes.BUTTON_Y,
-            menuKeyCode = GamepadButtonCodes.BUTTON_START
+            buttonXKeyCode = 0,
+            buttonYKeyCode = 0,
+            menuKeyCode = 0
         )
     }
 }
