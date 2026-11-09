@@ -1,5 +1,6 @@
 package com.noyclic.questphonexr.tracking
 
+import kotlin.math.exp
 import kotlin.math.sqrt
 
 /** Device-independent hand data. Image x/y are normalized; z is image-relative. */
@@ -19,39 +20,89 @@ enum class HandSide {
 
 data class PinchSignal(val strength: Float, val isPinching: Boolean)
 
-/** Normalizes thumb/index distance by palm width and filters pinch state with hysteresis. */
+/**
+ * Normalizes thumb/index distance by palm width and filters pinch state with hysteresis.
+ * When source timestamps are available, smoothing is time-based so the same gesture has
+ * comparable response at 30 and 60 inference samples per second.
+ */
 class PinchEstimator(
     private val smoothing: Float = 0.55f,
     private val pinchOnThreshold: Float = 0.72f,
-    private val pinchOffThreshold: Float = 0.48f
+    private val pinchOffThreshold: Float = 0.48f,
+    private val timeConstantSeconds: Float = DEFAULT_TIME_CONSTANT_SECONDS
 ) {
     private var filteredStrength = 0f
     private var isPinching = false
+    private var previousTimestampMs = 0L
 
-    fun update(points: List<HandPoint>): PinchSignal {
+    init {
+        require(smoothing in 0f..1f) { "Smoothing must be in 0..1." }
+        require(pinchOnThreshold in 0f..1f && pinchOffThreshold in 0f..1f)
+        require(pinchOffThreshold <= pinchOnThreshold) {
+            "Pinch release threshold must not exceed the press threshold."
+        }
+        require(timeConstantSeconds.isFinite() && timeConstantSeconds > 0f)
+    }
+
+    fun update(points: List<HandPoint>, timestampMs: Long = 0L): PinchSignal {
+        // Ignore duplicate/out-of-order inference callbacks instead of rewinding gesture state.
+        if (timestampMs > 0L && previousTimestampMs > 0L &&
+            timestampMs <= previousTimestampMs
+        ) return signal()
+
         val thumb = points.getOrNull(4)
         val index = points.getOrNull(8)
         val indexMcp = points.getOrNull(5)
         val pinkyMcp = points.getOrNull(17)
-        if (thumb == null || index == null || indexMcp == null || pinkyMcp == null) {
-            return PinchSignal(filteredStrength, isPinching)
+        val required = listOfNotNull(thumb, index, indexMcp, pinkyMcp)
+        if (required.size != 4 || required.any { !it.x.isFinite() || !it.y.isFinite() }) {
+            return resetForInvalidSample(timestampMs)
         }
-        val palmWidth = distance(indexMcp, pinkyMcp).coerceAtLeast(MIN_PALM_WIDTH)
-        val normalizedPinchDistance = distance(thumb, index) / palmWidth
-        val rawStrength = ((OPEN_RATIO - normalizedPinchDistance) / RATIO_RANGE).coerceIn(0f, 1f)
-        filteredStrength += (rawStrength - filteredStrength) * smoothing
+
+        val palmWidth = distance(indexMcp!!, pinkyMcp!!)
+        if (!palmWidth.isFinite() || palmWidth < MIN_PALM_WIDTH) {
+            return resetForInvalidSample(timestampMs)
+        }
+        val normalizedPinchDistance = distance(thumb!!, index!!) / palmWidth
+        if (!normalizedPinchDistance.isFinite()) return resetForInvalidSample(timestampMs)
+
+        val rawStrength = ((OPEN_RATIO - normalizedPinchDistance) / RATIO_RANGE)
+            .coerceIn(0f, 1f)
+        val alpha = smoothingAlpha(timestampMs)
+        filteredStrength += (rawStrength - filteredStrength) * alpha
+        if (!filteredStrength.isFinite()) return resetForInvalidSample(timestampMs)
+
         if (!isPinching && filteredStrength >= pinchOnThreshold) {
             isPinching = true
         } else if (isPinching && filteredStrength <= pinchOffThreshold) {
             isPinching = false
         }
-        return PinchSignal(filteredStrength, isPinching)
+        if (timestampMs > 0L) previousTimestampMs = timestampMs
+        return signal()
     }
 
     fun reset() {
         filteredStrength = 0f
         isPinching = false
+        previousTimestampMs = 0L
     }
+
+    private fun resetForInvalidSample(timestampMs: Long): PinchSignal {
+        reset()
+        if (timestampMs > 0L) previousTimestampMs = timestampMs
+        return signal()
+    }
+
+    private fun smoothingAlpha(timestampMs: Long): Float {
+        if (timestampMs <= 0L || previousTimestampMs <= 0L) return smoothing
+        val elapsedMs = (timestampMs - previousTimestampMs).coerceAtLeast(0L)
+            .coerceAtMost(MAX_FILTER_GAP_MS)
+        if (elapsedMs == 0L) return 0f
+        val elapsedSeconds = elapsedMs / 1_000f
+        return (1f - exp(-elapsedSeconds / timeConstantSeconds)).coerceIn(0f, 1f)
+    }
+
+    private fun signal() = PinchSignal(filteredStrength, isPinching)
 
     private fun distance(a: HandPoint, b: HandPoint): Float {
         val dx = a.x - b.x
@@ -60,9 +111,11 @@ class PinchEstimator(
     }
 
     private companion object {
-        const val MIN_PALM_WIDTH = 0.015f
+        const val MIN_PALM_WIDTH = 0.008f
         const val OPEN_RATIO = 0.72f
         const val RATIO_RANGE = 0.52f
+        const val DEFAULT_TIME_CONSTANT_SECONDS = 0.045f
+        const val MAX_FILTER_GAP_MS = 250L
     }
 }
 

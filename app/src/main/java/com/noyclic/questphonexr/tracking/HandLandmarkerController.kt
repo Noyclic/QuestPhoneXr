@@ -77,7 +77,7 @@ class HandLandmarkerController(
     private var modelBitmap: Bitmap? = null
     private var modelCanvas: Canvas? = null
     private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG)
-    private val pinchEstimators = mutableListOf<PinchEstimator>()
+    private val pinchTracker = HandPinchTracker()
     private val landmarker: HandLandmarker
 
     init {
@@ -384,15 +384,12 @@ class HandLandmarkerController(
             val handednessLists = result.handedness()
             val worldLandmarkLists = result.worldLandmarks()
             val transform = inFlightTransform.get()
+            val timestampMs = result.timestampMs()
 
-            while (pinchEstimators.size < landmarkLists.size) {
-                pinchEstimators.add(PinchEstimator())
-            }
-            while (pinchEstimators.size > landmarkLists.size) {
-                pinchEstimators.removeAt(pinchEstimators.lastIndex)
-            }
-
-            val hands = landmarkLists.mapIndexed { index, landmarks ->
+            // MediaPipe does not guarantee a stable list order for detections. Build the
+            // complete frame first, then update pinch history by handedness rather than
+            // by the current result index.
+            val convertedHands = landmarkLists.mapIndexed { index, landmarks ->
                 val points = landmarks.map { landmark ->
                     val mapped = transform?.toRotatedFrameNormalized(landmark.x(), landmark.y())
                     if (mapped == null) {
@@ -401,7 +398,6 @@ class HandLandmarkerController(
                         HandPoint(mapped.first, mapped.second, landmark.z())
                     }
                 }
-                val pinch = pinchEstimators[index].update(points)
                 val label = handednessLists.getOrNull(index)
                     ?.firstOrNull()
                     ?.categoryName()
@@ -411,11 +407,20 @@ class HandLandmarkerController(
                     "right" -> HandSide.RIGHT
                     else -> HandSide.UNKNOWN
                 }
-                // Preserve the current front-camera convention after mirroring the input image.
-                val side = if (mirrorFrontCamera) detectedSide.opposite() else detectedSide
                 val worldPoints = worldLandmarkLists.getOrNull(index).orEmpty().map {
                     HandPoint(if (mirrorFrontCamera) -it.x() else it.x(), it.y(), it.z())
                 }
+                Triple(points, detectedSide, worldPoints)
+            }
+            val pinchSignals = pinchTracker.updateFrame(
+                convertedHands.map { HandPinchSample(side = it.second, points = it.first) },
+                timestampMs
+            )
+            val hands = convertedHands.mapIndexed { index, converted ->
+                val (points, detectedSide, worldPoints) = converted
+                val pinch = pinchSignals[index]
+                // Preserve the current front-camera convention after mirroring the input image.
+                val side = if (mirrorFrontCamera) detectedSide.opposite() else detectedSide
                 TrackedHand(points, pinch.strength, pinch.isPinching, side, worldPoints)
             }
 
@@ -446,6 +451,7 @@ class HandLandmarkerController(
             )
         } catch (error: Exception) {
             Log.e(TAG, "Could not convert MediaPipe landmarks", error)
+            pinchTracker.reset()
             onError(error.message ?: "Could not read hand landmarks.")
         } finally {
             runCatching { input.close() }
@@ -457,7 +463,7 @@ class HandLandmarkerController(
 
     private fun onTaskError(error: RuntimeException) {
         inFlightImage.getAndSet(null)?.close()
-        pinchEstimators.forEach { it.reset() }
+        pinchTracker.reset()
         resetInFlightState()
         publishMetrics()
         if (!closed.get()) {
@@ -479,7 +485,7 @@ class HandLandmarkerController(
         if (closed.compareAndSet(false, true)) {
             inFlightImage.getAndSet(null)?.close()
             resetInFlightState()
-            pinchEstimators.forEach { it.reset() }
+            pinchTracker.reset()
             landmarker.close()
 
             // Do not recycle bitmaps while a native callback could still hold a reference.
