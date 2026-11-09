@@ -20,6 +20,62 @@ internal object PhoneVrMath {
         )
     }
 
+    /**
+     * Spherical interpolation for quaternions stored as [x, y, z, w].
+     * q and -q encode the same physical orientation, so the destination sign
+     * is adjusted to follow the shortest rotational path.
+     */
+    fun slerpQuat(a: FloatArray, b: FloatArray, t: Float): FloatArray? {
+        val start = normalizedQuaternion(a) ?: return null
+        val destination = normalizedQuaternion(b) ?: return null
+        if (!t.isFinite()) return null
+
+        val factor = t.coerceIn(0f, 1f)
+        val end = destination.copyOf()
+        var dot = quaternionDot(start, end)
+        if (dot < 0f) {
+            dot = -dot
+            for (index in 0..3) end[index] = -end[index]
+        }
+        dot = dot.coerceIn(0f, 1f)
+
+        if (dot > QUATERNION_DOT_THRESHOLD) {
+            val linear = FloatArray(4) { index ->
+                start[index] + factor * (end[index] - start[index])
+            }
+            return normalizedQuaternion(linear)
+        }
+
+        val theta0 = kotlin.math.acos(dot.toDouble())
+        val sinTheta0 = kotlin.math.sin(theta0)
+        if (!sinTheta0.isFinite() || kotlin.math.abs(sinTheta0) < QUATERNION_EPSILON) {
+            return start
+        }
+
+        val theta = theta0 * factor.toDouble()
+        val weightA = kotlin.math.sin(theta0 - theta) / sinTheta0
+        val weightB = kotlin.math.sin(theta) / sinTheta0
+        val result = FloatArray(4) { index ->
+            (weightA * start[index].toDouble() +
+                weightB * end[index].toDouble()).toFloat()
+        }
+        return normalizedQuaternion(result)
+    }
+
+    /** Returns a normalized copy of [x, y, z, w], or null for invalid input. */
+    fun normalizedQuaternion(quaternion: FloatArray): FloatArray? {
+        if (quaternion.size < 4 || (0..3).any { !quaternion[it].isFinite() }) return null
+        val normSquared = (0..3).sumOf {
+            quaternion[it].toDouble() * quaternion[it].toDouble()
+        }
+        if (!normSquared.isFinite() || normSquared < QUATERNION_EPSILON.toDouble()) return null
+        val inverseNorm = 1.0 / kotlin.math.sqrt(normSquared)
+        return FloatArray(4) { index -> (quaternion[index] * inverseNorm).toFloat() }
+    }
+
+    private fun quaternionDot(a: FloatArray, b: FloatArray): Float =
+        a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]
+
     fun relativeRotation(current: FloatArray, reference: FloatArray?): FloatArray {
         require(current.size >= MATRIX_SIZE) { "Current rotation must contain 9 values." }
         if (reference == null) return current.copyOfRange(0, MATRIX_SIZE)
@@ -50,4 +106,6 @@ internal object PhoneVrMath {
     }
 
     private const val MATRIX_SIZE = 9
+    private const val QUATERNION_DOT_THRESHOLD = 0.9995f
+    private const val QUATERNION_EPSILON = 1e-8f
 }
