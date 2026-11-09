@@ -76,8 +76,28 @@ internal class MonocularHandDepthEstimator(
     private val maximumStepMeters: Float = 0.22f
 ) {
     private var filteredDistance: Float? = null
+    private var lastTimestampMs = 0L
 
-    fun update(points: List<HandPoint>): Float? {
+    /** Legacy sample-count overload retained for callers without source timestamps. */
+    fun update(points: List<HandPoint>): Float? =
+        updateMeasured(points, elapsedMs = null)
+
+    /**
+     * Timestamp-aware update for camera frames. Duplicate/out-of-order samples
+     * cannot keep nudging the depth estimate during faster Sandbox rendering.
+     */
+    fun update(points: List<HandPoint>, timestampMs: Long): Float? {
+        if (timestampMs <= 0L) return update(points)
+        val previousTimestamp = lastTimestampMs
+        if (previousTimestamp > 0L && timestampMs <= previousTimestamp) {
+            return filteredDistance
+        }
+        lastTimestampMs = timestampMs
+        val elapsedMs = if (previousTimestamp > 0L) timestampMs - previousTimestamp else null
+        return updateMeasured(points, elapsedMs)
+    }
+
+    private fun updateMeasured(points: List<HandPoint>, elapsedMs: Long?): Float? {
         val indexMcp = points.getOrNull(5) ?: return filteredDistance
         val pinkyMcp = points.getOrNull(17) ?: return filteredDistance
         val dx = indexMcp.x - pinkyMcp.x
@@ -88,9 +108,26 @@ internal class MonocularHandDepthEstimator(
         val measured = (referenceDistanceMeters * referencePalmWidth / palmWidth)
             .coerceIn(minimumDistanceMeters, maximumDistanceMeters)
         val previous = filteredDistance
-        val next = if (previous == null) measured else {
+        val next = if (previous == null) {
+            measured
+        } else if (elapsedMs == null) {
             val desiredStep = (measured - previous) * smoothing
             previous + desiredStep.coerceIn(-maximumStepMeters, maximumStepMeters)
+        } else if (elapsedMs > MAX_CONTINUOUS_GAP_MS) {
+            measured
+        } else {
+            val deltaSeconds = (elapsedMs / 1_000f).coerceIn(
+                MIN_DELTA_SECONDS,
+                MAX_DELTA_SECONDS
+            )
+            // Preserve the configured response at the reference rate while
+            // making the filter independent of how often the frame is sampled.
+            val alpha = (
+                1f - kotlin.math.pow(1f - smoothing, deltaSeconds * REFERENCE_FPS)
+                ).coerceIn(0f, 1f)
+            val maximumStep = maximumStepMeters * REFERENCE_FPS * deltaSeconds
+            val desiredStep = (measured - previous) * alpha
+            previous + desiredStep.coerceIn(-maximumStep, maximumStep)
         }
         filteredDistance = next
         return next
@@ -98,47 +135,16 @@ internal class MonocularHandDepthEstimator(
 
     fun reset() {
         filteredDistance = null
+        lastTimestampMs = 0L
     }
 
     private companion object {
         const val MIN_VALID_PALM_WIDTH = 0.035f
+        const val REFERENCE_FPS = 30f
+        const val MIN_DELTA_SECONDS = 0.001f
+        const val MAX_DELTA_SECONDS = 0.25f
+        const val MAX_CONTINUOUS_GAP_MS = 250L
     }
 }
 
 /** Per-joint low-pass filter. It resets cleanly when tracking disappears or point count changes. */
-internal class SandboxHandPoseSmoother(
-    private val response: Float = DEFAULT_RESPONSE
-) {
-    private var previous: List<SandboxVector3> = emptyList()
-
-    init {
-        require(response > 0f && response <= 1f) {
-            "Hand pose smoothing response must be in the range (0, 1]."
-        }
-    }
-
-    fun update(target: List<SandboxVector3>): List<SandboxVector3> {
-        if (target.isEmpty()) {
-            reset()
-            return emptyList()
-        }
-        val current = previous
-        val filtered = if (current.size != target.size) {
-            target.toList()
-        } else {
-            target.mapIndexed { index, next ->
-                current[index] + (next - current[index]) * response
-            }
-        }
-        previous = filtered
-        return filtered
-    }
-
-    fun reset() {
-        previous = emptyList()
-    }
-
-    private companion object {
-        const val DEFAULT_RESPONSE = 0.42f
-    }
-}
