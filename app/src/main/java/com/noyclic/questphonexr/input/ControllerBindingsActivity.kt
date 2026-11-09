@@ -91,7 +91,7 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
             setPadding(0, dp(8), 0, dp(18))
         }
         scroll.addView(page)
-        root.addView(scroll, LinearLayout.LayoutParams(0, 0, 1f))
+        root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         root.addView(button("Вернуть стандартную раскладку") {
             profile = ControllerBindingStore.reset(this)
