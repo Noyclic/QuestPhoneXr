@@ -216,4 +216,38 @@ class VirtualControllerMapperTest {
 
         assertEquals(1f, frame.right.trigger, 0f)
     }
+
+    @Test
+    fun defaultFullPadFaceButtonsFollowLeftXYRightABLayout() {
+        val physical = PhysicalControllerSnapshot(
+            deviceId = 102,
+            deviceName = "Generic Xbox Layout Pad",
+            hand = null,
+            stickX = 0f,
+            stickY = 0f,
+            rightStickX = 0f,
+            rightStickY = 0f,
+            leftTrigger = 0f,
+            rightTrigger = 0f,
+            pressedKeyCodes = setOf(
+                GamepadButtonCodes.BUTTON_A,
+                GamepadButtonCodes.BUTTON_B,
+                GamepadButtonCodes.BUTTON_X,
+                GamepadButtonCodes.BUTTON_Y
+            ),
+            updatedAtMs = 800L,
+            mapToBothHands = true
+        )
+
+        val frame = mapper.map(HandTrackingFrame(810L, emptyList()), listOf(physical))
+
+        assertTrue(VirtualGamepadButton.X in frame.left.virtualButtons)
+        assertTrue(VirtualGamepadButton.Y in frame.left.virtualButtons)
+        assertFalse(VirtualGamepadButton.A in frame.left.virtualButtons)
+        assertFalse(VirtualGamepadButton.B in frame.left.virtualButtons)
+        assertTrue(VirtualGamepadButton.A in frame.right.virtualButtons)
+        assertTrue(VirtualGamepadButton.B in frame.right.virtualButtons)
+        assertFalse(VirtualGamepadButton.X in frame.right.virtualButtons)
+        assertFalse(VirtualGamepadButton.Y in frame.right.virtualButtons)
+    }
 }
