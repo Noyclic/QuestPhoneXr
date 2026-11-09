@@ -205,7 +205,7 @@ class SandboxSimulation {
         val rightTrackingLost = rightCameraTracked && !rightRaw.cameraTracked &&
             rightGrabbing && !rightRaw.grabbing
         val left = if (leftRaw.cameraTracked) {
-            val smoothedLandmarks = leftHandPoseSmoother.update(leftRaw.landmarks)
+            val smoothedLandmarks = leftHandPoseSmoother.update(leftRaw.landmarks, dt)
             leftRaw.copy(
                 cursor = interactionCursor(smoothedLandmarks, leftRaw.grabbing)
                     ?: leftCursorSmoother.update(leftRaw.cursor),
@@ -218,7 +218,7 @@ class SandboxSimulation {
             leftRaw.copy(trackingLost = leftTrackingLost)
         }
         val right = if (rightRaw.cameraTracked) {
-            val smoothedLandmarks = rightHandPoseSmoother.update(rightRaw.landmarks)
+            val smoothedLandmarks = rightHandPoseSmoother.update(rightRaw.landmarks, dt)
             rightRaw.copy(
                 cursor = interactionCursor(smoothedLandmarks, rightRaw.grabbing)
                     ?: rightCursorSmoother.update(rightRaw.cursor),

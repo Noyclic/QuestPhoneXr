@@ -105,7 +105,13 @@ internal class MonocularHandDepthEstimator(
     }
 }
 
-/** Per-joint low-pass filter. It resets cleanly when tracking disappears or point count changes. */
+/**
+ * Per-joint adaptive low-pass filter.
+ *
+ * The time-based overload keeps the response stable across render rates and
+ * reduces smoothing lag when the hand is moving quickly. Invalid samples never
+ * poison the last valid pose.
+ */
 internal class SandboxHandPoseSmoother(
     private val response: Float = DEFAULT_RESPONSE
 ) {
@@ -117,21 +123,87 @@ internal class SandboxHandPoseSmoother(
         }
     }
 
+    /** Compatibility overload for deterministic callers and existing tests. */
     fun update(target: List<SandboxVector3>): List<SandboxVector3> {
         if (target.isEmpty()) {
             reset()
             return emptyList()
         }
+        if (!target.all(::isFinite)) return previous
+        return filter(target, response)
+    }
+
+    /**
+     * Updates using elapsed render time. At low motion this follows the configured
+     * 60 Hz response; at higher motion it increases the response to reduce lag.
+     */
+    fun update(
+        target: List<SandboxVector3>,
+        deltaSeconds: Float
+    ): List<SandboxVector3> {
+        if (target.isEmpty()) {
+            reset()
+            return emptyList()
+        }
+        if (!target.all(::isFinite)) return previous
+
+        val current = previous
+        if (current.isEmpty() || current.size != target.size) {
+            previous = target.toList()
+            return previous
+        }
+
+        val dt = if (deltaSeconds.isFinite()) {
+            deltaSeconds.coerceIn(MIN_DELTA_SECONDS, MAX_DELTA_SECONDS)
+        } else {
+            DEFAULT_DELTA_SECONDS
+        }
+
+        var totalDistance = 0f
+        for (index in target.indices) {
+            totalDistance += distance(current[index], target[index])
+        }
+        val averageSpeed = totalDistance / target.size / dt
+        val motion = (
+            (averageSpeed - LOW_MOTION_SPEED) /
+                (HIGH_MOTION_SPEED - LOW_MOTION_SPEED)
+            ).coerceIn(0f, 1f)
+
+        // Convert the legacy 60 Hz response into a time constant, then shorten
+        // that constant during fast motion so the filtered hand does not trail.
+        val baseTimeConstant = -1f / (60f * kotlin.math.ln(1f - response))
+        val timeConstant = baseTimeConstant * (1f - FAST_MOTION_TIME_REDUCTION * motion)
+        val alpha = (
+            1f - kotlin.math.exp(-dt / timeConstant)
+            ).coerceIn(0f, 1f)
+
+        return filter(target, alpha)
+    }
+
+    private fun filter(
+        target: List<SandboxVector3>,
+        alpha: Float
+    ): List<SandboxVector3> {
         val current = previous
         val filtered = if (current.size != target.size) {
             target.toList()
         } else {
             target.mapIndexed { index, next ->
-                current[index] + (next - current[index]) * response
+                current[index] + (next - current[index]) * alpha
             }
         }
         previous = filtered
         return filtered
+    }
+
+    private fun isFinite(point: SandboxVector3): Boolean =
+        point.x.isFinite() && point.y.isFinite() && point.z.isFinite()
+
+    private fun distance(a: SandboxVector3, b: SandboxVector3): Float {
+        val dx = a.x - b.x
+        val dy = a.y - b.y
+        val dz = a.z - b.z
+        return kotlin.math.sqrt(dx * dx + dy * dy + dz * dz)
     }
 
     fun reset() {
@@ -140,5 +212,11 @@ internal class SandboxHandPoseSmoother(
 
     private companion object {
         const val DEFAULT_RESPONSE = 0.42f
+        const val MIN_DELTA_SECONDS = 1f / 120f
+        const val MAX_DELTA_SECONDS = 0.1f
+        const val DEFAULT_DELTA_SECONDS = 1f / 60f
+        const val LOW_MOTION_SPEED = 0.35f
+        const val HIGH_MOTION_SPEED = 2.25f
+        const val FAST_MOTION_TIME_REDUCTION = 0.65f
     }
 }
