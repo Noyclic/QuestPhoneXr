@@ -141,7 +141,7 @@ class VirtualControllerMapperTest {
         assertEquals(0.85f, frame.right.trigger, 0.001f)
         assertEquals(0.15f, frame.left.stickX, 0.001f)
         assertEquals(0.65f, frame.right.stickX, 0.001f)
-        assertTrue(VirtualGamepadButton.A in frame.left.virtualButtons)
+        assertTrue(VirtualGamepadButton.X in frame.left.virtualButtons)
         assertTrue(VirtualGamepadButton.A in frame.right.virtualButtons)
 
         val simulationControllers = mapper.toPhysicalSnapshots(frame)
