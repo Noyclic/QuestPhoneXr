@@ -48,7 +48,6 @@ import com.noyclic.questphonexr.input.ControllerBindingProfile
 import com.noyclic.questphonexr.input.ControllerBindingStore
 import com.noyclic.questphonexr.input.ControllerBindingsActivity
 import com.noyclic.questphonexr.input.VirtualGamepadButton
-import com.noyclic.questphonexr.input.GamepadButtonCodes
 import com.noyclic.questphonexr.input.VirtualControllerMapper
 import com.noyclic.questphonexr.input.VirtualControllerState
 import com.noyclic.questphonexr.input.ControllerInputSource
@@ -604,7 +603,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     }
 
     private fun showOpenXrInputDiagnostic() {
-        val frame = virtualControllerMapper.map(latestHandFrame, controllerSnapshots)
+        val frame = virtualControllerMapper.map(latestHandFrame, controllerSnapshots, controllerBindingProfile)
         fun describe(label: String, state: VirtualControllerState): String = buildString {
             append(label).append(": ").append(state.source.name).append('\n')
             append("  trigger=").append(String.format(Locale.US, "%.2f", state.trigger))
