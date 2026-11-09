@@ -5,6 +5,7 @@ import com.noyclic.questphonexr.tracking.HandSide
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.TrackedHand
 import kotlin.math.sqrt
+import kotlin.math.abs
 
 /**
  * Combines camera hand tracking and assigned Android gamepads into stable left/right states.
@@ -53,8 +54,7 @@ class VirtualControllerMapper {
                     GamepadButtonCodes.BUTTON_R2 in pressedKeys
                 ) 1f else 0f
             )
-            TriggerAxisSource.CUSTOM_AXIS ->
-                binding.customTriggerAxis?.let { physical?.analogAxes?.get(it) } ?: 0f
+            TriggerAxisSource.CUSTOM_AXIS -> customTriggerValue(binding, physical)
             TriggerAxisSource.NONE -> 0f
         }
         val trigger = maxOf(hand?.pinchStrength ?: 0f, selectedTrigger).coerceIn(0f, 1f)
@@ -136,6 +136,21 @@ class VirtualControllerMapper {
             )
         }
 
+    private fun customTriggerValue(
+        binding: ControllerHandBinding,
+        physical: PhysicalControllerSnapshot?
+    ): Float {
+        val axis = binding.customTriggerAxis ?: return 0f
+        val raw = physical?.analogAxes?.get(axis) ?: return 0f
+        val rest = binding.customTriggerRestValue ?: 0f
+        val pressed = binding.customTriggerPressedValue ?: 1f
+        val travel = pressed - rest
+        if (!raw.isFinite() || !rest.isFinite() || !pressed.isFinite() ||
+            !travel.isFinite() || abs(travel) < MIN_CUSTOM_TRIGGER_TRAVEL
+        ) return 0f
+        return ((raw - rest) / travel).coerceIn(0f, 1f)
+    }
+
     private fun toPose(hand: TrackedHand): HandPoseSample? {
         val wrist = hand.points.getOrNull(0) ?: return null
         val orientationPoints = if (hand.worldPoints.size >= LANDMARK_COUNT) {
@@ -189,6 +204,7 @@ class VirtualControllerMapper {
 
     private companion object {
         const val LANDMARK_COUNT = 21
+        const val MIN_CUSTOM_TRIGGER_TRAVEL = 0.001f
         const val DIGITAL_GRIP_THRESHOLD = 0.5f
         const val MIN_PALM_LENGTH = 0.0001f
         const val OPEN_HAND_RATIO = 2.05f
