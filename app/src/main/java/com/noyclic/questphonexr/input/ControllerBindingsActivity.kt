@@ -141,6 +141,12 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
                 "Левый и правый курки/стики одного контроллера смогут работать независимо.",
             12f, 0xFF91BFEF.toInt()
         ).apply { setPadding(0, dp(12), 0, 0) })
+        page.addView(text(
+            "Если у контроллера только один стик или один курок, выбери одинаковый источник для обеих рук " +
+                "(например, «Левый стик» или «Любой курок»). Управление будет доступно, хотя оба виртуальных " +
+                "контроллера могут двигаться синхронно и такой вариант менее удобен для VR.",
+            12f, 0xFFFFD28A.toInt()
+        ).apply { setPadding(0, dp(8), 0, 0) })
     }
 
     private fun handSection(
