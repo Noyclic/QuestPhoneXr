@@ -78,7 +78,9 @@ internal object SandboxHandPoseMapper {
 
 /**
  * Estimates hand distance from apparent palm width. This is monocular, relative depth:
- * it is useful for interaction but is not a metrinternal class MonocularHandDepthEstimator(
+ * it is useful for interaction but is not a metric 6DoF room pose.
+ */
+internal class MonocularHandDepthEstimator(
     private val referencePalmWidth: Float = 0.18f,
     private val referenceDistanceMeters: Float = 2.55f,
     private val minimumDistanceMeters: Float = 1.0f,
