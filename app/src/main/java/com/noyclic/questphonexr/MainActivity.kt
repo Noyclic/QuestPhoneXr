@@ -211,9 +211,10 @@ class MainActivity : ComponentActivity(), InputManager.InputDeviceListener {
         }
 
         val labels = connected.map { controller ->
-            val assigned = when (controller.hand) {
-                HandSide.LEFT -> "Левая рука"
-                HandSide.RIGHT -> "Правая рука"
+            val assigned = when {
+                controller.mapToBothHands -> "Обе руки"
+                controller.hand == HandSide.LEFT -> "Левая рука"
+                controller.hand == HandSide.RIGHT -> "Правая рука"
                 else -> "Не назначен"
             }
             controller.deviceName + " · ID " + controller.deviceId + " · " + assigned
@@ -225,21 +226,29 @@ class MainActivity : ComponentActivity(), InputManager.InputDeviceListener {
                 val handChoices = arrayOf(
                     "Назначить левой руке",
                     "Назначить правой руке",
+                    "Обе руки · один геймпад",
                     "Снять назначение"
                 )
                 AlertDialog.Builder(this)
                     .setTitle(selected.deviceName)
                     .setItems(handChoices) { _, handIndex ->
-                        val hand = when (handIndex) {
-                            0 -> HandSide.LEFT
-                            1 -> HandSide.RIGHT
-                            else -> null
-                        }
-                        gamepadInput.assignDevice(selected.deviceId, hand)
-                        val result = when (hand) {
-                            HandSide.LEFT -> "назначен левой руке"
-                            HandSide.RIGHT -> "назначен правой руке"
-                            else -> "отключён от виртуальной руки"
+                        val result = when (handIndex) {
+                            0 -> {
+                                gamepadInput.assignDevice(selected.deviceId, HandSide.LEFT)
+                                "назначен левой руке"
+                            }
+                            1 -> {
+                                gamepadInput.assignDevice(selected.deviceId, HandSide.RIGHT)
+                                "назначен правой руке"
+                            }
+                            2 -> {
+                                gamepadInput.assignDeviceToBothHands(selected.deviceId)
+                                "назначен обеим рукам"
+                            }
+                            else -> {
+                                gamepadInput.assignDevice(selected.deviceId, null)
+                                "отключён от виртуальной руки"
+                            }
                         }
                         showStatus(selected.deviceName + " " + result)
                     }
