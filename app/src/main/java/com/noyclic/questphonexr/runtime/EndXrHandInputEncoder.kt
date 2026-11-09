@@ -136,9 +136,25 @@ internal object EndXrHandInputEncoder {
         val middleMcp = points.getOrNull(9)?.toVec3() ?: return null
         val pinkyMcp = points.getOrNull(17)?.toVec3() ?: return null
 
-        val xAxis = (indexMcp - pinkyMcp).normalized() ?: return null
-        val yCandidate = (middleMcp - wrist).normalized() ?: return null
-        val zAxis = cross(xAxis, yCandidate).normalized() ?: return null
+        val acrossPalm = indexMcp - pinkyMcp
+        val towardFingers = middleMcp - wrist
+        val palmWidth = acrossPalm.length()
+        val palmLength = towardFingers.length()
+
+        // MediaPipe world landmarks are metric hand-local coordinates. Reject
+        // collapsed/noisy skeletons before normalization amplifies their noise.
+        if (!palmWidth.isFinite() || palmWidth !in MIN_PALM_WIDTH_METERS..MAX_PALM_WIDTH_METERS ||
+            !palmLength.isFinite() || palmLength !in MIN_PALM_LENGTH_METERS..MAX_PALM_LENGTH_METERS
+        ) return null
+
+        val xAxis = acrossPalm.normalized() ?: return null
+        val yCandidate = towardFingers.normalized() ?: return null
+        val zUnnormalized = cross(xAxis, yCandidate)
+        val basisSine = zUnnormalized.length()
+        // The palm's width and length axes must not be almost collinear.
+        if (!basisSine.isFinite() || basisSine < MIN_BASIS_SINE) return null
+
+        val zAxis = (zUnnormalized * (1f / basisSine)).normalized() ?: return null
         val yAxis = cross(zAxis, xAxis).normalized() ?: return null
         return quaternionFromBasis(xAxis, yAxis, zAxis)
     }
@@ -273,6 +289,11 @@ internal object EndXrHandInputEncoder {
         }
     }
 
+    private const val MIN_PALM_WIDTH_METERS = 0.015f
+    private const val MAX_PALM_WIDTH_METERS = 0.22f
+    private const val MIN_PALM_LENGTH_METERS = 0.02f
+    private const val MAX_PALM_LENGTH_METERS = 0.25f
+    private const val MIN_BASIS_SINE = 0.15f
     private const val LANDMARK_COUNT = 21
     private val PALM_INDICES = intArrayOf(0, 5, 9, 13, 17)
     private const val DEFAULT_HAND_DISTANCE_METERS = 2.55f
