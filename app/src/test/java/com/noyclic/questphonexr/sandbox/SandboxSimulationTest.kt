@@ -319,4 +319,33 @@ class SandboxSimulationTest {
         pressedKeyCodes = keys,
         updatedAtMs = 0L
     )
+
+    @Test
+    fun sandboxResetClearsBothTemporalDepthEstimators() {
+        fun trackedHand(width: Float): TrackedHand {
+            val points = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+            points[5] = HandPoint(0.5f + width / 2f, 0.4f, 0f)
+            points[17] = HandPoint(0.5f - width / 2f, 0.4f, 0f)
+            points[8] = HandPoint(0.7f, 0.5f, 0f)
+            return TrackedHand(points = points, side = HandSide.LEFT)
+        }
+
+        val simulation = SandboxSimulation()
+        simulation.update(
+            emptyList(),
+            HandTrackingFrame(1_000L, listOf(trackedHand(0.20f))),
+            1f / 30f
+        )
+        val beforeReset = simulation.snapshot().leftHand.cursor.x
+
+        simulation.reset()
+        simulation.update(
+            emptyList(),
+            HandTrackingFrame(1_000L, listOf(trackedHand(0.10f))),
+            1f / 30f
+        )
+        val afterReset = simulation.snapshot().leftHand.cursor.x
+
+        assertTrue("Reset must reinitialize monocular depth from the new sample", afterReset > beforeReset * 1.5f)
+    }
 }
