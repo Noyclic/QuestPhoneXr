@@ -132,7 +132,7 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
             captureTarget?.isGrip == true -> "Нажми физическую кнопку, которая должна выполнять Grip."
             captureTarget != null -> "Нажми нужную физическую кнопку на подключённом геймпаде."
             triggerAxisCaptureHand != null && triggerAxisCaptureBaseline.isEmpty() ->
-                "Оставь курок отпущенным, слегка двинь стик и отпусти его для нейтрального сэмпла."
+                "Оставь курок отпущенным, слегка двинь любой стик и отпусти его — запишем покой."
             triggerAxisCaptureHand != null ->
                 "Нейтральная позиция записана. Теперь нажми курок до конца."
             else -> connectedSummary()
@@ -361,7 +361,9 @@ class ControllerBindingsActivity : ComponentActivity(), InputManager.InputDevice
         }
         triggerAxisCaptureHand = hand
         triggerAxisCaptureDeviceId = device.deviceId
-        triggerAxisCaptureBaseline = device.analogAxes.toMap()
+        // Always take a fresh neutral sample after the user starts the scan; cached values
+        // may be from a previously pressed trigger and would invert the calibration.
+        triggerAxisCaptureBaseline = emptyMap()
         captureTarget = null
         renderPage()
     }
