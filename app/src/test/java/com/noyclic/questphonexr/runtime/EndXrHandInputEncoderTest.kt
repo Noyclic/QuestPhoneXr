@@ -170,4 +170,44 @@ class EndXrHandInputEncoderTest {
         }
         return hand.copy(worldPoints = rotated)
     }
+
+    @Test
+    fun temporalOrientationSmoothingIsConsistentAtThirtyAndSixtySamplesPerSecond() {
+        fun simulate(frameRate: Int): EndXrHandPoseSample {
+            EndXrHandInputEncoder.encode(HandTrackingFrame(0L, emptyList()))
+            val base = trackedHand(HandSide.LEFT, 0.5f)
+            var latest = EndXrHandInputEncoder.encode(
+                HandTrackingFrame(10_000L, listOf(base))
+            ).leftPose
+            for (frame in 1..frameRate) {
+                val elapsedMs = frame * 1_000L / frameRate
+                val angle = Math.toRadians(90.0 * frame / frameRate).toFloat()
+                val moved = rotateWorldAroundY(base, angle)
+                latest = EndXrHandInputEncoder.encode(
+                    HandTrackingFrame(10_000L + elapsedMs, listOf(moved))
+                ).leftPose
+            }
+            return latest
+        }
+
+        val at30Fps = simulate(30)
+        val at60Fps = simulate(60)
+
+        assertEquals(at30Fps.qy, at60Fps.qy, 0.035f)
+        assertEquals(at30Fps.qw, at60Fps.qw, 0.035f)
+    }
+
+    @Test
+    fun longOrientationSampleGapReinitializesInsteadOfBlendingAcrossLostTime() {
+        val initial = trackedHand(HandSide.LEFT, 0.5f)
+        val turned = rotateWorldAroundY(initial, Math.toRadians(90.0).toFloat())
+        EndXrHandInputEncoder.encode(HandTrackingFrame(5_000L, listOf(initial)))
+
+        val afterGap = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(5_300L, listOf(turned))
+        ).leftPose
+
+        assertEquals(kotlin.math.sin(Math.PI / 4.0).toFloat(), afterGap.qy, 0.002f)
+        assertEquals(kotlin.math.cos(Math.PI / 4.0).toFloat(), afterGap.qw, 0.002f)
+    }
 }
