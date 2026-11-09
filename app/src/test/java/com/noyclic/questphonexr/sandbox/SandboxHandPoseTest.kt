@@ -189,4 +189,55 @@ class SandboxHandPoseTest {
 
         assertEquals(shortPose, smoother.update(shortPose))
     }
+
+    @Test
+    fun adaptiveSmoothingKeepsSimilarResponseAtThirtyAndSixtyFps() {
+        fun run(frameCount: Int): Float {
+            val smoother = SandboxHandPoseSmoother()
+            val dt = 1f / frameCount
+            smoother.update(List(21) { SandboxVector3(0f, 0f, -2.5f) }, dt)
+            var result = 0f
+            for (frame in 1..frameCount) {
+                val x = frame.toFloat() / frameCount
+                result = smoother.update(
+                    List(21) { SandboxVector3(x, 0f, -2.5f) },
+                    dt
+                )[0].x
+            }
+            return result
+        }
+
+        val at30Fps = run(30)
+        val at60Fps = run(60)
+        assertEquals(at30Fps, at60Fps, 0.025f)
+        assertTrue(at30Fps > 0.9f)
+    }
+
+    @Test
+    fun adaptiveSmoothingRespondsFasterToFastHandMotion() {
+        fun responseFraction(targetX: Float): Float {
+            val smoother = SandboxHandPoseSmoother()
+            val dt = 1f / 60f
+            val origin = List(21) { SandboxVector3(0f, 0f, -2.5f) }
+            smoother.update(origin, dt)
+            val target = List(21) { SandboxVector3(targetX, 0f, -2.5f) }
+            return smoother.update(target, dt)[0].x / targetX
+        }
+
+        val slowResponse = responseFraction(0.02f)
+        val fastResponse = responseFraction(1.0f)
+        assertTrue("Fast movement should receive a higher filter response", fastResponse > slowResponse)
+    }
+
+    @Test
+    fun adaptiveSmootherIgnoresNonFinitePoseSamples() {
+        val smoother = SandboxHandPoseSmoother()
+        val valid = List(21) { SandboxVector3(0.25f, 0.1f, -2.5f) }
+        assertEquals(valid, smoother.update(valid, 1f / 60f))
+
+        val invalid = valid.toMutableList().also {
+            it[8] = SandboxVector3(Float.NaN, 0f, -2.5f)
+        }
+        assertEquals(valid, smoother.update(invalid, 1f / 60f))
+    }
 }
