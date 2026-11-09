@@ -43,7 +43,9 @@ data class PhysicalControllerSnapshot(
     val leftTrigger: Float,
     val rightTrigger: Float,
     val pressedKeyCodes: Set<Int>,
-    val updatedAtMs: Long
+    val updatedAtMs: Long,
+    /** One full-size pad may drive both virtual hands using its separate left/right controls. */
+    val mapToBothHands: Boolean = false
 )
 
 enum class ControllerInputSource {
@@ -65,7 +67,9 @@ data class VirtualControllerState(
     val stickY: Float,
     val pressedKeyCodes: Set<Int>,
     val source: ControllerInputSource,
-    val physicalDeviceName: String? = null
+    val physicalDeviceName: String? = null,
+    val physicalDeviceId: Int? = null,
+    val virtualButtons: Set<VirtualGamepadButton> = emptySet()
 )
 
 data class VirtualControllerFrame(
