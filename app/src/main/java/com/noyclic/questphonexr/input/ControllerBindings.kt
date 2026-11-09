@@ -44,7 +44,11 @@ data class ControllerHandBinding(
     val buttonYKeyCode: Int,
     val menuKeyCode: Int,
     /** Android MotionEvent axis id captured from this controller; used by CUSTOM_AXIS. */
-    val customTriggerAxis: Int? = null
+    val customTriggerAxis: Int? = null,
+    /** Captured normalized axis value while the trigger was fully released. */
+    val customTriggerRestValue: Float? = null,
+    /** Captured normalized axis value while the trigger was fully pressed. */
+    val customTriggerPressedValue: Float? = null
 ) {
     fun keyCodeFor(button: VirtualGamepadButton): Int = when (button) {
         VirtualGamepadButton.A -> buttonAKeyCode
@@ -155,6 +159,10 @@ object ControllerBindingStore {
             defaults.triggerSource
         ),
         customTriggerAxis = prefs.getInt("$prefix.customTriggerAxis", -1).takeIf { it >= 0 },
+        customTriggerRestValue = prefs.getFloat("$prefix.customTriggerRest", Float.NaN)
+            .takeIf { it.isFinite() },
+        customTriggerPressedValue = prefs.getFloat("$prefix.customTriggerPressed", Float.NaN)
+            .takeIf { it.isFinite() },
         gripKeyCode = prefs.getInt("$prefix.grip", defaults.gripKeyCode).coerceAtLeast(0),
         stickSource = enumValue(
             prefs.getString("$prefix.stick", null),
@@ -174,6 +182,16 @@ object ControllerBindingStore {
     ) {
         editor.putString("$prefix.trigger", binding.triggerSource.name)
         editor.putInt("$prefix.customTriggerAxis", binding.customTriggerAxis ?: -1)
+        if (binding.customTriggerRestValue?.isFinite() == true) {
+            editor.putFloat("$prefix.customTriggerRest", binding.customTriggerRestValue)
+        } else {
+            editor.remove("$prefix.customTriggerRest")
+        }
+        if (binding.customTriggerPressedValue?.isFinite() == true) {
+            editor.putFloat("$prefix.customTriggerPressed", binding.customTriggerPressedValue)
+        } else {
+            editor.remove("$prefix.customTriggerPressed")
+        }
         editor.putInt("$prefix.grip", binding.gripKeyCode.coerceAtLeast(0))
         editor.putString("$prefix.stick", binding.stickSource.name)
         editor.putInt("$prefix.a", binding.buttonAKeyCode.coerceAtLeast(0))
