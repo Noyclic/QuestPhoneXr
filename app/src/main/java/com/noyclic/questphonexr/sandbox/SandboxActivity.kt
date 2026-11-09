@@ -1782,10 +1782,11 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
     private fun statusText(): String {
         val controllers = controllerSnapshots
-        val leftConnected = controllers.any {
+        val dualHandControllerConnected = controllers.any { it.mapToBothHands }
+        val leftConnected = dualHandControllerConnected || controllers.any {
             it.hand == com.noyclic.questphonexr.tracking.HandSide.LEFT
         }
-        val rightConnected = controllers.any {
+        val rightConnected = dualHandControllerConnected || controllers.any {
             it.hand == com.noyclic.questphonexr.tracking.HandSide.RIGHT
         }
         val scene = simulation.snapshot()
@@ -1857,8 +1858,9 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     .append(" ms")
             }
             append('\n').append(endXrOpenXrTestLabel).append('\n')
-            append("Joy-Con L: ").append(if (leftConnected) "подключён" else "нет")
+            append("Контроллеры · L: ").append(if (leftConnected) "подключён" else "нет")
             append(" · R: ").append(if (rightConnected) "подключён" else "нет")
+            if (dualHandControllerConnected) append(" · один геймпад назначен обеим рукам")
             append('\n')
             append("Объектов: ").append(scene.objects.size)
             append(" · захвачено: ").append(scene.grabbedObjectCount)
