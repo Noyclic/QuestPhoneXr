@@ -80,7 +80,7 @@ internal object EndXrHandInputEncoder {
             ?: return state.invalidate(timestampMs)
         val worldCenter = average(hand.worldPoints, PALM_INDICES)
             ?: return state.invalidate(timestampMs)
-        val distance = state.depthEstimator.update(hand.points)?.takeIf { it.isFinite() }
+        val distance = state.depthEstimator.update(hand.points, timestampMs)?.takeIf { it.isFinite() }
             ?: DEFAULT_HAND_DISTANCE_METERS
 
         val x = ((imageCenter.x - 0.5f) * distance * HORIZONTAL_FOV_SCALE)
