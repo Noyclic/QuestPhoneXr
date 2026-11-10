@@ -19,7 +19,8 @@ internal data class BrokerRuntimeCandidate(
 ) {
     // This is a conservative filesystem/metadata prediction, not proof that dlopen succeeds.
     val canAttemptLoad: Boolean
-        get() = libraryExists && (hasFunctions != true || functionMappingsAvailable)
+        get() = libraryExists && hasFunctions != null &&
+            (!hasFunctions || functionMappingsAvailable)
 }
 
 internal data class BrokerQuerySnapshot(
