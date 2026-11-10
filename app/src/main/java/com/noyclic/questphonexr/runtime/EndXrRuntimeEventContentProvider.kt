@@ -108,74 +108,49 @@ class EndXrRuntimeEventContentProvider : ContentProvider() {
             ?.takeIf { it.isNotBlank() && it.length <= 80 }
         val frameCount = (values.getAsLong(COLUMN_FRAME_COUNT) ?: 0L).coerceAtLeast(0L)
         val packages = context.packageManager.getPackagesForUid(callingUid).orEmpty()
-        val callerPackage = getCallingPackage()
-            ?.takeIf { it in packages }
-            ?: packages.firstOrNull { it != context.packageName }
-            ?: throw SecurityException("Cannot resolve the runtime caller package.")
+        val attributedPackage = getCallingPackage()
+        val callerPackage = when {
+            attributedPackage != null && attributedPackage in packages -> attributedPackage
+            attributedPackage != null -> throw SecurityException(
+                "The attributed package does not belong to the calling UID."
+            )
+            packages.size == 1 -> packages.single()
+            else -> throw SecurityException(
+                "Cannot securely attribute telemetry from a shared or unknown UID."
+            )
+        }
+        if (callerPackage == context.packageName) {
+            throw SecurityException("NextVRera cannot submit game runtime telemetry.")
+        }
 
         val prefs = context.getSharedPreferences(PREFERENCES_NAME, 0)
         synchronized(LOCK) {
-            val previousInstance = prefs.getString(KEY_INSTANCE_ID, null)
-            val isNewInstance = event == EVENT_CREATE_INSTANCE || previousInstance != instanceId
-            val currentFrames = if (isNewInstance) 0L else prefs.getLong(KEY_FRAME_COUNT, 0L)
-            val nextFrames = when (event) {
-                EVENT_CREATE_INSTANCE -> 0L
-                EVENT_END_FRAME -> maxOf(currentFrames, frameCount)
-                else -> currentFrames
+            val previous = readState(prefs)
+            val reduction = previous.reduce(event, instanceId, sessionId, frameCount)
+                ?: throw IllegalArgumentException(
+                    "Invalid EndXR runtime event order: event=$event instance=$instanceId session=$sessionId"
+                )
+            if (reduction.changed) {
+                val state = reduction.state
+                val editor = prefs.edit()
+                    .putLong(KEY_SEQUENCE, prefs.getLong(KEY_SEQUENCE, 0L) + 1L)
+                    .putString(KEY_EVENT, event)
+                    .putLong(KEY_EVENT_TIME_NS, SystemClock.elapsedRealtimeNanos())
+                    .putString(KEY_CALLER_PACKAGE, callerPackage)
+                    .putInt(KEY_RUNTIME_PID, callingPid)
+                    .putString(KEY_INSTANCE_ID, state.instanceId)
+                    .putString(KEY_SESSION_ID, state.sessionId)
+                    .putInt(KEY_INSTANCE_CREATED, state.instanceCreated.asInt())
+                    .putInt(KEY_SESSION_CREATED, state.sessionCreated.asInt())
+                    .putInt(KEY_SESSION_RUNNING, state.sessionRunning.asInt())
+                    .putInt(KEY_INSTANCE_SEEN, state.instanceSeen.asInt())
+                    .putInt(KEY_SESSION_SEEN, state.sessionSeen.asInt())
+                    .putInt(KEY_SESSION_EVER_RUNNING, state.sessionEverRunning.asInt())
+                    .putLong(KEY_FRAME_COUNT, state.frameCount)
+                check(editor.commit()) { "Could not persist EndXR runtime telemetry." }
+                context.contentResolver.notifyChange(uri, null)
             }
-            val editor = prefs.edit()
-                .putLong(KEY_SEQUENCE, prefs.getLong(KEY_SEQUENCE, 0L) + 1L)
-                .putString(KEY_EVENT, event)
-                .putLong(KEY_EVENT_TIME_NS, SystemClock.elapsedRealtimeNanos())
-                .putString(KEY_CALLER_PACKAGE, callerPackage)
-                .putInt(KEY_RUNTIME_PID, callingPid)
-                .putString(KEY_INSTANCE_ID, instanceId)
-                .putString(KEY_SESSION_ID, sessionId)
-                .putLong(KEY_FRAME_COUNT, nextFrames)
-
-            when (event) {
-                EVENT_CREATE_INSTANCE -> {
-                    editor.putInt(KEY_INSTANCE_CREATED, 1)
-                    editor.putInt(KEY_SESSION_CREATED, 0)
-                    editor.putInt(KEY_SESSION_RUNNING, 0)
-                    editor.putInt(KEY_INSTANCE_SEEN, 1)
-                    editor.putInt(KEY_SESSION_SEEN, 0)
-                    editor.putInt(KEY_SESSION_EVER_RUNNING, 0)
-                }
-                EVENT_CREATE_SESSION -> {
-                    editor.putInt(KEY_INSTANCE_CREATED, 1)
-                    editor.putInt(KEY_SESSION_CREATED, 1)
-                    editor.putInt(KEY_INSTANCE_SEEN, 1)
-                    editor.putInt(KEY_SESSION_SEEN, 1)
-                    editor.putInt(KEY_SESSION_RUNNING, 0)
-                    editor.putInt(KEY_INSTANCE_SEEN, 1)
-                    editor.putInt(KEY_SESSION_SEEN, 1)
-                }
-                EVENT_BEGIN_SESSION -> {
-                    editor.putInt(KEY_INSTANCE_CREATED, 1)
-                    editor.putInt(KEY_SESSION_CREATED, 1)
-                    editor.putInt(KEY_SESSION_RUNNING, 1)
-                    editor.putInt(KEY_INSTANCE_SEEN, 1)
-                    editor.putInt(KEY_SESSION_SEEN, 1)
-                    editor.putInt(KEY_SESSION_EVER_RUNNING, 1)
-                }
-                EVENT_END_FRAME -> {
-                    editor.putInt(KEY_INSTANCE_CREATED, 1)
-                    editor.putInt(KEY_SESSION_CREATED, 1)
-                }
-                EVENT_DESTROY_SESSION -> {
-                    editor.putInt(KEY_SESSION_CREATED, 0)
-                    editor.putInt(KEY_SESSION_RUNNING, 0)
-                }
-                EVENT_DESTROY_INSTANCE -> {
-                    editor.putInt(KEY_INSTANCE_CREATED, 0)
-                    editor.putInt(KEY_SESSION_CREATED, 0)
-                    editor.putInt(KEY_SESSION_RUNNING, 0)
-                }
-            }
-            check(editor.commit()) { "Could not persist EndXR runtime telemetry." }
         }
-        context.contentResolver.notifyChange(uri, null)
         return Uri.withAppendedPath(uri, "latest")
     }
 
@@ -193,6 +168,21 @@ class EndXrRuntimeEventContentProvider : ContentProvider() {
         selection: String?,
         selectionArgs: Array<out String>?
     ): Int = throw UnsupportedOperationException("EndXR runtime telemetry is append-only.")
+
+    private fun readState(prefs: android.content.SharedPreferences): EndXrRuntimeEventState =
+        EndXrRuntimeEventState(
+            instanceId = prefs.getString(KEY_INSTANCE_ID, null),
+            sessionId = prefs.getString(KEY_SESSION_ID, null),
+            instanceCreated = prefs.getInt(KEY_INSTANCE_CREATED, 0) != 0,
+            sessionCreated = prefs.getInt(KEY_SESSION_CREATED, 0) != 0,
+            sessionRunning = prefs.getInt(KEY_SESSION_RUNNING, 0) != 0,
+            instanceSeen = prefs.getInt(KEY_INSTANCE_SEEN, 0) != 0,
+            sessionSeen = prefs.getInt(KEY_SESSION_SEEN, 0) != 0,
+            sessionEverRunning = prefs.getInt(KEY_SESSION_EVER_RUNNING, 0) != 0,
+            frameCount = prefs.getLong(KEY_FRAME_COUNT, 0L)
+        )
+
+    private fun Boolean.asInt(): Int = if (this) 1 else 0
 
     private fun requireRuntimeEventUri(uri: Uri) {
         if (uri.authority != AUTHORITY || uri.path != PATH) {
