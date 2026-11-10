@@ -213,6 +213,8 @@ bool startExternalControllerInputPolling(XrInstance_T* instance);
 void stopExternalControllerInputPolling(XrInstance_T* instance);
 #endif
 bool locateEstimatedHandPose(XrSpace_T* object, XrSpace_T* base, XrPosef* pose);
+XrPosef composePose(const XrPosef& parent, const XrPosef& child);
+XrPosef inversePose(const XrPosef& value);
 constexpr XrSystemId kEndXrSystemId = 1;
 constexpr std::uint32_t kRecommendedEyeWidth = 960;
 constexpr std::uint32_t kRecommendedEyeHeight = 1080;
