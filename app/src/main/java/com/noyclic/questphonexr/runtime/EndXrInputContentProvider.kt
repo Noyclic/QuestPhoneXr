@@ -5,6 +5,8 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
+import android.os.Binder
+import android.os.Process
 
 /**
  * Read-only IPC endpoint used by libendxr_openxr inside a game process.
@@ -23,6 +25,7 @@ class EndXrInputContentProvider : ContentProvider() {
         sortOrder: String?
     ): Cursor? {
         if (uri.authority != AUTHORITY || uri.path != PATH) return null
+        enforceAuthorizedCaller(uri)
         if (!selection.isNullOrBlank() || !selectionArgs.isNullOrEmpty() ||
             !sortOrder.isNullOrBlank()) {
             throw IllegalArgumentException("EndXR input snapshot does not support query filters.")
@@ -103,6 +106,49 @@ class EndXrInputContentProvider : ContentProvider() {
         }
     }
 
+    private fun enforceAuthorizedCaller(uri: Uri) {
+        val appContext = requireNotNull(context)
+        val callingUid = Binder.getCallingUid()
+        if (callingUid == Process.myUid()) return
+
+        // The paired probe is signed with the app and receives the signature
+        // permission. Other packages need both the exact URI grant and the
+        // package+certificate approval recorded by NextVRera.
+        if (appContext.checkCallingPermission(READ_PERMISSION) ==
+            PackageManager.PERMISSION_GRANTED
+        ) return
+
+        val uriPermission = appContext.checkUriPermission(
+            uri,
+            Binder.getCallingPid(),
+            callingUid,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION
+        )
+        if (uriPermission != PackageManager.PERMISSION_GRANTED) {
+            throw SecurityException("The calling app has no EndXR input read grant.")
+        }
+
+        val packages = appContext.packageManager.getPackagesForUid(callingUid).orEmpty()
+        val attributedPackage = getCallingPackage()
+        val callerPackage = when {
+            attributedPackage != null && attributedPackage in packages -> attributedPackage
+            attributedPackage != null -> throw SecurityException(
+                "The attributed input client does not belong to the calling UID."
+            )
+            packages.size == 1 -> packages.single()
+            else -> throw SecurityException(
+                "Cannot securely attribute input access from a shared or unknown UID."
+            )
+        }
+        val manager = EndXrInputAccessManager(appContext)
+        val client = manager.installedLaunchableClient(callerPackage)
+        if (client == null || !manager.isAuthorized(client)) {
+            throw SecurityException(
+                "The calling package and signing certificate have no EndXR input consent."
+            )
+        }
+    }
+
     override fun getType(uri: Uri): String? =
         if (uri.authority == AUTHORITY && uri.path == PATH) {
             "vnd.android.cursor.item/vnd.com.noyclic.questphonexr.endxrinput"
@@ -129,6 +175,7 @@ class EndXrInputContentProvider : ContentProvider() {
         const val AUTHORITY = "com.noyclic.questphonexr.endxrinput"
         const val PATH = "/controller_state"
         const val CONTENT_URI = "content://$AUTHORITY$PATH"
+        const val READ_PERMISSION = "com.noyclic.questphonexr.permission.READ_INPUT_SNAPSHOT"
 
         val COLUMNS = arrayOf(
             "sequence",
