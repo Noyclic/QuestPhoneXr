@@ -202,39 +202,55 @@ class GameLibraryActivity : ComponentActivity() {
         }
 
         val labels = candidates.map { client ->
-            val state = if (manager.isAuthorized(client)) " · ДОСТУП РАЗРЕШЁН" else ""
+            val inputGranted = manager.isAuthorized(client)
+            val telemetryGranted = manager.isRuntimeTelemetryAuthorized(client)
+            val state = when {
+                inputGranted && telemetryGranted -> " · ВВОД + ТЕЛЕМЕТРИЯ РАЗРЕШЕНЫ"
+                inputGranted -> " · ТОЛЬКО ВВОД (СТАРОЕ СОГЛАСИЕ)"
+                else -> ""
+            }
             client.label + " · " + client.packageName + state
         }
         AlertDialog.Builder(this)
-            .setTitle("Доступ к вводу EndXR")
+            .setTitle("Доступ EndXR: ввод и телеметрия")
             .setItems(labels.toTypedArray()) { _, index ->
                 val selected = candidates[index]
-                if (manager.isAuthorized(selected)) {
+                val inputGranted = manager.isAuthorized(selected)
+                val telemetryGranted = manager.isRuntimeTelemetryAuthorized(selected)
+                if (inputGranted && telemetryGranted) {
                     confirmRevokeInputAccess(manager, selected)
                 } else {
-                    confirmGrantInputAccess(manager, selected)
+                    confirmGrantInputAndTelemetryAccess(manager, selected)
                 }
             }
             .setPositiveButton("Готово", null)
             .show()
     }
 
-    private fun confirmGrantInputAccess(
+    private fun confirmGrantInputAndTelemetryAccess(
         manager: EndXrInputAccessManager,
         client: com.noyclic.questphonexr.runtime.EndXrInputClient
     ) {
+        val inputAlreadyGranted = manager.isAuthorized(client)
         val message = buildString {
             append("Приложение: ").append(client.label).append('\n')
             append("Пакет: ").append(client.packageName).append("\n\n")
-            append("Оно получит доступ только на чтение к одному адресу EndXR: ")
-            append("controller_state. В снимке находятся кнопки и оси контроллеров, ")
-            append("ориентация телефона и приблизительные позы ладоней.\n\n")
-            append("Доступ не открывает файлы, не разрешает запись и не внедряет нажатия ")
-            append("в Android. Игра должна сама поддерживать контракт ввода EndXR. ")
-            append("Разрешение привязано к подписи приложения и его можно отозвать здесь.")
+            append("NextVRera выдаст два отдельных разрешения для этого пакета:\n")
+            append("• READ: controller_state — кнопки и оси контроллеров, ориентация телефона и приблизительные позы ладоней.\n")
+            append("• WRITE: runtime_event — события xrCreateInstance, xrCreateSession, xrBeginSession, xrEndSession, композиция кадров и завершение runtime.\n\n")
+            append("Телеметрия содержит имя пакета, PID игрового процесса, идентификаторы runtime instance/session, время событий и число скомпонованных кадров. ")
+            append("Она не читает файлы игры, экран или игровые данные.\n\n")
+            if (inputAlreadyGranted) {
+                append("Старое согласие на чтение ввода сохранится; сейчас ты отдельно включаешь write-only телеметрию.\n\n")
+            }
+            append("Обычные Android-кнопки в игру не внедряются: игра должна поддерживать OpenXR input или контракт EndXR. ")
+            append("Оба разрешения привязаны к подписи приложения и могут быть отозваны здесь.")
         }
         AlertDialog.Builder(this)
-            .setTitle("Разрешить ввод для этого приложения?")
+            .setTitle(
+                if (inputAlreadyGranted) "Разрешить телеметрию EndXR?"
+                else "Разрешить ввод и телеметрию EndXR?"
+            )
             .setMessage(message)
             .setNegativeButton("Отмена", null)
             .setPositiveButton("Разрешить") { _, _ ->
@@ -242,7 +258,7 @@ class GameLibraryActivity : ComponentActivity() {
                     .onSuccess {
                         Toast.makeText(
                             this,
-                            "Доступ к вводу разрешён для " + client.label,
+                            "Ввод и телеметрия EndXR разрешены для " + client.label,
                             Toast.LENGTH_LONG
                         ).show()
                     }
@@ -262,17 +278,18 @@ class GameLibraryActivity : ComponentActivity() {
         client: com.noyclic.questphonexr.runtime.EndXrInputClient
     ) {
         AlertDialog.Builder(this)
-            .setTitle("Отозвать доступ?")
+            .setTitle("Отозвать доступ EndXR?")
             .setMessage(
-                client.label + " (" + client.packageName + ") больше не сможет читать снимок ввода EndXR."
+                client.label + " (" + client.packageName + ") потеряет и read-only доступ к controller_state, " +
+                    "и write-only доступ к runtime_event."
             )
             .setNegativeButton("Оставить", null)
-            .setPositiveButton("Отозвать") { _, _ ->
+            .setPositiveButton("Отозвать оба") { _, _ ->
                 runCatching { manager.revoke(client.packageName) }
                     .onSuccess {
                         Toast.makeText(
                             this,
-                            "Доступ отозван для " + client.label,
+                            "Доступ EndXR отозван для " + client.label,
                             Toast.LENGTH_SHORT
                         ).show()
                     }
