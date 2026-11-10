@@ -24,15 +24,15 @@ A successful query verifies only the IPC boundary and snapshot schema. It does n
 
 ## User-controlled package authorization
 
-The EndXR readiness screen includes **Управление доступом к вводу**. The picker is built from installed third-party applications that expose a launcher activity; system apps and QuestPhoneXR itself are excluded. The user sees the application label and exact package name, then must approve the grant in a second confirmation dialog.
+The EndXR readiness screen includes **Управление доступом к вводу**. The APK library also offers a managed **Запустить через NextVRera + EndXR** path for installed OpenXR candidates. The picker is built from installed third-party applications that expose a launcher activity; system apps and QuestPhoneXR itself are excluded. The user sees the application label and exact package name, then must approve the grant in a confirmation dialog. The ordinary **Открыть установленное приложение** action does not grant IPC access.
 
 After confirmation, QuestPhoneXR calls `grantUriPermission(packageName, controllerStateUri, FLAG_GRANT_READ_URI_PERMISSION)`. It grants read-only access to exactly `content://com.noyclic.questphonexr.endxrinput/controller_state`. It does not grant write access, wildcard paths, APK storage access or Android-wide input injection. The snapshot contains controller buttons/axes, head orientation and approximate hand poses; values older than the provider's freshness window are neutralized.
 
 The approval record stores the exact package name and a SHA-256 fingerprint derived from the package's current signing certificate. On the next QuestPhoneXR launch, the app re-issues the temporary URI grant only if that package is still installed, still exposes a launcher activity, and has the same signing certificate. A missing package or changed signer causes the old grant to be revoked and its stored approval removed. Because Android URI grants are temporary, the user must open QuestPhoneXR after a device restart before a previously approved game can access the snapshot again.
 
-The same screen lists current approvals and allows the user to revoke one package at a time. Revocation does not affect the companion diagnostic APK or any other selected app.
+The same screen lists current approvals and allows the user to revoke one package at a time. The managed launch flow also reconciles a previously approved grant before launching the game. Revocation does not affect the companion diagnostic APK or any other selected app.
 
-This permission is a transport prerequisite, not automatic game compatibility. A third-party game must still use the documented EndXR input URI and expected column schema. The current runtime does not inject Android gamepad events into another application, and no external commercial game has yet been validated against this input contract.
+This permission is a transport prerequisite, not automatic game compatibility. A third-party game must still use the documented EndXR input URI and expected column schema, or use OpenXR input that the runtime implements. The current runtime does not inject Android gamepad events into another application, and no external commercial game has yet been validated against this input contract.
 
 ## Validation
 
