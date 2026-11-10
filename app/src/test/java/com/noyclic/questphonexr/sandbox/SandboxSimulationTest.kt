@@ -493,6 +493,28 @@ class SandboxSimulationTest {
     }
 
     @Test
+    fun cursorRejectsNonFiniteTargetsAndBoundsSingleFrameJumps() {
+        val smoother = SandboxCursorSmoother(response = 1f)
+        val origin = SandboxVector3(0f, 0f, -2.5f)
+        assertEquals(origin, smoother.update(origin))
+        assertEquals(origin, smoother.update(SandboxVector3(Float.NaN, 0f, -2.5f)))
+        assertEquals(origin, smoother.update(SandboxVector3(0f, Float.POSITIVE_INFINITY, -2.5f)))
+        val moved = smoother.update(SandboxVector3(6f, 0f, -2.5f))
+        assertTrue(moved.x > 0f)
+        assertTrue(moved.x <= 0.75f + 0.001f)
+        assertTrue(moved.hasFiniteCoordinates())
+    }
+
+    @Test
+    fun aNewCursorNeverPublishesNonFiniteCoordinates() {
+        val cursor = SandboxCursorSmoother().update(
+            SandboxVector3(Float.NaN, Float.NEGATIVE_INFINITY, Float.NaN)
+        )
+        assertTrue(cursor.hasFiniteCoordinates())
+        assertEquals(SandboxVector3(0f, 0f, 0f), cursor)
+    }
+
+    @Test
     fun spawnCubeAddsAnotherObject() {
         val simulation = SandboxSimulation()
         simulation.spawnCube()

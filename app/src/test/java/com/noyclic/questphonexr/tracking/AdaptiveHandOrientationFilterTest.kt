@@ -79,6 +79,22 @@ class AdaptiveHandOrientationFilterTest {
         assertEquals(0f, rotationDistance(next, recovered), 0.0001f)
     }
 
+    @Test
+    fun limitsAOneFramePalmRotationJumpByElapsedTime() {
+        val filter = AdaptiveHandOrientationFilter()
+        val identity = quaternionZ(0f)
+        filter.update(identity, trackingId = 4L, timestampMs = 1_000L)
+        val output = filter.update(quaternionZ(Math.PI.toFloat()), 4L, 1_033L)!!
+
+        val travelledAngle = rotationDistance(identity, output)
+        assertTrue("a real rotation should still be followed", travelledAngle > 0f)
+        assertTrue(
+            "rotation $travelledAngle rad exceeds the rate cap",
+            travelledAngle <= 12f * 0.033f + 0.002f
+        )
+        assertEquals(1f, norm(output), 0.0001f)
+    }
+
     private fun quaternionZ(angleRadians: Float): FloatArray = floatArrayOf(
         0f, 0f, sin(angleRadians / 2f), cos(angleRadians / 2f)
     )

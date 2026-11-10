@@ -17,7 +17,8 @@ internal class AdaptiveHandOrientationFilter(
     private val minimumResponsePerSecond: Float = DEFAULT_MIN_RESPONSE,
     private val maximumResponsePerSecond: Float = DEFAULT_MAX_RESPONSE,
     private val angularVelocityGain: Float = DEFAULT_ANGULAR_VELOCITY_GAIN,
-    private val angularSpeedDeadzone: Float = DEFAULT_ANGULAR_SPEED_DEADZONE
+    private val angularSpeedDeadzone: Float = DEFAULT_ANGULAR_SPEED_DEADZONE,
+    private val maximumAngularSpeedRadiansPerSecond: Float = DEFAULT_MAX_ANGULAR_SPEED
 ) {
     private var previousRaw: FloatArray? = null
     private var filtered: FloatArray? = null
@@ -31,6 +32,8 @@ internal class AdaptiveHandOrientationFilter(
             maximumResponsePerSecond.isFinite())
         require(angularVelocityGain >= 0f && angularVelocityGain.isFinite())
         require(angularSpeedDeadzone >= 0f && angularSpeedDeadzone.isFinite())
+        require(maximumAngularSpeedRadiansPerSecond > 0f &&
+            maximumAngularSpeedRadiansPerSecond.isFinite())
     }
 
     @Synchronized
@@ -74,7 +77,13 @@ internal class AdaptiveHandOrientationFilter(
         val alpha = (
             1.0 - exp((-responsePerSecond * dt).toDouble())
         ).toFloat().coerceIn(0f, 1f)
-        val next = slerp(previousOutput, normalized, alpha) ?: run {
+        val smoothed = slerp(previousOutput, normalized, alpha) ?: run {
+            reset()
+            return null
+        }
+        // Keep adaptive SLERP, but cap angular movement after smoothing to reject one-frame flips.
+        val maximumStep = maximumAngularSpeedRadiansPerSecond * (elapsedMs / 1_000f)
+        val next = rotateTowards(previousOutput, smoothed, maximumStep) ?: run {
             reset()
             return null
         }
@@ -84,6 +93,14 @@ internal class AdaptiveHandOrientationFilter(
         previousTimestampMs = timestampMs
         previousTrackingId = trackingId
         return next.copyOf()
+    }
+
+    private fun rotateTowards(from: FloatArray, to: FloatArray, maximumAngle: Float): FloatArray? {
+        val cosine = abs(dot(from, to)).coerceIn(0f, 1f)
+        val angle = 2f * acos(cosine)
+        if (!angle.isFinite() || !maximumAngle.isFinite()) return null
+        if (angle <= maximumAngle) return to
+        return slerp(from, to, (maximumAngle / angle).coerceIn(0f, 1f))
     }
 
     @Synchronized
@@ -165,6 +182,7 @@ internal class AdaptiveHandOrientationFilter(
         const val DEFAULT_MAX_RESPONSE = 56f
         const val DEFAULT_ANGULAR_VELOCITY_GAIN = 7f
         const val DEFAULT_ANGULAR_SPEED_DEADZONE = 0.10f
+        const val DEFAULT_MAX_ANGULAR_SPEED = 12f
         const val RESPONSE_ADAPTATION_SECONDS = 0.04f
     }
 }

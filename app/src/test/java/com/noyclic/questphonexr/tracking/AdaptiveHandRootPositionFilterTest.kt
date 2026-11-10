@@ -44,6 +44,24 @@ class AdaptiveHandRootPositionFilterTest {
     }
 
     @Test
+    fun clampsLargeCameraPlaneJumpsByWorldSpaceSpeed() {
+        val filter = AdaptiveHandRootPositionFilter()
+        val first = filter.update(0.50f, 0.50f, 3L, 1_000L, metersPerNormalizedUnit = 6f)!!
+        val jumped = filter.update(0.90f, 0.50f, 3L, 1_033L, metersPerNormalizedUnit = 6f)!!
+        val movedMeters = (jumped.x - first.x) * 6f
+        assertTrue("a jump should still begin moving", movedMeters > 0f)
+        assertTrue("moved $movedMeters m in 33 ms", movedMeters <= 8f * 0.033f + 0.002f)
+    }
+
+    @Test
+    fun ignoresDuplicateTimestampInsteadOfReprocessingDifferentCoordinates() {
+        val filter = AdaptiveHandRootPositionFilter()
+        val first = filter.update(0.50f, 0.50f, 3L, 1_000L)!!
+        val duplicate = filter.update(0.90f, 0.10f, 3L, 1_000L)!!
+        assertEquals(first, duplicate)
+    }
+
+    @Test
     fun rejectsInvalidInputAndClearsHistory() {
         val filter = AdaptiveHandRootPositionFilter()
         filter.update(0.50f, 0.50f, 3L, 100L)

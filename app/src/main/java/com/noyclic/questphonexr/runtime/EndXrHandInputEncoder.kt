@@ -239,13 +239,18 @@ internal object EndXrHandInputEncoder {
             depthEstimator.reset()
             return EncodedHand.EMPTY
         }
-        // Depth is already smoothed by MonocularHandDepthEstimator. Filter the
-        // camera-plane palm center separately, preserving fast deliberate moves.
-        val stableImageCenter = rootPositionFilter.update(
-            imageCenter.x, imageCenter.y, hand.trackingId, sampleTimestampMs
-        ) ?: return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
+        // Depth is already smoothed by MonocularHandDepthEstimator. Use its
+        // current scale to cap camera-plane jumps in metres, then keep the existing
+        // One-Euro smoothing rather than stacking a second pose filter.
         val distance = depthEstimator.update(hand.rawPoints, sampleTimestampMs)?.takeIf { it.isFinite() }
             ?: DEFAULT_HAND_DISTANCE_METERS
+        val stableImageCenter = rootPositionFilter.update(
+            imageCenter.x,
+            imageCenter.y,
+            hand.trackingId,
+            sampleTimestampMs,
+            metersPerNormalizedUnit = distance * HORIZONTAL_FOV_SCALE
+        ) ?: return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
 
         val x = ((stableImageCenter.x - 0.5f) * distance * HORIZONTAL_FOV_SCALE)
             .coerceIn(-MAX_HAND_X_METERS, MAX_HAND_X_METERS)

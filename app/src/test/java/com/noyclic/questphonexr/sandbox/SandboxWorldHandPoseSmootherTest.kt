@@ -108,16 +108,39 @@ class SandboxWorldHandPoseSmootherTest {
     }
 
     @Test
-    fun invalidCoordinatesCannotPoisonTheNextRenderedPose() {
+    fun invalidJointHoldsItsLastRenderedPositionWithoutPoisoningThePose() {
         val smoother = SandboxWorldHandPoseSmoother()
-        smoother.update(handPose(0f), 1f / 30f, HandSide.LEFT, 4L)
+        val first = smoother.update(handPose(0f), 1f / 30f, HandSide.LEFT, 4L)
         val invalid = handPose(0.5f).toMutableList().also {
             it[8] = it[8].copy(z = Float.NaN)
         }
+        val held = smoother.update(invalid, 1f / 30f, HandSide.LEFT, 4L)
+        assertEquals(first[8], held[8])
+        assertTrue(held.all { it.hasFiniteCoordinates() })
+        val valid = smoother.update(handPose(0.2f), 1f / 30f, HandSide.LEFT, 4L)
+        assertTrue(valid.all { it.hasFiniteCoordinates() })
+        assertTrue(valid[8].x > held[8].x)
+    }
 
-        assertEquals(invalid, smoother.update(invalid, 1f / 30f, HandSide.LEFT, 4L))
-        val valid = handPose(0.2f)
-        assertEquals(valid, smoother.update(valid, 1f / 30f, HandSide.LEFT, 4L))
+    @Test
+    fun rejectsMalformedFirstPoseUntilAValidTrackArrives() {
+        val smoother = SandboxWorldHandPoseSmoother()
+        val invalid = handPose(0.5f).toMutableList().also {
+            it[3] = it[3].copy(x = Float.POSITIVE_INFINITY)
+        }
+        assertTrue(smoother.update(invalid, 1f / 30f, HandSide.LEFT, 7L).isEmpty())
+        val valid = handPose(0.1f)
+        assertEquals(valid, smoother.update(valid, 1f / 30f, HandSide.LEFT, 7L))
+    }
+
+    @Test
+    fun renderPoseDisplacementIsBoundedAtDifferentFrameRates() {
+        val smoother = SandboxWorldHandPoseSmoother()
+        val first = smoother.update(handPose(0f), 1f / 30f, HandSide.LEFT, 8L)
+        val next = smoother.update(handPose(5f), 1f / 30f, HandSide.LEFT, 8L)
+        val moved = (next[8] - first[8]).length()
+        assertTrue("pose should begin converging", moved > 0f)
+        assertTrue("moved $moved m in one 30 FPS step", moved <= 8f / 30f + 0.001f)
     }
 
     @Test

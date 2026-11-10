@@ -54,20 +54,29 @@ internal class SandboxWorldHandPoseSmoother(
             reset()
             return emptyList()
         }
-        if (target.any { !it.x.isFinite() || !it.y.isFinite() || !it.z.isFinite() }) {
-            // Never feed invalid coordinates into persistent spring state.
-            reset()
-            return target
-        }
-
         val x = positionX
         val y = positionY
         val z = positionZ
+        val hasMatchingHistory = x != null && y != null && z != null &&
+            x.size == target.size && y.size == target.size && z.size == target.size &&
+            activeHand == hand && activeTrackingId == trackingId
+        val safeTarget = if (target.any { !it.hasFiniteCoordinates() }) {
+            if (!hasMatchingHistory) {
+                reset()
+                return emptyList()
+            }
+            target.mapIndexed { index, point ->
+                if (point.hasFiniteCoordinates()) point
+                else SandboxVector3(x!![index], y!![index], z!![index])
+            }
+        } else {
+            target
+        }
         if (x == null || y == null || z == null ||
-            x.size != target.size || activeHand != hand || activeTrackingId != trackingId
+            x.size != safeTarget.size || activeHand != hand || activeTrackingId != trackingId
         ) {
-            initialize(target, hand, trackingId)
-            return target
+            initialize(safeTarget, hand, trackingId)
+            return safeTarget
         }
 
         val vx = checkNotNull(velocityX)
@@ -78,7 +87,7 @@ internal class SandboxWorldHandPoseSmoother(
             MAX_STEP_SECONDS
         ) ?: MIN_STEP_SECONDS
 
-        val palmCenter = palmCenter(target)
+        val palmCenter = palmCenter(safeTarget)
         val previousCenter = previousTargetPalmCenter
         val measuredSpeed = if (previousCenter == null) {
             0f
@@ -102,29 +111,38 @@ internal class SandboxWorldHandPoseSmoother(
         // Unlike a fixed lerp factor, this behaves consistently at 20, 30 and 60 render FPS.
         val omega = responseRadiansPerSecond
         val decay = exp((-omega * dt).toDouble()).toFloat()
-        val output = ArrayList<SandboxVector3>(target.size)
-        for (index in target.indices) {
-            val goal = target[index]
-
+        val output = ArrayList<SandboxVector3>(safeTarget.size)
+        val maximumStep = MAX_LANDMARK_SPEED_METERS_PER_SECOND * dt
+        for (index in safeTarget.indices) {
+            val goal = safeTarget[index]
             val offsetX = x[index] - goal.x
             val offsetY = y[index] - goal.y
             val offsetZ = z[index] - goal.z
-
             val helperX = vx[index] + omega * offsetX
             val helperY = vy[index] + omega * offsetY
             val helperZ = vz[index] + omega * offsetZ
-
             val nextX = goal.x + (offsetX + helperX * dt) * decay
             val nextY = goal.y + (offsetY + helperY * dt) * decay
             val nextZ = goal.z + (offsetZ + helperZ * dt) * decay
-
-            vx[index] = (vx[index] - omega * helperX * dt) * decay
-            vy[index] = (vy[index] - omega * helperY * dt) * decay
-            vz[index] = (vz[index] - omega * helperZ * dt) * decay
-            x[index] = nextX
-            y[index] = nextY
-            z[index] = nextZ
-            output += SandboxVector3(nextX, nextY, nextZ)
+            val proposedDelta = SandboxVector3(nextX - x[index], nextY - y[index], nextZ - z[index])
+            val boundedDelta = proposedDelta.clamped(maximumStep)
+            val wasRateLimited = proposedDelta.length() > maximumStep
+            val appliedX = x[index] + boundedDelta.x
+            val appliedY = y[index] + boundedDelta.y
+            val appliedZ = z[index] + boundedDelta.z
+            if (wasRateLimited) {
+                vx[index] = boundedDelta.x / dt
+                vy[index] = boundedDelta.y / dt
+                vz[index] = boundedDelta.z / dt
+            } else {
+                vx[index] = (vx[index] - omega * helperX * dt) * decay
+                vy[index] = (vy[index] - omega * helperY * dt) * decay
+                vz[index] = (vz[index] - omega * helperZ * dt) * decay
+            }
+            x[index] = appliedX
+            y[index] = appliedY
+            z[index] = appliedZ
+            output += SandboxVector3(appliedX, appliedY, appliedZ)
         }
         previousTargetPalmCenter = palmCenter
         return output
@@ -183,6 +201,7 @@ internal class SandboxWorldHandPoseSmoother(
         const val DEFAULT_MOTION_RESPONSE_GAIN = 8f
         const val DEFAULT_RESPONSE_ADAPTATION_SECONDS = 0.045f
         const val DEFAULT_STATIONARY_SPEED_DEADZONE = 0.08f
+        const val MAX_LANDMARK_SPEED_METERS_PER_SECOND = 8f
         const val MIN_STEP_SECONDS = 1f / 240f
         const val MAX_STEP_SECONDS = 0.05f
     }
