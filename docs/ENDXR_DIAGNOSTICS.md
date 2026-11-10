@@ -66,8 +66,10 @@ instance/session order, ignores duplicate deliveries, and exposes read access
 only to the NextVRera app UID.
 
 The native runtime queues events away from the game's frame thread:
-`xrCreateInstance`, `xrCreateSession`, `xrBeginSession`, successful
-projection-layer composition at `xrEndFrame`, and teardown. Frame milestones
+`xrCreateInstance`, `xrCreateSession`, `xrBeginSession`, `xrEndSession`,
+successful projection-layer composition at `xrEndFrame`, and teardown. The
+current-session indicator is cleared by `xrEndSession` even when the instance
+remains alive. Frame milestones
 are coalesced while IPC is unavailable; transient provider failures are retried
 with backoff. NextVRera waits briefly after returning from the game before
 showing its report, so final teardown events have a chance to arrive.
