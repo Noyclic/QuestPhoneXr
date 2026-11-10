@@ -25,6 +25,7 @@ public sealed class BaldiQuestPhoneXRAdapter : MonoBehaviour
     {
         if (!QuestPhoneXRInputReceiver.TryGetFreshPacket(out QuestPhoneXRPacket packet))
         {
+            previousUseItem = false;
             ResetInput();
             return;
         }
@@ -47,7 +48,11 @@ public sealed class BaldiQuestPhoneXRAdapter : MonoBehaviour
         return false;
     }
 
-    private void OnDisable() { ResetInput(); }
+    private void OnDisable()
+    {
+        previousUseItem = false;
+        ResetInput();
+    }
 
     private static void ResetInput()
     {
