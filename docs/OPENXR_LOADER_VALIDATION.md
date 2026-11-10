@@ -130,9 +130,25 @@ require Vulkan, additional extensions or vendor APIs.
 
 NextVRera's installed-APK library has a **Запустить через NextVRera + EndXR** path for APKs classified as OpenXR candidates. Before launch it checks the Broker using the installed game's ABI (not merely the ABI of the NextVRera process), follows installable-first/system-fallback precedence, and requires EndXR to be the likely candidate. If it is not, it opens the Khronos installable Broker and rechecks after the user returns.
 
-The managed path then asks for explicit, package-scoped read-only input approval, starts the saved camera foreground-service configuration when camera permission is available, and waits for a fresh MediaPipe frame before requesting Android to launch the game. The ordinary **Открыть установленное приложение** action does not silently grant input access or claim EndXR interception.
+The managed path then asks for explicit package-scoped IPC approval: read-only input access to `controller_state` and a separate write-only runtime event URI. Both grants are bound to the selected package signing certificate. Legacy input-only approvals do not automatically receive telemetry write access; the app asks for the updated consent. NextVRera starts the saved camera foreground-service configuration when camera permission is available and waits for a fresh MediaPipe frame before requesting Android to launch the game. The ordinary **Открыть установленное приложение** action does not silently grant either access or claim EndXR interception.
 
 This only prepares a launch and reduces known mismatches. NextVRera cannot force Android's Loader to use EndXR from an Activity launch flag. A successful Broker candidate/file check does not prove the runtime library can be loaded, and an accepted Android startActivity request does not prove a game called xrCreateInstance or created a session. Proprietary Meta/Oculus APIs, Vulkan-only builds, and additional extensions remain compatibility blockers unless implemented by EndXR.
+
+After returning from the game, NextVRera reads the protected runtime event endpoint.
+The native EndXR runtime sends `xrCreateInstance`, `xrCreateSession`,
+`xrBeginSession`, successful projection-layer composition milestones, and
+teardown events through a background IPC worker. The UI reports instance,
+session, and composited-frame evidence separately. Empty `xrEndFrame` calls
+are not counted as visible game frames; projection-frame counts advance only
+when EndXR successfully composites a projection layer. IPC failures are retried
+with backoff and frame milestones are coalesced so lifecycle events are less
+likely to be displaced.
+
+These events are package-scoped diagnostic telemetry, not a cryptographically
+attested statement from Android's Loader. Code running under the same
+user-approved package UID could theoretically submit an event itself. Treat
+the signal as evidence that the approved app process reached the EndXR event
+path, not as proof that all app rendering or input works on a physical viewer.
 
 ## CI and physical-device test
 
