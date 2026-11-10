@@ -30,10 +30,17 @@ class EndXrRuntimeEventContentProvider : ContentProvider() {
         requireRuntimeEventUri(uri)
         val context = requireNotNull(context)
         val callingPackage = getCallingPackage()
-        if (Binder.getCallingUid() != Process.myUid() ||
+        val callingUid = Binder.getCallingUid()
+        if (callingUid != Process.myUid() ||
             (callingPackage != null && callingPackage != context.packageName)
         ) {
             throw SecurityException("Runtime telemetry can only be read by NextVRera.")
+        }
+        if (callingPackage == null) {
+            val ownPackages = context.packageManager.getPackagesForUid(callingUid).orEmpty()
+            if (ownPackages.size > 1 && ownPackages.any { it != context.packageName }) {
+                throw SecurityException("Runtime telemetry is private to the NextVRera package.")
+            }
         }
         if (!selection.isNullOrBlank() || !selectionArgs.isNullOrEmpty() ||
             !sortOrder.isNullOrBlank()) {
