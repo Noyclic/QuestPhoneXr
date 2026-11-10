@@ -1184,6 +1184,11 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrEndSession(XrSession session) {
     object->running = false;
     object->exitRequested = false;
     queueSessionState(object, XR_SESSION_STATE_IDLE);
+#if defined(__ANDROID__)
+    if (XrInstance_T* owner = getInstance(object->owner)) {
+        enqueueRuntimeTelemetry(owner, "xr_end_session", object->telemetryId);
+    }
+#endif
     return XR_SUCCESS;
 }
 
