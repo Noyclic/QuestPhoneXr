@@ -1163,7 +1163,7 @@ class ApkImportActivity : ComponentActivity() {
         appendLine()
         appendLine("[OPENXR CAPTURE]")
         appendLine("Status: awaiting package-scoped EndXR runtime telemetry after the game returns.")
-        appendLine("Runtime selection, xrCreateInstance, xrCreateSession and successful xrEndFrame are tracked as separate evidence levels.")
+        appendLine("Runtime selection, xrCreateInstance, xrCreateSession and successfully composited projection images are tracked as separate evidence levels.")
         appendLine()
         appendLine("[RUNTIMEBROKER / RUNTIME SERVICE]")
         appendLine(brokerReport)
@@ -1293,7 +1293,7 @@ class ApkImportActivity : ComponentActivity() {
         appendLine("Session created during this launch: ${telemetry.sessionSeen}")
         appendLine("Session began during this launch: ${telemetry.sessionEverRunning}")
         appendLine("Session currently active: ${telemetry.sessionRunning}")
-        appendLine("Successfully completed xrEndFrame calls observed: ${telemetry.frameCount}")
+        appendLine("Successfully composited game projection frames: ${telemetry.frameCount}")
         appendLine("Runtime instance id: ${telemetry.instanceId}")
         appendLine("Runtime session id: ${telemetry.sessionId.ifBlank { "none" }}")
         appendLine(
@@ -1319,7 +1319,7 @@ class ApkImportActivity : ComponentActivity() {
             setPadding(dp(16), dp(8), dp(16), dp(8))
         }
         val captureHeader = when (runtimeCaptureLevel) {
-            3 -> "ENDXR RUNTIME: КАДРЫ ИГРЫ ПОДТВЕРЖДЕНЫ"
+            3 -> "ENDXR RUNTIME: ИЗОБРАЖЕНИЕ ИГРЫ СКОМПОЗИРОВАНО"
             2 -> "ENDXR RUNTIME: XR-СЕССИЯ СОЗДАНА"
             1 -> "ENDXR RUNTIME: xrCreateInstance ПОДТВЕРЖДЁН"
             else -> "OPENXR-ПЕРЕХВАТ: НЕ ПОДТВЕРЖДЁН"
@@ -1330,8 +1330,8 @@ class ApkImportActivity : ComponentActivity() {
             else -> 0xFF8FE0B5.toInt()
         }
         val captureExplanation = when (runtimeCaptureLevel) {
-            3 -> "EndXR получил событие из процесса игры, увидел создание XR-сессии и успешные вызовы xrEndFrame. Количество подтверждённых кадров указано ниже."
-            2 -> "EndXR получил xrCreateInstance и xrCreateSession из процесса игры, но пока не наблюдал успешную отправку кадров через xrEndFrame."
+            3 -> "EndXR получил событие из процесса игры, увидел создание XR-сессии и успешно скомпозировал projection layer игры. Число подтверждённых изображений указано ниже."
+            2 -> "EndXR получил xrCreateInstance и xrCreateSession из процесса игры, но ещё не подтвердил композицию изображения игры."
             1 -> "Процесс игры действительно вызвал xrCreateInstance в EndXR, однако создание XR-сессии пока не подтверждено."
             else -> "NextVRera не получила новое событие xrCreateInstance от процесса выбранной игры. Это не доказывает несовместимость: игра могла не дойти до OpenXR или не иметь разрешения на telemetry URI."
         }
