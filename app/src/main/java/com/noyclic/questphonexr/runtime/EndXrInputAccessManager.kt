@@ -10,7 +10,8 @@ import java.security.MessageDigest
 import java.util.Locale
 
 /**
- * User-approved, read-only access to EndXR's controller snapshot for one app.
+ * User-approved, package-scoped access for one app: read-only controller state
+ * plus write-only runtime lifecycle telemetry.
  *
  * The provider keeps its signature permission as the default read permission.
  * Android's explicit URI grant is used only for the single controller_state URI.
@@ -80,6 +81,11 @@ class EndXrInputAccessManager(context: Context) {
                         INPUT_URI,
                         Intent.FLAG_GRANT_READ_URI_PERMISSION
                     )
+                    appContext.grantUriPermission(
+                        record.packageName,
+                        RUNTIME_EVENT_URI,
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    )
                 }.isSuccess
                 if (granted) {
                     retained += record
@@ -110,6 +116,11 @@ class EndXrInputAccessManager(context: Context) {
                 INPUT_URI,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
+            appContext.grantUriPermission(
+                client.packageName,
+                RUNTIME_EVENT_URI,
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
             writeRecords(
                 readRecords().filterNot { it.packageName == client.packageName } +
                     EndXrInputGrantRecord(client.packageName, client.signingCertificateSha256)
@@ -118,7 +129,7 @@ class EndXrInputAccessManager(context: Context) {
         return client
     }
 
-    /** Revokes only the selected package's read grant. */
+    /** Revokes the selected package's controller-read and telemetry-write grants. */
     fun revoke(packageName: String): Boolean {
         if (!EndXrInputGrantCodec.isValidPackageName(packageName)) return false
         synchronized(GRANT_STATE_LOCK) {
@@ -126,6 +137,16 @@ class EndXrInputAccessManager(context: Context) {
                 packageName,
                 INPUT_URI,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+            appContext.revokeUriPermission(
+                packageName,
+                RUNTIME_EVENT_URI,
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+            appContext.revokeUriPermission(
+                packageName,
+                RUNTIME_EVENT_URI,
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             )
             writeRecords(readRecords().filterNot { it.packageName == packageName })
         }
@@ -200,6 +221,8 @@ class EndXrInputAccessManager(context: Context) {
         private const val PREFERENCES_NAME = "endxr_input_access"
         private const val KEY_GRANTS = "approved_package_signers"
         private val INPUT_URI: Uri = Uri.parse(EndXrInputContentProvider.CONTENT_URI)
+        private val RUNTIME_EVENT_URI: Uri =
+            Uri.parse(EndXrRuntimeEventContentProvider.CONTENT_URI)
     }
 }
 
