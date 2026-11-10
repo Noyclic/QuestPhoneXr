@@ -25,7 +25,7 @@ Do not combine these stages into one pass/fail result:
 6. **External GLES session** — the separate process creates an HMD system/session, swapchain and frame lifecycle.
 7. **Game compatibility** — an actual title renders and accepts useful input. This has not yet been demonstrated on the Redmi Note 13 4G.
 
-A service can be discoverable while no active runtime is selected. A successful `xrCreateInstance` still does not prove that an actual game will render or receive controls.
+A service can be discoverable while no active runtime is selected. The preflight mirrors Khronos Loader precedence: it checks the installable RuntimeBroker first and checks the system Broker only when the installable Broker has no active-runtime rows. It also checks the ABI selected for the installed game instead of assuming the NextVRera process ABI. The predicted package/library candidate is still only a metadata and file-existence check; it does not prove that the loader can `dlopen` the library. A successful `xrCreateInstance` still does not prove that an actual game will render or receive controls.
 
 ## Protected input IPC
 
@@ -35,7 +35,7 @@ The read-only provider exposes controller values, phone head orientation and app
 
 It now requires the signature permission `com.noyclic.questphonexr.permission.READ_INPUT_SNAPSHOT`. The paired `runtime-client-probe` APK can read it because the main APK and probe APK are built and signed in the same CI run. Install both artifacts from the **same Actions run**; do not mix debug APKs from different runs.
 
-Arbitrary third-party game APKs are deliberately not authorized yet. A future user-controlled package-specific authorization flow is required before game clients can read live controller snapshots. Do not remove the permission to make a test game work.
+Third-party game APKs do not receive blanket access. The game library's **Запустить через NextVRera + EndXR** path asks for explicit consent, grants read-only access to the exact controller URI for the selected installed package, and binds the stored approval to its signing certificate. The regular Android launch button does not grant IPC access. Do not remove the signature permission to make a test game work.
 
 A successful provider query does not prove a live camera producer. The
 external probe now reports controller, head-sensor and hand-pose sample ages
@@ -69,6 +69,18 @@ Android instrumentation tests export the diagnostic report and UI screenshots th
 - `screenshots/emulator-final.png` — final emulator screen capture.
 
 The workflow treats missing diagnostic reports or required UI screenshot exports as a CI failure when the instrumentation tests otherwise pass.
+
+## NextVRera-managed game launch
+
+For an installed APK that the static analyser classifies as an OpenXR candidate, the library provides **Запустить через NextVRera + EndXR**. This is an orchestration/preflight path, not an alternate OpenXR loader:
+
+1. NextVRera checks which runtime the Khronos Loader is likely to obtain from the Broker for that game's ABI.
+2. If EndXR is not the likely candidate, NextVRera opens the official installable RuntimeBroker settings and rechecks the selection when the user returns.
+3. The user explicitly approves the exact read-only input URI for that package; the grant is tied to the package signing certificate.
+4. NextVRera asks for camera permission if needed, starts the saved foreground tracking configuration, and waits for a fresh MediaPipe frame or reports that tracking did not become ready.
+5. Only then does it request Android to launch the installed game. The diagnostic records the selected Broker candidate, target ABI, IPC grant and camera state.
+
+This path improves launch preparation and prevents an obvious wrong-runtime launch, but it cannot force a runtime choice inside Android or make a proprietary Meta/Oculus-only application use OpenXR. Android still launches the game as a separate package/process. The game must actually use the Khronos Android OpenXR Loader and the extensions/graphics backend EndXR supports. A Broker candidate prediction is not proof of a successful `dlopen`, `xrCreateInstance`, or game frame.
 
 ## Physical-device validation on the Redmi Note 13 4G
 
