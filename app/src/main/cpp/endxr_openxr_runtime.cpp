@@ -254,7 +254,11 @@ constexpr const char* kSystemName = "EndXR Phone VR";
 
 std::mutex g_instanceMutex;
 std::unordered_map<XrInstance, XrInstance_T*> g_instances;
-std::atomic<std::uint64_t> g_nextTelemetryIdentity{1};
+// Seed identities with the process-local monotonic clock so a second game
+// process cannot inherit the previous process's persisted telemetry instance id.
+std::atomic<std::uint64_t> g_nextTelemetryIdentity{
+    static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())
+};
 #if XR_PTR_SIZE != 8
 std::uint64_t g_nextInstanceHandle = 1;
 #endif
@@ -2480,7 +2484,8 @@ bool flushRuntimeTelemetryImpl(XrInstance_T* instance) {
     }
 
     bool success = false;
-    if (env->PushLocalFrame(32) >= 0) {
+    const jint localFrameStatus = env->PushLocalFrame(32);
+    if (localFrameStatus >= 0) {
         do {
             jclass contextClass = env->FindClass("android/content/Context");
             if (contextClass == nullptr || env->ExceptionCheck()) break;
@@ -2598,6 +2603,8 @@ bool flushRuntimeTelemetryImpl(XrInstance_T* instance) {
             success = false;
         }
         env->PopLocalFrame(nullptr);
+    } else if (env->ExceptionCheck()) {
+        env->ExceptionClear();
     }
     if (attachedHere) instance->applicationVm->DetachCurrentThread();
 
