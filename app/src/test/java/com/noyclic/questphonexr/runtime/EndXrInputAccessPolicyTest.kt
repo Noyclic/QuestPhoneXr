@@ -54,6 +54,40 @@ class EndXrInputAccessPolicyTest {
     }
 
     @Test
+    fun legacyConsentDoesNotSilentlyGrantRuntimeTelemetry() {
+        val legacy = "com.example.vrgame|$fingerprint"
+        val decoded = EndXrInputGrantCodec.decode(setOf(legacy)).single()
+
+        assertEquals("com.example.vrgame", decoded.packageName)
+        assertEquals(fingerprint, decoded.signingCertificateSha256)
+        assertFalse(decoded.runtimeTelemetryGranted)
+    }
+
+    @Test
+    fun explicitTelemetryConsentSurvivesEncodingAndDecoding() {
+        val consent = EndXrInputGrantRecord(
+            packageName = "com.example.vrgame",
+            signingCertificateSha256 = fingerprint,
+            runtimeTelemetryGranted = true
+        )
+
+        val encoded = EndXrInputGrantCodec.encode(listOf(consent))
+        val decoded = EndXrInputGrantCodec.decode(encoded).single()
+
+        assertTrue(decoded.runtimeTelemetryGranted)
+        assertEquals(consent, decoded)
+    }
+
+    @Test
+    fun malformedTelemetryConsentFlagIsIgnored() {
+        val decoded = EndXrInputGrantCodec.decode(
+            setOf("com.example.vrgame|$fingerprint|yes")
+        )
+
+        assertTrue(decoded.isEmpty())
+    }
+
+    @Test
     fun malformedStoredEntriesAreIgnored() {
         val decoded = EndXrInputGrantCodec.decode(
             setOf(
