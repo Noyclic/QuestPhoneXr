@@ -184,10 +184,13 @@ object ApkRuntimeCompatibility {
             blockers.isNotEmpty() -> ApkLaunchRoute.DEVICE_REQUIREMENTS_BLOCKED
             endGvrAssessment.classification == EndGvrClassification.GEAR_VR_MARKED ->
                 ApkLaunchRoute.GEAR_VR_LEGACY_CANDIDATE
-            questSignals.isNotEmpty() -> ApkLaunchRoute.QUEST_RUNTIME_REQUIRED
             endGvrAssessment.classification == EndGvrClassification.LEGACY_OCULUS_MOBILE_SDK ->
                 ApkLaunchRoute.LEGACY_OCULUS_MOBILE_CANDIDATE
+            // Quest APKs can bundle Meta/Oculus plugins and still use the Khronos
+            // OpenXR loader. Give those packages the EndXR preflight route, while
+            // keeping the Meta dependency warning visible below.
             "OpenXR" in xrTechnologies -> ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE
+            questSignals.isNotEmpty() -> ApkLaunchRoute.QUEST_RUNTIME_REQUIRED
             xrTechnologies.isNotEmpty() -> ApkLaunchRoute.XR_SOURCE_ADAPTATION_REQUIRED
             else -> ApkLaunchRoute.ANDROID_APP_CANDIDATE
         }
@@ -203,8 +206,12 @@ object ApkRuntimeCompatibility {
                     add("Обнаружены явные маркеры Samsung Gear VR. EndGVR пока выполняет только статическую классификацию: legacy runtime, сервисы и игровой запуск ещё не реализованы и не подтверждены.")
                 ApkLaunchRoute.LEGACY_OCULUS_MOBILE_CANDIDATE ->
                     add("Найдена libvrapi.so — признак legacy Oculus Mobile SDK. Это само по себе не доказывает, что приложение предназначено именно для Gear VR; нужно проверить манифест, сервисы и требования устройства.")
-                ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE ->
+                ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE -> {
                     add("Обнаружены OpenXR-маркеры. Нужен активный Android OpenXR Runtime с поддержкой расширений и графического API. Один OpenXR Loader в QuestPhoneXR не является Runtime.")
+                    if (questSignals.isNotEmpty()) {
+                        add("В этом APK также найдены Meta/Oculus компоненты. Попытка через EndXR имеет смысл только если игра действительно идёт через Khronos OpenXR Loader; отдельные Meta Runtime API и сервисы EndXR пока не заменяет.")
+                    }
+                }
                 ApkLaunchRoute.XR_SOURCE_ADAPTATION_REQUIRED ->
                     add("Обнаружены XR-компоненты. Для телефона потребуется адаптация графики, трекинга и ввода под runtime QuestPhoneXR.")
                 ApkLaunchRoute.ANDROID_APP_CANDIDATE ->
