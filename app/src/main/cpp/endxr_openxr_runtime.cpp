@@ -111,8 +111,15 @@ struct XrActionStateSnapshot {
     XrTime vectorLastChangeTime = 0;
 };
 
+struct PendingRuntimeTelemetry {
+    std::string eventName;
+    std::uint64_t sessionId = 0;
+    std::uint64_t frameCount = 0;
+};
+
 struct XrInstance_T {
     XrVersion requestedApiVersion = XR_MAKE_VERSION(1, 0, 0);
+    std::uint64_t telemetryId = 0;
 #if defined(__ANDROID__)
     JavaVM* applicationVm = nullptr;
     jobject applicationActivity = nullptr;
@@ -120,6 +127,9 @@ struct XrInstance_T {
     std::mutex externalInputWakeMutex;
     std::condition_variable externalInputWake;
     std::thread externalInputPollThread;
+    std::mutex runtimeTelemetryMutex;
+    std::deque<PendingRuntimeTelemetry> pendingRuntimeTelemetry;
+    std::atomic<bool> runtimeTelemetryUnavailableLogged{false};
 #else
     void* applicationVm = nullptr;
     void* applicationActivity = nullptr;
@@ -153,6 +163,8 @@ struct XrSession_T {
     std::unordered_set<XrSwapchain> swapchains;
     std::unordered_set<XrSpace> spaces;
     std::unordered_set<XrHandTrackerEXT> handTrackers;
+    std::uint64_t telemetryId = 0;
+    std::uint64_t telemetryFrameCount = 0;
     bool actionSetsAttached = false;
     bool actionSyncCompleted = false;
     std::unordered_set<XrActionSet> attachedActionSets;
@@ -211,6 +223,13 @@ namespace {
 #if defined(__ANDROID__)
 bool startExternalControllerInputPolling(XrInstance_T* instance);
 void stopExternalControllerInputPolling(XrInstance_T* instance);
+void enqueueRuntimeTelemetry(
+    XrInstance_T* instance,
+    const char* eventName,
+    std::uint64_t sessionId = 0,
+    std::uint64_t frameCount = 0
+);
+bool flushRuntimeTelemetryImpl(XrInstance_T* instance);
 #endif
 bool locateEstimatedHandPose(XrSpace_T* object, XrSpace_T* base, XrPosef* pose);
 XrPosef composePose(const XrPosef& parent, const XrPosef& child);
@@ -235,6 +254,7 @@ constexpr const char* kSystemName = "EndXR Phone VR";
 
 std::mutex g_instanceMutex;
 std::unordered_map<XrInstance, XrInstance_T*> g_instances;
+std::atomic<std::uint64_t> g_nextTelemetryIdentity{1};
 #if XR_PTR_SIZE != 8
 std::uint64_t g_nextInstanceHandle = 1;
 #endif
@@ -753,6 +773,7 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrCreateInstance(
     XrInstance_T* created = new (std::nothrow) XrInstance_T();
     if (created == nullptr) return XR_ERROR_OUT_OF_MEMORY;
     created->requestedApiVersion = requested;
+    created->telemetryId = g_nextTelemetryIdentity.fetch_add(1, std::memory_order_relaxed);
     created->androidExtensionEnabled = androidEnabled;
     created->glesExtensionEnabled = glesEnabled;
     created->handTrackingExtensionEnabled = handTrackingEnabled;
@@ -797,6 +818,9 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrCreateInstance(
         g_instances.emplace(createdHandle, created);
     }
 #if defined(__ANDROID__)
+    if (created->androidExtensionEnabled) {
+        enqueueRuntimeTelemetry(created, "xr_create_instance");
+    }
     if (created->androidExtensionEnabled &&
         !startExternalControllerInputPolling(created)) {
         // Controller IPC is optional to the OpenXR instance itself. Do not make
@@ -810,6 +834,9 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrCreateInstance(
             "EndXR",
             "Input IPC worker unavailable; continuing without live external input."
         );
+        // Telemetry is best-effort too; attempt the creation event directly if
+        // the shared polling/telemetry worker could not be started.
+        flushRuntimeTelemetryImpl(created);
     }
 #endif
     *instance = createdHandle;
@@ -838,6 +865,7 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrDestroyInstance(XrInstance instance) {
         g_instances.erase(found);
     }
 #if defined(__ANDROID__)
+    enqueueRuntimeTelemetry(object, "xr_destroy_instance");
     stopExternalControllerInputPolling(object);
     if (object->applicationVm != nullptr && object->applicationActivity != nullptr) {
         JNIEnv* env = nullptr;
@@ -1051,6 +1079,7 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrCreateSession(
     XrSession_T* created = new (std::nothrow) XrSession_T();
     if (created == nullptr) return XR_ERROR_OUT_OF_MEMORY;
     created->owner = instance;
+    created->telemetryId = g_nextTelemetryIdentity.fetch_add(1, std::memory_order_relaxed);
     created->systemId = createInfo->systemId;
     created->display = reinterpret_cast<EGLDisplay>(binding->display);
     created->config = reinterpret_cast<EGLConfig>(binding->config);
@@ -1061,6 +1090,9 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrCreateSession(
         g_sessions.emplace(handle, created);
     }
     queueSessionState(created, XR_SESSION_STATE_READY);
+#if defined(__ANDROID__)
+    enqueueRuntimeTelemetry(owner, "xr_create_session", created->telemetryId);
+#endif
     *session = handle;
     return XR_SUCCESS;
 }
@@ -1079,6 +1111,11 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrDestroySession(XrSession session) {
         }
         g_sessions.erase(found);
     }
+#if defined(__ANDROID__)
+    if (XrInstance_T* owner = getInstance(object->owner)) {
+        enqueueRuntimeTelemetry(owner, "xr_destroy_session", object->telemetryId);
+    }
+#endif
     {
         std::lock_guard<std::mutex> actionLock(g_actionMutex);
         for (XrActionSet actionSet : object->attachedActionSets) {
@@ -1113,6 +1150,11 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrBeginSession(
     queueSessionState(object, XR_SESSION_STATE_SYNCHRONIZED);
     queueSessionState(object, XR_SESSION_STATE_VISIBLE);
     queueSessionState(object, XR_SESSION_STATE_FOCUSED);
+#if defined(__ANDROID__)
+    if (XrInstance_T* owner = getInstance(object->owner)) {
+        enqueueRuntimeTelemetry(owner, "xr_begin_session", object->telemetryId);
+    }
+#endif
     return XR_SUCCESS;
 }
 
@@ -1232,6 +1274,19 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrEndFrame(
     }
     object->frameWaited = false;
     object->frameBegun = false;
+#if defined(__ANDROID__)
+    ++object->telemetryFrameCount;
+    if (object->telemetryFrameCount == 1 || object->telemetryFrameCount % 30 == 0) {
+        if (XrInstance_T* owner = getInstance(object->owner)) {
+            enqueueRuntimeTelemetry(
+                owner,
+                "xr_end_frame",
+                object->telemetryId,
+                object->telemetryFrameCount
+            );
+        }
+    }
+#endif
     return XR_SUCCESS;
 }
 
@@ -2376,6 +2431,188 @@ XrResult validateActionForSession(
 
 #if defined(__ANDROID__)
 constexpr auto kExternalInputPollInterval = std::chrono::milliseconds(20);
+constexpr const char* kRuntimeTelemetryUri =
+    "content://com.noyclic.questphonexr.endxrtelemetry/runtime_event";
+
+void enqueueRuntimeTelemetry(
+    XrInstance_T* instance,
+    const char* eventName,
+    std::uint64_t sessionId,
+    std::uint64_t frameCount
+) {
+    if (instance == nullptr || eventName == nullptr) return;
+    {
+        std::lock_guard<std::mutex> lock(instance->runtimeTelemetryMutex);
+        if (instance->pendingRuntimeTelemetry.size() >= 32) {
+            instance->pendingRuntimeTelemetry.pop_front();
+        }
+        instance->pendingRuntimeTelemetry.push_back(PendingRuntimeTelemetry{
+            eventName,
+            sessionId,
+            frameCount
+        });
+    }
+    instance->externalInputWake.notify_one();
+}
+
+bool flushRuntimeTelemetryImpl(XrInstance_T* instance) {
+    if (instance == nullptr || instance->applicationVm == nullptr ||
+        instance->applicationActivity == nullptr) return false;
+
+    std::deque<PendingRuntimeTelemetry> pending;
+    {
+        std::lock_guard<std::mutex> lock(instance->runtimeTelemetryMutex);
+        pending.swap(instance->pendingRuntimeTelemetry);
+    }
+    if (pending.empty()) return true;
+
+    JNIEnv* env = nullptr;
+    bool attachedHere = false;
+    const jint envStatus = instance->applicationVm->GetEnv(
+        reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+    if (envStatus == JNI_EDETACHED) {
+        if (instance->applicationVm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
+            return false;
+        }
+        attachedHere = true;
+    } else if (envStatus != JNI_OK || env == nullptr) {
+        return false;
+    }
+
+    bool success = false;
+    if (env->PushLocalFrame(32) >= 0) {
+        do {
+            jclass contextClass = env->FindClass("android/content/Context");
+            if (contextClass == nullptr || env->ExceptionCheck()) break;
+            jmethodID getContentResolver = env->GetMethodID(
+                contextClass,
+                "getContentResolver",
+                "()Landroid/content/ContentResolver;"
+            );
+            if (getContentResolver == nullptr || env->ExceptionCheck()) break;
+            jobject resolver = env->CallObjectMethod(
+                instance->applicationActivity,
+                getContentResolver
+            );
+            if (resolver == nullptr || env->ExceptionCheck()) break;
+
+            jclass uriClass = env->FindClass("android/net/Uri");
+            if (uriClass == nullptr || env->ExceptionCheck()) break;
+            jmethodID parseUri = env->GetStaticMethodID(
+                uriClass,
+                "parse",
+                "(Ljava/lang/String;)Landroid/net/Uri;"
+            );
+            if (parseUri == nullptr || env->ExceptionCheck()) break;
+            jstring uriText = env->NewStringUTF(kRuntimeTelemetryUri);
+            if (uriText == nullptr || env->ExceptionCheck()) break;
+            jobject uri = env->CallStaticObjectMethod(uriClass, parseUri, uriText);
+            if (uri == nullptr || env->ExceptionCheck()) break;
+
+            jclass valuesClass = env->FindClass("android/content/ContentValues");
+            if (valuesClass == nullptr || env->ExceptionCheck()) break;
+            jmethodID valuesConstructor = env->GetMethodID(valuesClass, "<init>", "()V");
+            jmethodID putString = env->GetMethodID(
+                valuesClass,
+                "put",
+                "(Ljava/lang/String;Ljava/lang/String;)V"
+            );
+            if (valuesConstructor == nullptr || putString == nullptr ||
+                env->ExceptionCheck()) break;
+            jclass longClass = env->FindClass("java/lang/Long");
+            if (longClass == nullptr || env->ExceptionCheck()) break;
+            jmethodID longValueOf = env->GetStaticMethodID(
+                longClass,
+                "valueOf",
+                "(J)Ljava/lang/Long;"
+            );
+            jmethodID putLong = env->GetMethodID(
+                valuesClass,
+                "put",
+                "(Ljava/lang/String;Ljava/lang/Long;)V"
+            );
+            if (longValueOf == nullptr || putLong == nullptr ||
+                env->ExceptionCheck()) break;
+
+            jclass resolverClass = env->FindClass("android/content/ContentResolver");
+            if (resolverClass == nullptr || env->ExceptionCheck()) break;
+            jmethodID insert = env->GetMethodID(
+                resolverClass,
+                "insert",
+                "(Landroid/net/Uri;Landroid/content/ContentValues;)Landroid/net/Uri;"
+            );
+            if (insert == nullptr || env->ExceptionCheck()) break;
+
+            success = true;
+            for (const PendingRuntimeTelemetry& event : pending) {
+                if (env->PushLocalFrame(16) < 0) {
+                    success = false;
+                    break;
+                }
+                jobject values = env->NewObject(valuesClass, valuesConstructor);
+                auto putText = [&](const char* key, const std::string& value) -> bool {
+                    jstring javaKey = env->NewStringUTF(key);
+                    jstring javaValue = env->NewStringUTF(value.c_str());
+                    if (javaKey == nullptr || javaValue == nullptr || env->ExceptionCheck()) {
+                        return false;
+                    }
+                    env->CallVoidMethod(values, putString, javaKey, javaValue);
+                    return !env->ExceptionCheck();
+                };
+                auto putNumber = [&](const char* key, std::uint64_t value) -> bool {
+                    jstring javaKey = env->NewStringUTF(key);
+                    jobject javaValue = env->CallStaticObjectMethod(
+                        longClass,
+                        longValueOf,
+                        static_cast<jlong>(value)
+                    );
+                    if (javaKey == nullptr || javaValue == nullptr || env->ExceptionCheck()) {
+                        return false;
+                    }
+                    env->CallVoidMethod(values, putLong, javaKey, javaValue);
+                    return !env->ExceptionCheck();
+                };
+
+                bool itemOk = values != nullptr &&
+                    putText("event", event.eventName) &&
+                    putText("instance_id", std::to_string(instance->telemetryId)) &&
+                    putNumber("frame_count", event.frameCount);
+                if (itemOk && event.sessionId != 0) {
+                    itemOk = putText("session_id", std::to_string(event.sessionId));
+                }
+                jobject inserted = nullptr;
+                if (itemOk) {
+                    inserted = env->CallObjectMethod(resolver, insert, uri, values);
+                    itemOk = inserted != nullptr && !env->ExceptionCheck();
+                }
+                if (env->ExceptionCheck()) env->ExceptionClear();
+                env->PopLocalFrame(nullptr);
+                if (!itemOk) {
+                    success = false;
+                    break;
+                }
+            }
+        } while (false);
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+            success = false;
+        }
+        env->PopLocalFrame(nullptr);
+    }
+    if (attachedHere) instance->applicationVm->DetachCurrentThread();
+
+    if (!success &&
+        !instance->runtimeTelemetryUnavailableLogged.exchange(true, std::memory_order_acq_rel)) {
+        __android_log_print(
+            ANDROID_LOG_WARN,
+            "EndXR",
+            "Runtime telemetry unavailable; verify the package-scoped runtime_event URI grant."
+        );
+    } else if (success) {
+        instance->runtimeTelemetryUnavailableLogged.store(false, std::memory_order_release);
+    }
+    return success;
+}
 
 bool startExternalControllerInputPolling(XrInstance_T* instance) {
     if (instance == nullptr || !instance->androidExtensionEnabled ||
@@ -2385,15 +2622,26 @@ bool startExternalControllerInputPolling(XrInstance_T* instance) {
     instance->stopExternalInputPollingRequested.store(false, std::memory_order_release);
     try {
         instance->externalInputPollThread = std::thread([instance]() {
-            while (!instance->stopExternalInputPollingRequested.load(std::memory_order_acquire)) {
-                try {
-                    refreshExternalControllerInputImpl(instance);
-                } catch (...) {
-                    // A failed snapshot must not terminate the game process.
-                    endxrClearControllerInput();
-                    endxrClearHeadOrientation();
-                    endxrClearHandPoses();
+            for (;;) {
+                const bool stopping = instance->stopExternalInputPollingRequested.load(
+                    std::memory_order_acquire
+                );
+                if (!stopping) {
+                    try {
+                        refreshExternalControllerInputImpl(instance);
+                    } catch (...) {
+                        // A failed snapshot must not terminate the game process.
+                        endxrClearControllerInput();
+                        endxrClearHeadOrientation();
+                        endxrClearHandPoses();
+                    }
                 }
+                try {
+                    flushRuntimeTelemetryImpl(instance);
+                } catch (...) {
+                    // Telemetry is diagnostic-only and must never kill the app.
+                }
+                if (stopping) break;
 
                 std::unique_lock<std::mutex> waitLock(instance->externalInputWakeMutex);
                 instance->externalInputWake.wait_for(
@@ -2419,6 +2667,8 @@ void stopExternalControllerInputPolling(XrInstance_T* instance) {
     instance->externalInputWake.notify_all();
     if (instance->externalInputPollThread.joinable()) {
         instance->externalInputPollThread.join();
+    } else {
+        flushRuntimeTelemetryImpl(instance);
     }
 }
 #endif
