@@ -48,49 +48,45 @@ class EndXrRuntimeEventContentProvider : ContentProvider() {
         }
 
         val prefs = context.getSharedPreferences(PREFERENCES_NAME, 0)
-        val cursor = MatrixCursor(COLUMNS)
-        val sequence = prefs.getLong(KEY_SEQUENCE, 0L)
-        if (sequence > 0L) {
-            val row = arrayOf<Any?>(
-                sequence,
-                prefs.getString(KEY_EVENT, null),
-                prefs.getLong(KEY_EVENT_TIME_NS, 0L),
-                prefs.getString(KEY_CALLER_PACKAGE, null),
-                prefs.getInt(KEY_RUNTIME_PID, -1),
-                prefs.getString(KEY_INSTANCE_ID, null),
-                prefs.getString(KEY_SESSION_ID, null),
-                prefs.getInt(KEY_INSTANCE_CREATED, 0),
-                prefs.getInt(KEY_SESSION_CREATED, 0),
-                prefs.getInt(KEY_SESSION_RUNNING, 0),
-                prefs.getInt(KEY_INSTANCE_SEEN, 0),
-                prefs.getInt(KEY_SESSION_SEEN, 0),
-                prefs.getInt(KEY_SESSION_EVER_RUNNING, 0),
-                prefs.getLong(KEY_FRAME_COUNT, 0L)
-            )
-            if (projection.isNullOrEmpty()) {
-                cursor.addRow(row)
-                return cursor
+        // Keep the complete row coherent with one reducer transition. An XR game
+        // may submit an event from another process while NextVRera is reading.
+        val row = synchronized(LOCK) {
+            val sequence = prefs.getLong(KEY_SEQUENCE, 0L)
+            if (sequence <= 0L) {
+                null
+            } else {
+                arrayOf<Any?>(
+                    sequence,
+                    prefs.getString(KEY_EVENT, null),
+                    prefs.getLong(KEY_EVENT_TIME_NS, 0L),
+                    prefs.getString(KEY_CALLER_PACKAGE, null),
+                    prefs.getInt(KEY_RUNTIME_PID, -1),
+                    prefs.getString(KEY_INSTANCE_ID, null),
+                    prefs.getString(KEY_SESSION_ID, null),
+                    prefs.getInt(KEY_INSTANCE_CREATED, 0),
+                    prefs.getInt(KEY_SESSION_CREATED, 0),
+                    prefs.getInt(KEY_SESSION_RUNNING, 0),
+                    prefs.getInt(KEY_INSTANCE_SEEN, 0),
+                    prefs.getInt(KEY_SESSION_SEEN, 0),
+                    prefs.getInt(KEY_SESSION_EVER_RUNNING, 0),
+                    prefs.getLong(KEY_FRAME_COUNT, 0L)
+                )
             }
-            val requested = projection.toList()
-            val unknown = requested.toSet() - COLUMNS.toSet()
-            if (unknown.isNotEmpty()) {
-                cursor.close()
-                throw IllegalArgumentException("Unknown runtime telemetry columns: ${unknown.joinToString()}")
-            }
-            val projected = MatrixCursor(requested.toTypedArray())
-            val values = COLUMNS.indices.associate { COLUMNS[it] to row[it] }
-            projected.addRow(requested.map { values[it] }.toTypedArray())
-            cursor.close()
-            return projected
         }
-        if (projection.isNullOrEmpty()) return cursor
-        val requested = projection.toList()
+
+        val requested = if (projection.isNullOrEmpty()) COLUMNS.toList() else projection.toList()
         val unknown = requested.toSet() - COLUMNS.toSet()
         if (unknown.isNotEmpty()) {
-            cursor.close()
-            throw IllegalArgumentException("Unknown runtime telemetry columns: ${unknown.joinToString()}")
+            throw IllegalArgumentException(
+                "Unknown runtime telemetry columns: ${unknown.joinToString()}"
+            )
         }
-        return MatrixCursor(requested.toTypedArray())
+        val cursor = MatrixCursor(requested.toTypedArray())
+        if (row != null) {
+            val values = COLUMNS.indices.associate { COLUMNS[it] to row[it] }
+            cursor.addRow(requested.map { values[it] }.toTypedArray())
+        }
+        return cursor
     }
 
     override fun insert(uri: Uri, values: ContentValues?): Uri? {
