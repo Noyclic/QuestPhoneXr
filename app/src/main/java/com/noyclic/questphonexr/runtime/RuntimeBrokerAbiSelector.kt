@@ -12,12 +12,13 @@ internal object RuntimeBrokerAbiSelector {
         installedNativeLibraryDir: String?
     ): String? {
         if (deviceSupportedAbis.isEmpty()) return null
-        val path = installedNativeLibraryDir.orEmpty().lowercase()
-        val installedAbi = when {
-            path.contains("arm64") -> "arm64-v8a"
-            path.contains("/arm") -> "armeabi-v7a"
-            path.contains("x86_64") -> "x86_64"
-            path.contains("/x86") -> "x86"
+        val libraryDirectory = installedNativeLibraryDir.orEmpty().lowercase()
+        val directoryName = libraryDirectory.substringAfterLast('/')
+        val installedAbi = when (directoryName) {
+            "arm64", "arm64-v8a" -> "arm64-v8a"
+            "arm", "armeabi-v7a" -> "armeabi-v7a"
+            "x86_64" -> "x86_64"
+            "x86" -> "x86"
             else -> null
         }
         return installedAbi?.takeIf { it in deviceSupportedAbis }
