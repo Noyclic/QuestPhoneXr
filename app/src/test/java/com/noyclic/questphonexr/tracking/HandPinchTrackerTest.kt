@@ -100,43 +100,59 @@ class HandPinchTrackerTest {
             it[8] = HandPoint(if (pinch) 0.51f else 0.80f, 0.50f, 0f)
         }
 
-    @Test
-    fun depthSeparatedFingertipsDoNotTriggerPinchFromTwoDimensionalOverlap() {
-        val estimator = PinchEstimator()
-        val overlappingInImageButSeparatedInDepth = points(pinch = true).toMutableList().also {
-            it[4] = it[4].copy(z = -0.15f)
-            it[8] = it[8].copy(z = 0.15f)
+    private fun worldPoints(depthSeparated: Boolean): List<HandPoint> =
+        MutableList(21) { HandPoint(0f, 0f, 0f) }.also {
+            it[5] = HandPoint(0.04f, 0f, 0f)
+            it[17] = HandPoint(-0.04f, 0f, 0f)
+            it[4] = HandPoint(0f, 0f, if (depthSeparated) -0.15f else -0.005f)
+            it[8] = HandPoint(0f, 0f, if (depthSeparated) 0.15f else 0.005f)
         }
 
-        val signal = estimator.update(overlappingInImageButSeparatedInDepth, 4_000L)
+    @Test
+    fun validWorldLandmarksPreventFalsePinchWhenTipsAreSeparatedInDepth() {
+        val estimator = PinchEstimator(smoothing = 1f)
+        val overlappingInImage = points(pinch = true)
 
+        val signal = estimator.update(
+            overlappingInImage,
+            timestampMs = 4_000L,
+            worldPoints = worldPoints(depthSeparated = true)
+        )
+
+        assertTrue("A valid 3D measurement should be selected", signal.usedWorldLandmarks)
         assertFalse("Depth-separated fingertips must not look like a pinch", signal.isPinching)
         assertEquals(0f, signal.strength, 0.001f)
     }
 
     @Test
-    fun nonFiniteDepthLandmarkResetsPinchState() {
+    fun imageLandmarkZDoesNotOverridePinchWhenWorldLandmarksAreUnavailable() {
         val estimator = PinchEstimator(smoothing = 1f)
-        val closed = points(pinch = true)
-        assertTrue(estimator.update(closed, 5_000L).isPinching)
-
-        val invalid = closed.toMutableList().also {
-            it[4] = it[4].copy(z = Float.NaN)
-        }
-        val signal = estimator.update(invalid, 5_033L)
-
-        assertFalse(signal.isPinching)
-        assertEquals(0f, signal.strength, 0.0001f)
-    }
-
-    @Test
-    fun depthWeightCanBeDisabledForImageOnlyCompatibility() {
-        val estimator = PinchEstimator(smoothing = 1f, depthWeight = 0f)
-        val sameImageCoordinates = points(pinch = true).toMutableList().also {
+        val imagePoints = points(pinch = true).toMutableList().also {
             it[4] = it[4].copy(z = -0.15f)
             it[8] = it[8].copy(z = 0.15f)
         }
 
-        assertTrue(estimator.update(sameImageCoordinates, 6_000L).isPinching)
+        val signal = estimator.update(imagePoints, timestampMs = 5_000L)
+
+        assertFalse(signal.usedWorldLandmarks)
+        assertTrue("Image-space z is approximate and must not override the 2D gesture", signal.isPinching)
+    }
+
+    @Test
+    fun invalidWorldGeometryFallsBackToImageLandmarks() {
+        val estimator = PinchEstimator(smoothing = 1f)
+        val imagePoints = points(pinch = true)
+        val invalidWorldPoints = worldPoints(depthSeparated = false).toMutableList().also {
+            it[4] = it[4].copy(z = Float.NaN)
+        }
+
+        val signal = estimator.update(
+            imagePoints,
+            timestampMs = 6_000L,
+            worldPoints = invalidWorldPoints
+        )
+
+        assertFalse(signal.usedWorldLandmarks)
+        assertTrue("Invalid 3D samples should fall back to valid image landmarks", signal.isPinching)
     }
 }
