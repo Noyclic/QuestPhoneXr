@@ -126,6 +126,14 @@ hand poses are estimates, not tracked controller poses; haptics, 6DoF tracking
 and Meta/Oculus-specific services remain incomplete. A real game may also
 require Vulkan, additional extensions or vendor APIs.
 
+## NextVRera game-launch preflight
+
+NextVRera's installed-APK library has a **Запустить через NextVRera + EndXR** path for APKs classified as OpenXR candidates. Before launch it checks the Broker using the installed game's ABI (not merely the ABI of the NextVRera process), follows installable-first/system-fallback precedence, and requires EndXR to be the likely candidate. If it is not, it opens the Khronos installable Broker and rechecks after the user returns.
+
+The managed path then asks for explicit, package-scoped read-only input approval, starts the saved camera foreground-service configuration when camera permission is available, and waits for a fresh MediaPipe frame before requesting Android to launch the game. The ordinary **Открыть установленное приложение** action does not silently grant input access or claim EndXR interception.
+
+This only prepares a launch and reduces known mismatches. NextVRera cannot force Android's Loader to use EndXR from an Activity launch flag. A successful Broker candidate/file check does not prove the runtime library can be loaded, and an accepted Android startActivity request does not prove a game called xrCreateInstance or created a session. Proprietary Meta/Oculus APIs, Vulkan-only builds, and additional extensions remain compatibility blockers unless implemented by EndXR.
+
 ## CI and physical-device test
 
 The GitHub Actions workflow installs QuestPhoneXR and the separately signed
