@@ -68,4 +68,16 @@ class RuntimeBrokerAbiSelectorTest {
             )
         )
     }
+    @Test
+    fun packageNameContainingArmDoesNotOverrideX86LibraryDirectory() {
+        assertEquals(
+            "x86",
+            RuntimeBrokerAbiSelector.select(
+                deviceSupportedAbis = listOf("x86_64", "x86"),
+                apkNativeAbis = listOf("x86"),
+                installedNativeLibraryDir = "/data/app/com.arm.example/lib/x86"
+            )
+        )
+    }
+
 }
