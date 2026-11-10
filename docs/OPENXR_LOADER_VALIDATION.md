@@ -136,8 +136,10 @@ This only prepares a launch and reduces known mismatches. NextVRera cannot force
 
 After returning from the game, NextVRera reads the protected runtime event endpoint.
 The native EndXR runtime sends `xrCreateInstance`, `xrCreateSession`,
-`xrBeginSession`, successful projection-layer composition milestones, and
-teardown events through a background IPC worker. The UI reports instance,
+`xrBeginSession`, `xrEndSession`, successful projection-layer composition
+milestones, and teardown events through a background IPC worker. The UI clears
+the current-session state on `xrEndSession` even when the OpenXR instance
+remains alive. It reports instance,
 session, and composited-frame evidence separately. Empty `xrEndFrame` calls
 are not counted as visible game frames; projection-frame counts advance only
 when EndXR successfully composites a projection layer. IPC failures are retried
