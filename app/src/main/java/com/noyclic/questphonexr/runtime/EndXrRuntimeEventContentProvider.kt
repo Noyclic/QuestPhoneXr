@@ -29,7 +29,10 @@ class EndXrRuntimeEventContentProvider : ContentProvider() {
     ): Cursor? {
         requireRuntimeEventUri(uri)
         val context = requireNotNull(context)
-        if (Binder.getCallingUid() != Process.myUid()) {
+        val callingPackage = getCallingPackage()
+        if (Binder.getCallingUid() != Process.myUid() ||
+            (callingPackage != null && callingPackage != context.packageName)
+        ) {
             throw SecurityException("Runtime telemetry can only be read by NextVRera.")
         }
         if (!selection.isNullOrBlank() || !selectionArgs.isNullOrEmpty() ||
