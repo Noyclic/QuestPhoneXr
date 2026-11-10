@@ -122,6 +122,16 @@ class EndXrRuntimeEventContentProvider : ContentProvider() {
         if (callerPackage == context.packageName) {
             throw SecurityException("NextVRera cannot submit game runtime telemetry.")
         }
+        val accessManager = EndXrInputAccessManager(context)
+        val authorizedClient = accessManager.installedLaunchableClients()
+            .firstOrNull { it.packageName == callerPackage }
+        if (authorizedClient == null ||
+            !accessManager.isRuntimeTelemetryAuthorized(authorizedClient)
+        ) {
+            throw SecurityException(
+                "The calling package and signing certificate have no EndXR runtime telemetry consent."
+            )
+        }
 
         val prefs = context.getSharedPreferences(PREFERENCES_NAME, 0)
         synchronized(LOCK) {
