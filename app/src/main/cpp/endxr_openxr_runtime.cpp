@@ -2752,9 +2752,15 @@ void stopExternalControllerInputPolling(XrInstance_T* instance) {
     instance->externalInputWake.notify_all();
     if (instance->externalInputPollThread.joinable()) {
         instance->externalInputPollThread.join();
-    } else {
-        flushRuntimeTelemetryImpl(instance);
     }
+    // The worker may have encountered a transient provider failure on its
+    // final pass. Retry once synchronously before the Activity global ref and
+    // runtime instance are released.
+    {
+        std::lock_guard<std::mutex> lock(instance->runtimeTelemetryMutex);
+        instance->runtimeTelemetryRetryAt = {};
+    }
+    flushRuntimeTelemetryImpl(instance);
 }
 #endif
 bool locateEstimatedHandPose(XrSpace_T* object, XrSpace_T* base, XrPosef* pose) {
