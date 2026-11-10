@@ -162,6 +162,7 @@ class EndXrRuntimeEventContentProvider : ContentProvider() {
                     .putInt(KEY_SESSION_SEEN, state.sessionSeen.asInt())
                     .putInt(KEY_SESSION_EVER_RUNNING, state.sessionEverRunning.asInt())
                     .putLong(KEY_FRAME_COUNT, state.frameCount)
+                    .putLong(KEY_SESSION_FRAME_COUNT, state.sessionFrameCount)
                 check(editor.commit()) { "Could not persist EndXR runtime telemetry." }
                 context.contentResolver.notifyChange(uri, null)
             }
@@ -194,7 +195,8 @@ class EndXrRuntimeEventContentProvider : ContentProvider() {
             instanceSeen = prefs.getInt(KEY_INSTANCE_SEEN, 0) != 0,
             sessionSeen = prefs.getInt(KEY_SESSION_SEEN, 0) != 0,
             sessionEverRunning = prefs.getInt(KEY_SESSION_EVER_RUNNING, 0) != 0,
-            frameCount = prefs.getLong(KEY_FRAME_COUNT, 0L)
+            frameCount = prefs.getLong(KEY_FRAME_COUNT, 0L),
+            sessionFrameCount = prefs.getLong(KEY_SESSION_FRAME_COUNT, 0L)
         )
 
     private fun Boolean.asInt(): Int = if (this) 1 else 0
@@ -264,6 +266,7 @@ class EndXrRuntimeEventContentProvider : ContentProvider() {
         private const val KEY_SESSION_SEEN = "session_seen"
         private const val KEY_SESSION_EVER_RUNNING = "session_ever_running"
         private const val KEY_FRAME_COUNT = "frame_count"
+        private const val KEY_SESSION_FRAME_COUNT = "session_frame_count"
         private val LOCK = Any()
     }
 }
