@@ -95,6 +95,34 @@ class EndXrRuntimeEventStateTest {
     }
 
     @Test
+    fun recreatingSessionKeepsTotalCompositedFramesForTheWholeRuntimeInstance() {
+        var state = EndXrRuntimeEventState()
+            .reduce(createInstance, "game", null, 0L)!!.state
+            .reduce(createSession, "game", "session-1", 0L)!!.state
+            .reduce(beginSession, "game", "session-1", 0L)!!.state
+            .reduce(endFrame, "game", "session-1", 30L)!!.state
+            .reduce(endSession, "game", "session-1", 0L)!!.state
+            .reduce(destroySession, "game", "session-1", 0L)!!.state
+
+        assertEquals(30L, state.frameCount)
+        assertEquals(30L, state.sessionFrameCount)
+
+        state = state
+            .reduce(createSession, "game", "session-2", 0L)!!.state
+            .reduce(beginSession, "game", "session-2", 0L)!!.state
+
+        assertEquals(30L, state.frameCount)
+        assertEquals(0L, state.sessionFrameCount)
+
+        state = state
+            .reduce(endFrame, "game", "session-2", 1L)!!.state
+            .reduce(endFrame, "game", "session-2", 30L)!!.state
+
+        assertEquals(60L, state.frameCount)
+        assertEquals(30L, state.sessionFrameCount)
+    }
+
+    @Test
     fun duplicateCreateAndBeginEventsAreIdempotent() {
         val instance = EndXrRuntimeEventState()
             .reduce(createInstance, "game", null, 0L)!!.state
@@ -126,6 +154,7 @@ class EndXrRuntimeEventStateTest {
         assertFalse(fresh.sessionSeen)
         assertFalse(fresh.sessionEverRunning)
         assertEquals(0L, fresh.frameCount)
+        assertEquals(0L, fresh.sessionFrameCount)
     }
 
     @Test
