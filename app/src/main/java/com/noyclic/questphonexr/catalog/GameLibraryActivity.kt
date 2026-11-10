@@ -35,6 +35,7 @@ import com.noyclic.questphonexr.performance.DeviceCompatibilityReport
 import com.noyclic.questphonexr.performance.NativeVulkanProbe
 import com.noyclic.questphonexr.runtime.EndXrRuntimeReadiness
 import com.noyclic.questphonexr.runtime.AndroidRuntimeBrokerProbe
+import com.noyclic.questphonexr.runtime.AndroidRuntimeBrokerContract
 import com.noyclic.questphonexr.runtime.RuntimeCapabilityState
 import com.noyclic.questphonexr.runtime.EndXrInputAccessManager
 import java.text.SimpleDateFormat
@@ -287,20 +288,25 @@ class GameLibraryActivity : ComponentActivity() {
     }
 
     private fun openRuntimeBroker() {
-        val brokerPackage = "org.khronos.openxr.runtime_broker"
-        val installedBrokerIntent = packageManager.getLaunchIntentForPackage(brokerPackage)
-        val targetIntent = installedBrokerIntent ?: Intent(
-            Intent.ACTION_VIEW,
-            Uri.parse("https://play.google.com/store/apps/details?id=$brokerPackage")
+        val brokerIntent = Intent().setClassName(
+            AndroidRuntimeBrokerContract.INSTALLABLE_BROKER_PACKAGE,
+            AndroidRuntimeBrokerContract.INSTALLABLE_BROKER_MAIN_ACTIVITY
         )
         runCatching {
-            startActivity(targetIntent)
-        }.onFailure { error ->
-            Toast.makeText(
-                this,
-                "Не удалось открыть OpenXR Runtime Broker: ${error.message ?: "приложение недоступно"}",
-                Toast.LENGTH_LONG
-            ).show()
+            startActivity(brokerIntent)
+        }.onFailure {
+            val storeIntent = Intent(
+                Intent.ACTION_VIEW,
+                Uri.parse(AndroidRuntimeBrokerContract.INSTALLABLE_BROKER_PLAY_STORE_URL)
+            )
+            runCatching { startActivity(storeIntent) }
+                .onFailure { error ->
+                    Toast.makeText(
+                        this,
+                        "Не удалось открыть OpenXR Runtime Broker: ${error.message ?: "приложение недоступно"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
         }
     }
 
