@@ -111,20 +111,36 @@ class EndXrInputAccessManager(context: Context) {
             )
 
         synchronized(GRANT_STATE_LOCK) {
-            appContext.grantUriPermission(
-                client.packageName,
-                INPUT_URI,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
-            appContext.grantUriPermission(
-                client.packageName,
-                RUNTIME_EVENT_URI,
-                Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            )
-            writeRecords(
-                readRecords().filterNot { it.packageName == client.packageName } +
-                    EndXrInputGrantRecord(client.packageName, client.signingCertificateSha256)
-            )
+            try {
+                appContext.grantUriPermission(
+                    client.packageName,
+                    INPUT_URI,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+                appContext.grantUriPermission(
+                    client.packageName,
+                    RUNTIME_EVENT_URI,
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+                writeRecords(
+                    readRecords().filterNot { it.packageName == client.packageName } +
+                        EndXrInputGrantRecord(client.packageName, client.signingCertificateSha256)
+                )
+            } catch (error: Throwable) {
+                runCatching {
+                    appContext.revokeUriPermission(
+                        client.packageName,
+                        INPUT_URI,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                    appContext.revokeUriPermission(
+                        client.packageName,
+                        RUNTIME_EVENT_URI,
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    )
+                }
+                throw error
+            }
         }
         return client
     }
