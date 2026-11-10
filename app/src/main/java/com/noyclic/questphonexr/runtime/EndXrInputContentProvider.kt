@@ -143,8 +143,7 @@ class EndXrInputContentProvider : ContentProvider() {
             )
         }
         val manager = EndXrInputAccessManager(appContext)
-        val client = manager.installedLaunchableClient(callerPackage)
-        if (client == null || !manager.isAuthorized(client)) {
+        if (!manager.isPackageAuthorized(callerPackage, requireRuntimeTelemetry = false)) {
             throw SecurityException(
                 "The calling package and signing certificate have no EndXR input consent."
             )
