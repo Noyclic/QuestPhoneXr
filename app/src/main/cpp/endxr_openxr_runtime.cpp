@@ -1280,15 +1280,20 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrEndFrame(
     object->frameWaited = false;
     object->frameBegun = false;
 #if defined(__ANDROID__)
-    ++object->telemetryFrameCount;
-    if (object->telemetryFrameCount == 1 || object->telemetryFrameCount % 30 == 0) {
-        if (XrInstance_T* owner = getInstance(object->owner)) {
-            enqueueRuntimeTelemetry(
-                owner,
-                "xr_end_frame",
-                object->telemetryId,
-                object->telemetryFrameCount
-            );
+    // Only count a frame when the runtime successfully composited a submitted
+    // projection layer. Empty xrEndFrame calls are valid OpenXR calls, but they
+    // are not evidence that the game sent an image to the phone display.
+    if (endInfo->layerCount == 1) {
+        ++object->telemetryFrameCount;
+        if (object->telemetryFrameCount == 1 || object->telemetryFrameCount % 30 == 0) {
+            if (XrInstance_T* owner = getInstance(object->owner)) {
+                enqueueRuntimeTelemetry(
+                    owner,
+                    "xr_end_frame",
+                    object->telemetryId,
+                    object->telemetryFrameCount
+                );
+            }
         }
     }
 #endif
