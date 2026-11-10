@@ -34,8 +34,10 @@ class SandboxWorldHandPoseSmootherTest {
         slow.update(origin, 1f / 30f, HandSide.RIGHT, 7L)
         fast.update(origin, 1f / 30f, HandSide.RIGHT, 7L)
 
-        val slowTarget = handPose(0.08f)
-        val fastTarget = handPose(0.8f)
+        val slowTarget = handPose(0.04f)
+        // Keep the fast test trajectory below the independent 8 m/s outlier
+        // limiter so this assertion measures adaptive spring response itself.
+        val fastTarget = handPose(0.18f)
         val slowOutput = slow.update(slowTarget, 1f / 30f, HandSide.RIGHT, 7L)
         val fastOutput = fast.update(fastTarget, 1f / 30f, HandSide.RIGHT, 7L)
 
