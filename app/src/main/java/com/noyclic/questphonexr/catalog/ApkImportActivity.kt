@@ -31,6 +31,7 @@ import com.noyclic.questphonexr.runtime.AndroidRuntimeBrokerContract
 import com.noyclic.questphonexr.runtime.AndroidRuntimeBrokerProbe
 import com.noyclic.questphonexr.runtime.EndXrHandTrackingService
 import com.noyclic.questphonexr.runtime.EndXrInputAccessManager
+import com.noyclic.questphonexr.runtime.EndXrRuntimeEventContentProvider
 import com.noyclic.questphonexr.runtime.RuntimeBrokerAbiSelector
 import com.noyclic.questphonexr.ui.applyNextVreraStyle
 import com.noyclic.questphonexr.ui.nextVreraToneFor
@@ -127,10 +128,16 @@ class ApkImportActivity : ComponentActivity() {
                 telemetry,
                 telemetryMatchesLaunch
             )
+            val captureLevel = when {
+                !telemetryMatchesLaunch || telemetry == null || !telemetry.instanceSeen -> 0
+                telemetry.sessionSeen && telemetry.frameCount > 0L -> 3
+                telemetry.sessionSeen -> 2
+                else -> 1
+            }
             showLaunchDiagnostic(
                 pendingLaunchTitle,
                 report + telemetryReport,
-                runtimeCaptureConfirmed = telemetryMatchesLaunch && telemetry?.instanceSeen == true
+                runtimeCaptureLevel = captureLevel
             )
             pendingRuntimeTelemetryPackage = null
             pendingRuntimeTelemetryBaselineSequence = 0L
@@ -1114,6 +1121,8 @@ class ApkImportActivity : ComponentActivity() {
                 0xFFFFD28A.toInt()
             )
             pendingLaunchReport = null
+            pendingRuntimeTelemetryPackage = null
+            pendingRuntimeTelemetryBaselineSequence = 0L
             val report = buildLaunchReport(
                 info,
                 assessment,
@@ -1258,25 +1267,37 @@ class ApkImportActivity : ComponentActivity() {
     private fun showLaunchDiagnostic(
         title: String,
         report: String,
-        runtimeCaptureConfirmed: Boolean = false
+        runtimeCaptureLevel: Int = 0
     ) {
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(8), dp(16), dp(8))
         }
+        val captureHeader = when (runtimeCaptureLevel) {
+            3 -> "ENDXR RUNTIME: КАДРЫ ИГРЫ ПОДТВЕРЖДЕНЫ"
+            2 -> "ENDXR RUNTIME: XR-СЕССИЯ СОЗДАНА"
+            1 -> "ENDXR RUNTIME: xrCreateInstance ПОДТВЕРЖДЁН"
+            else -> "OPENXR-ПЕРЕХВАТ: НЕ ПОДТВЕРЖДЁН"
+        }
+        val captureColor = when (runtimeCaptureLevel) {
+            0 -> 0xFFFFD28A.toInt()
+            1 -> 0xFFFFD28A.toInt()
+            else -> 0xFF8FE0B5.toInt()
+        }
+        val captureExplanation = when (runtimeCaptureLevel) {
+            3 -> "EndXR получил событие из процесса игры, увидел создание XR-сессии и успешные вызовы xrEndFrame. Количество подтверждённых кадров указано ниже."
+            2 -> "EndXR получил xrCreateInstance и xrCreateSession из процесса игры, но пока не наблюдал успешную отправку кадров через xrEndFrame."
+            1 -> "Процесс игры действительно вызвал xrCreateInstance в EndXR, однако создание XR-сессии пока не подтверждено."
+            else -> "NextVRera не получила новое событие xrCreateInstance от процесса выбранной игры. Это не доказывает несовместимость: игра могла не дойти до OpenXR или не иметь разрешения на telemetry URI."
+        }
         content.addView(text(
-            if (runtimeCaptureConfirmed) "ENDXR RUNTIME: ПОДКЛЮЧЕНИЕ ПОДТВЕРЖДЕНО"
-            else "OPENXR-ПЕРЕХВАТ: НЕ ПОДТВЕРЖДЁН",
+            captureHeader,
             13f,
-            if (runtimeCaptureConfirmed) 0xFF8FE0B5.toInt() else 0xFFFFD28A.toInt(),
+            captureColor,
             Typeface.BOLD
         ).apply { setPadding(0, 0, 0, dp(8)) })
         content.addView(text(
-            if (runtimeCaptureConfirmed) {
-                "NextVRera получила новое событие от процесса выбранной игры. Ниже указано, дошла ли она до XR-сессии и успешной отправки кадров."
-            } else {
-                "Это не означает, что игра точно не подключилась. Сейчас NextVRera не получила новое подтверждённое событие xrCreateInstance от процесса выбранной игры."
-            },
+            captureExplanation,
             12f, 0xFFD0D7E2.toInt()
         ).apply { setPadding(0, 0, 0, dp(10)) })
         content.addView(text(report, 10f, 0xFFB8C2D0.toInt()))
