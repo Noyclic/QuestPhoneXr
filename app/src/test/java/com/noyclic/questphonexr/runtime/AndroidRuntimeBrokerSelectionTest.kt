@@ -100,4 +100,24 @@ class AndroidRuntimeBrokerSelectionTest {
         assertNull(missingMappings.candidate)
         assertEquals("com.example.remapped", validMappings.candidate?.packageName)
     }
+    @Test
+    fun unknownFunctionMappingMetadataIsNotClaimedAsLoadable() {
+        val selection = selectLoaderBrokerRuntime(
+            installable = snapshot(
+                BrokerRuntimeCandidate(
+                    packageName = "com.example.unknown",
+                    libraryPath = "/data/app/com.example.unknown/lib/libendxr_openxr.so",
+                    soFilename = "libendxr_openxr.so",
+                    libraryExists = true,
+                    hasFunctions = null,
+                    functionMappingsAvailable = false
+                )
+            ),
+            system = snapshot(candidate("com.noyclic.questphonexr"))
+        )
+
+        assertEquals("org.khronos.openxr.runtime_broker", selection.authority)
+        assertNull(selection.candidate)
+    }
+
 }
