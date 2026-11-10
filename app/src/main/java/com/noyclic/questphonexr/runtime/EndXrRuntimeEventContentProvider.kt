@@ -123,8 +123,7 @@ class EndXrRuntimeEventContentProvider : ContentProvider() {
             throw SecurityException("NextVRera cannot submit game runtime telemetry.")
         }
         val accessManager = EndXrInputAccessManager(context)
-        val authorizedClient = accessManager.installedLaunchableClients()
-            .firstOrNull { it.packageName == callerPackage }
+        val authorizedClient = accessManager.installedLaunchableClient(callerPackage)
         if (authorizedClient == null ||
             !accessManager.isRuntimeTelemetryAuthorized(authorizedClient)
         ) {
