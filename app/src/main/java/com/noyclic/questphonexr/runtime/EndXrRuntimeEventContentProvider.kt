@@ -126,10 +126,7 @@ class EndXrRuntimeEventContentProvider : ContentProvider() {
             throw SecurityException("NextVRera cannot submit game runtime telemetry.")
         }
         val accessManager = EndXrInputAccessManager(context)
-        val authorizedClient = accessManager.installedLaunchableClient(callerPackage)
-        if (authorizedClient == null ||
-            !accessManager.isRuntimeTelemetryAuthorized(authorizedClient)
-        ) {
+        if (!accessManager.isPackageAuthorized(callerPackage, requireRuntimeTelemetry = true)) {
             throw SecurityException(
                 "The calling package and signing certificate have no EndXR runtime telemetry consent."
             )
