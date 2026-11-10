@@ -127,7 +127,7 @@ object AndroidRuntimeBrokerProbe {
     private const val SYSTEM_AUTHORITY = "org.khronos.openxr.system_runtime_broker"
     private const val OPENXR_MAJOR_VERSION = 1
 
-    fun inspect(context: Context): RuntimeBrokerProbeReport {
+    fun inspect(context: Context, processAbiOverride: String? = null): RuntimeBrokerProbeReport {
         val packageManager = context.packageManager
         val query = runCatching {
             packageManager.queryIntentServices(
@@ -148,7 +148,9 @@ object AndroidRuntimeBrokerProbe {
             null
         }
         val libraryExists = nativeLibraryPath?.let { File(it).isFile } == true
-        val abi = runtimeProcessAbi()
+        val abi = processAbiOverride
+            ?.takeIf { it in Build.SUPPORTED_ABIS }
+            ?: runtimeProcessAbi()
 
         val installable = queryBroker(
             context = context,
