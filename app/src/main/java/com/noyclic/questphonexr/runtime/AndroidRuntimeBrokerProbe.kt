@@ -100,7 +100,7 @@ data class RuntimeBrokerProbeReport(
         appendLine("Installable RuntimeBroker: $installableBrokerStatus")
         appendLine("System RuntimeBroker: $systemBrokerStatus")
         appendLine("Loader ABI checked: ${loaderAbi ?: "unknown"}")
-        appendLine("Loader-selected Broker: ${loaderSelectedBroker ?: "none"}")
+        appendLine("Loader Broker query target: ${loaderSelectedBroker ?: "none"}")
         appendLine("Loader's first existing runtime candidate: ${loaderSelectedRuntimePackage ?: "none"}")
         loaderSelectedRuntimeLibrary?.let { appendLine("Loader candidate library: $it") }
         appendLine("Loader candidate library exists: ${if (loaderSelectedRuntimeLibraryExists) "YES" else "NO"}")
