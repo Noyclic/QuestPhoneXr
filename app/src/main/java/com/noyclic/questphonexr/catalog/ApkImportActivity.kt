@@ -520,7 +520,7 @@ class ApkImportActivity : ComponentActivity() {
         awaitingBrokerReturnForEndXrId = info.id
         val details = buildString {
             appendLine("ABI проверки: ${broker.loaderAbi ?: "неизвестно"}")
-            appendLine("Broker, который предпочитает Loader: ${broker.loaderSelectedBroker ?: "не найден"}")
+            appendLine("Broker, который Loader будет опрашивать: ${broker.loaderSelectedBroker ?: "не найден"}")
             appendLine("Кандидат runtime: ${broker.loaderSelectedRuntimePackage ?: "не выбран"}")
             appendLine("Библиотека кандидата существует: ${broker.loaderSelectedRuntimeLibraryExists}")
             appendLine("EndXR выбран как кандидат: ${if (broker.endXrIsLikelySelected) "ДА" else "НЕТ"}")
@@ -829,7 +829,7 @@ class ApkImportActivity : ComponentActivity() {
             appendLine()
             appendLine("[NEXTVRERA ENDXR MANAGED LAUNCH]")
             appendLine("loader_predicted_endxr_selected=${broker.endXrIsLikelySelected}")
-            appendLine("loader_selected_broker=${broker.loaderSelectedBroker}")
+            appendLine("loader_broker_query_target=${broker.loaderSelectedBroker}")
             appendLine("loader_selected_package=${broker.loaderSelectedRuntimePackage}")
             appendLine("loader_abi=${broker.loaderAbi}")
             appendLine("input_uri_granted=${pending.inputIpcGranted}")
