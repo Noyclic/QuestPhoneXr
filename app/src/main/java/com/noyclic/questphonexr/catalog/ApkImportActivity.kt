@@ -31,6 +31,7 @@ import com.noyclic.questphonexr.runtime.AndroidRuntimeBrokerContract
 import com.noyclic.questphonexr.runtime.AndroidRuntimeBrokerProbe
 import com.noyclic.questphonexr.runtime.EndXrHandTrackingService
 import com.noyclic.questphonexr.runtime.EndXrInputAccessManager
+import com.noyclic.questphonexr.runtime.RuntimeBrokerAbiSelector
 import com.noyclic.questphonexr.ui.applyNextVreraStyle
 import com.noyclic.questphonexr.ui.nextVreraToneFor
 import java.io.File
@@ -661,20 +662,14 @@ class ApkImportActivity : ComponentActivity() {
      * then fall back to the APK ABI list ordered by this device's preference.
      */
     private fun runtimeAbiFor(info: ImportedApkInfo): String? {
-        val supported = android.os.Build.SUPPORTED_ABIS.toList()
         val nativeLibraryDir = runCatching {
             packageManager.getApplicationInfo(info.packageName, 0).nativeLibraryDir
-        }.getOrNull().orEmpty()
-        val installedAbi = when {
-            nativeLibraryDir.contains("arm64", ignoreCase = true) -> "arm64-v8a"
-            nativeLibraryDir.contains("/arm", ignoreCase = true) -> "armeabi-v7a"
-            nativeLibraryDir.contains("x86_64", ignoreCase = true) -> "x86_64"
-            nativeLibraryDir.contains("/x86", ignoreCase = true) -> "x86"
-            else -> null
-        }
-        return installedAbi?.takeIf { it in supported }
-            ?: supported.firstOrNull { it in info.nativeAbis }
-            ?: supported.firstOrNull()
+        }.getOrNull()
+        return RuntimeBrokerAbiSelector.select(
+            deviceSupportedAbis = android.os.Build.SUPPORTED_ABIS.toList(),
+            apkNativeAbis = info.nativeAbis,
+            installedNativeLibraryDir = nativeLibraryDir
+        )
     }
 
     private fun assessImportedApk(info: ImportedApkInfo): ApkRuntimeAssessment {
