@@ -2448,10 +2448,46 @@ void enqueueRuntimeTelemetry(
     if (instance == nullptr || eventName == nullptr) return;
     {
         std::lock_guard<std::mutex> lock(instance->runtimeTelemetryMutex);
-        if (instance->pendingRuntimeTelemetry.size() >= 32) {
-            instance->pendingRuntimeTelemetry.pop_front();
+        auto& queue = instance->pendingRuntimeTelemetry;
+
+        // Collapse frame milestones for the same session while Binder is
+        // unavailable. This preserves lifecycle edges without growing one
+        // event per 30 rendered frames.
+        if (std::strcmp(eventName, "xr_end_frame") == 0) {
+            const auto previousFrame = std::find_if(
+                queue.rbegin(),
+                queue.rend(),
+                [sessionId](const PendingRuntimeTelemetry& pending) {
+                    return pending.eventName == "xr_end_frame" &&
+                        pending.sessionId == sessionId;
+                }
+            );
+            if (previousFrame != queue.rend()) {
+                previousFrame->frameCount = std::max(previousFrame->frameCount, frameCount);
+                instance->externalInputWake.notify_one();
+                return;
+            }
         }
-        instance->pendingRuntimeTelemetry.push_back(PendingRuntimeTelemetry{
+
+        constexpr std::size_t kMaximumPendingRuntimeEvents = 64;
+        if (queue.size() >= kMaximumPendingRuntimeEvents) {
+            const auto expendableFrame = std::find_if(
+                queue.begin(),
+                queue.end(),
+                [](const PendingRuntimeTelemetry& pending) {
+                    return pending.eventName == "xr_end_frame";
+                }
+            );
+            if (expendableFrame != queue.end()) {
+                queue.erase(expendableFrame);
+            } else {
+                // Lifecycle transitions are far less frequent than frames.
+                // Only an unusually long outage with many instance/session
+                // recreations can reach this fallback.
+                queue.pop_front();
+            }
+        }
+        queue.push_back(PendingRuntimeTelemetry{
             eventName,
             sessionId,
             frameCount
