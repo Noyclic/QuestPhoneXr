@@ -2,6 +2,8 @@ package com.noyclic.questphonexr.runtime
 
 import android.content.ContentProvider
 import android.content.ContentValues
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
