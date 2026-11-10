@@ -51,6 +51,40 @@ The 300 ms sample lease is deliberate: old controller values are neutralized
 instead of being replayed as if they were live input. Sample ages use Android
 elapsed realtime, so they can be compared between processes on the same device.
 
+The same managed-launch consent flow can also enable a separate write-only
+runtime event URI:
+
+`content://com.noyclic.questphonexr.endxrtelemetry/runtime_event`
+
+This endpoint is distinct from `controller_state`. NextVRera grants write access
+only for the exact URI and selected installed package after the updated consent
+dialog. The saved grant is tied to the package signing certificate. Older
+input-only approvals are migrated without silently enabling telemetry; those
+apps must be shown the new consent prompt before telemetry access is granted.
+The provider accepts only the known lifecycle event names, validates the
+instance/session order, ignores duplicate deliveries, and exposes read access
+only to the NextVRera app UID.
+
+The native runtime queues events away from the game's frame thread:
+`xrCreateInstance`, `xrCreateSession`, `xrBeginSession`, successful
+projection-layer composition at `xrEndFrame`, and teardown. Frame milestones
+are coalesced while IPC is unavailable; transient provider failures are retried
+with backoff. NextVRera waits briefly after returning from the game before
+showing its report, so final teardown events have a chance to arrive.
+
+Interpret the levels separately:
+- `xrCreateInstance` — the game process submitted a new EndXR runtime instance event.
+- `xrCreateSession` — the process created an EGL-bound OpenXR session.
+- `xrBeginSession` — the session started.
+- Composited projection frames — EndXR accepted a projection layer and completed
+  its compositor path. Empty `xrEndFrame` calls do not increase this count.
+
+This is package-scoped runtime telemetry, not a platform-signed attestation:
+other code running inside the same user-approved game package/UID could in
+principle submit a forged event. It is strong diagnostic evidence for normal
+EndXR operation, but it does not prove that the app displays correctly to a
+physical viewer or that all controls work.
+
 The Android emulator smoke test also queries the provider as the untrusted `adb shell` UID and requires Android to deny access. The CI artifact includes `diagnostics/ipc-access-control.txt` and the raw denial output in `diagnostics/ipc-unauthorized-shell.txt`.
 
 ## CI artifact export
@@ -76,11 +110,11 @@ For an installed APK that the static analyser classifies as an OpenXR candidate,
 
 1. NextVRera checks which runtime the Khronos Loader is likely to obtain from the Broker for that game's ABI.
 2. If EndXR is not the likely candidate, NextVRera opens the official installable RuntimeBroker settings and rechecks the selection when the user returns.
-3. The user explicitly approves the exact read-only input URI for that package; the grant is tied to the package signing certificate.
+3. The user explicitly approves package-scoped IPC: read-only input access to `controller_state` and a separate write-only runtime event URI. Grants are tied to the package signing certificate. Existing input-only approvals do not silently gain telemetry access; the updated consent prompt must be accepted.
 4. NextVRera asks for camera permission if needed, starts the saved foreground tracking configuration, and waits for a fresh MediaPipe frame or reports that tracking did not become ready.
-5. Only then does it request Android to launch the installed game. The diagnostic records the selected Broker candidate, target ABI, IPC grant and camera state.
+5. Only then does it request Android to launch the installed game. When NextVRera returns to the foreground, it waits briefly for runtime telemetry and reports instance creation, session creation/start and successfully composited projection frames independently.
 
-This path improves launch preparation and prevents an obvious wrong-runtime launch, but it cannot force a runtime choice inside Android or make a proprietary Meta/Oculus-only application use OpenXR. Android still launches the game as a separate package/process. The game must actually use the Khronos Android OpenXR Loader and the extensions/graphics backend EndXR supports. A Broker candidate prediction is not proof of a successful `dlopen`, `xrCreateInstance`, or game frame.
+This path improves launch preparation and prevents an obvious wrong-runtime launch, but it cannot force a runtime choice inside Android or make a proprietary Meta/Oculus-only application use OpenXR. Android still launches the game as a separate package/process. The game must actually use the Khronos Android OpenXR Loader and the extensions/graphics backend EndXR supports. A Broker candidate prediction is not proof of a successful `dlopen`, `xrCreateInstance`, or game frame. Runtime events provide evidence only after the EndXR code runs inside the approved package; they do not alter Loader selection.
 
 ## Physical-device validation on the Redmi Note 13 4G
 
