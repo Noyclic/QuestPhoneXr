@@ -69,7 +69,9 @@ The native runtime queues events away from the game's frame thread:
 `xrCreateInstance`, `xrCreateSession`, `xrBeginSession`, `xrEndSession`,
 successful projection-layer composition at `xrEndFrame`, and teardown. The
 current-session indicator is cleared by `xrEndSession` even when the instance
-remains alive. Frame milestones
+remains alive. The total composited-frame count accumulates across sequential
+sessions within the same OpenXR instance, while a separate per-session watermark
+rejects duplicate or out-of-order frame milestones. Frame milestones
 are coalesced while IPC is unavailable; transient provider failures are retried
 with backoff. NextVRera waits briefly after returning from the game before
 showing its report, so final teardown events have a chance to arrive.
