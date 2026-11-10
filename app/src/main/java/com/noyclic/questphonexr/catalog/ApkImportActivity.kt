@@ -792,8 +792,10 @@ class ApkImportActivity : ComponentActivity() {
             .setTitle("Разрешить ввод EndXR для игры?")
             .setMessage(
                 "Приложение: ${client.label}\nПакет: ${client.packageName}\n\n" +
-                    "NextVRera выдаст read-only доступ только к URI controller_state. " +
-                    "Разрешение связано с подписью этого APK и может быть отозвано. " +
+                    "NextVRera выдаст этому приложению read-only доступ к controller_state, " +
+                    "а EndXR получит write-only доступ к отдельному URI runtime_event, чтобы сообщать " +
+                    "о xrCreateInstance, xrCreateSession и передаче кадров. Оба доступа ограничены " +
+                    "этим пакетом и связаны с подписью APK; их можно отозвать. " +
                     "Это не внедряет Android-кнопки в игру: игре нужно поддерживать OpenXR input или контракт EndXR."
             )
             .setNegativeButton("Отмена", null)
