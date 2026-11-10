@@ -900,7 +900,10 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrGetSystemProperties(
     std::snprintf(properties->systemName, sizeof(properties->systemName), "%s", kSystemName);
     properties->graphicsProperties.maxSwapchainImageWidth = kMaximumEyeWidth;
     properties->graphicsProperties.maxSwapchainImageHeight = kMaximumEyeHeight;
-    properties->graphicsProperties.maxLayerCount = XR_MIN_COMPOSITION_LAYERS_SUPPORTED;
+    // The current phone compositor accepts one projection layer. Report the
+    // implemented limit rather than claiming the OpenXR minimum of 16 while
+    // xrEndFrame would reject multiple layers.
+    properties->graphicsProperties.maxLayerCount = 1;
     properties->trackingProperties.orientationTracking = XR_TRUE;
     properties->trackingProperties.positionTracking = XR_FALSE;
     auto* next = static_cast<BaseInStructure*>(properties->next);
