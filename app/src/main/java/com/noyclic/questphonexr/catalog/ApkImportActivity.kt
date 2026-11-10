@@ -117,14 +117,21 @@ class ApkImportActivity : ComponentActivity() {
         val report = pendingLaunchReport
         if (report != null) {
             pendingLaunchReport = null
-            pollRuntimeTelemetryAfterReturn(
-                title = pendingLaunchTitle,
-                report = report,
-                expectedPackage = pendingRuntimeTelemetryPackage,
-                baselineSequence = pendingRuntimeTelemetryBaselineSequence,
-                generation = runtimeTelemetryCheckGeneration,
-                attempt = 0
-            )
+            val expectedPackage = pendingRuntimeTelemetryPackage
+            if (expectedPackage != null) {
+                pollRuntimeTelemetryAfterReturn(
+                    title = pendingLaunchTitle,
+                    report = report,
+                    expectedPackage = expectedPackage,
+                    baselineSequence = pendingRuntimeTelemetryBaselineSequence,
+                    generation = runtimeTelemetryCheckGeneration,
+                    attempt = 0
+                )
+            } else {
+                // Ordinary Android launches do not grant EndXR runtime telemetry.
+                // Do not make their return path wait for an event it cannot receive.
+                showLaunchDiagnostic(pendingLaunchTitle, report)
+            }
         }
 
         val pendingId = awaitingBrokerReturnForEndXrId
