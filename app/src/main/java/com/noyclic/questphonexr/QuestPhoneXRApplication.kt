@@ -40,7 +40,7 @@ class QuestPhoneXRApplication : Application() {
                 EndXrInputAccessManager(applicationContext).reconcileGrants()
             }.onSuccess { restored ->
                 if (restored.isNotEmpty()) {
-                    Log.i(TAG, "Restored EndXR input URI grants for ${restored.size} approved app(s)")
+                    Log.i(TAG, "Restored EndXR IPC URI grants for ${restored.size} approved app(s)")
                 }
             }.onFailure { error ->
                 Log.w(TAG, "Could not restore approved EndXR input URI grants", error)
