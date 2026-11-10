@@ -1399,7 +1399,7 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrLocateViews(
         return XR_ERROR_VIEW_CONFIGURATION_TYPE_UNSUPPORTED;
     }
     XrSpace_T* base = getSpace(locateInfo->space);
-    if (base == nullptr || base->owner != owner->owner || base->isActionSpace) {
+    if (base == nullptr || base->owner != session || base->isActionSpace) {
         return XR_ERROR_HANDLE_INVALID;
     }
     if (base->type != XR_REFERENCE_SPACE_TYPE_LOCAL &&
