@@ -475,8 +475,20 @@ void testGlesSessionSwapchainAndFrameLifecycle() {
     endxrClearHeadOrientation();
     expect(locateViews(session, &locateInfo, &viewState, 2, &locatedViewCount,
                        locatedViews) == XR_SUCCESS &&
-               locatedViewCount == 2 && viewState.viewStateFlags == 0,
-           "do not claim tracked view orientation before receiving a phone sensor sample");
+               locatedViewCount == 2 && viewState.viewStateFlags == 0 &&
+               std::abs(locatedViews[0].pose.position.x + 0.032f) < 0.001f &&
+               std::abs(locatedViews[1].pose.position.x - 0.032f) < 0.001f,
+           "do not claim LOCAL view orientation before receiving a phone sensor sample");
+    locateInfo.space = viewSpace;
+    expect(locateViews(session, &locateInfo, &viewState, 2, &locatedViewCount,
+                       locatedViews) == XR_SUCCESS &&
+               viewState.viewStateFlags ==
+                   (XR_VIEW_STATE_POSITION_VALID_BIT |
+                    XR_VIEW_STATE_ORIENTATION_VALID_BIT) &&
+               std::abs(locatedViews[0].pose.orientation.w - 1.0f) < 0.001f &&
+               std::abs(locatedViews[0].pose.position.x + 0.032f) < 0.001f,
+           "stereo views are fully located relative to VIEW without phone sensor data");
+    locateInfo.space = localSpace;
     endxrSetHeadOrientation(0.0f, 0.0f, 0.70710678f, 0.70710678f);
     expect(locateViews(session, &locateInfo, &viewState, 2, &locatedViewCount,
                        locatedViews) == XR_SUCCESS &&
@@ -1056,22 +1068,60 @@ void testActionInputApiLifecycleAndNeutralState() {
                location.locationFlags == 0,
            "clearing estimated hand pose deactivates grip pose and its space");
 
+    XrReferenceSpaceCreateInfo viewReferenceInfo{};
+    viewReferenceInfo.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
+    viewReferenceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+    viewReferenceInfo.poseInReferenceSpace.orientation.w = 1.0f;
+    XrSpace viewSpace = XR_NULL_HANDLE;
+    expect(createReferenceSpace(session, &viewReferenceInfo, &viewSpace) == XR_SUCCESS,
+           "create a VIEW reference space for relative-location tests");
+
     endxrClearHeadOrientation();
     expect(locateSpace(localSpace, localSpace, 1, &location) == XR_SUCCESS &&
+               location.locationFlags ==
+                   (XR_SPACE_LOCATION_POSITION_VALID_BIT |
+                    XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) &&
+               std::abs(location.pose.position.x) < 0.001f &&
+               std::abs(location.pose.position.y) < 0.001f &&
+               std::abs(location.pose.position.z) < 0.001f &&
+               std::abs(location.pose.orientation.w - 1.0f) < 0.001f,
+           "a reference space located relative to itself is identity without sensor data");
+    expect(locateSpace(viewSpace, viewSpace, 1, &location) == XR_SUCCESS &&
+               location.locationFlags ==
+                   (XR_SPACE_LOCATION_POSITION_VALID_BIT |
+                    XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) &&
+               std::abs(location.pose.orientation.w - 1.0f) < 0.001f,
+           "VIEW located relative to itself is identity without sensor data");
+    expect(locateSpace(viewSpace, localSpace, 1, &location) == XR_SUCCESS &&
                location.locationFlags == 0,
-           "head orientation is not marked valid before the phone sensor publishes");
+           "VIEW to LOCAL needs a fresh head-orientation sample");
+
     endxrSetHeadOrientation(0.0f, 0.0f, 0.70710678f, 0.70710678f);
-    expect(locateSpace(localSpace, localSpace, 1, &location) == XR_SUCCESS &&
+    expect(locateSpace(viewSpace, localSpace, 1, &location) == XR_SUCCESS &&
                location.locationFlags ==
                    (XR_SPACE_LOCATION_ORIENTATION_VALID_BIT |
                     XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT) &&
                std::abs(location.pose.orientation.z - 0.70710678f) < 0.001f &&
                std::abs(location.pose.orientation.w - 0.70710678f) < 0.001f,
-           "publish normalized phone head orientation in the reference space");
+           "locate VIEW relative to LOCAL using the normalized phone orientation");
+    expect(locateSpace(localSpace, viewSpace, 1, &location) == XR_SUCCESS &&
+               location.locationFlags ==
+                   (XR_SPACE_LOCATION_ORIENTATION_VALID_BIT |
+                    XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT) &&
+               std::abs(location.pose.orientation.z + 0.70710678f) < 0.001f &&
+               std::abs(location.pose.orientation.w - 0.70710678f) < 0.001f,
+           "locate LOCAL relative to VIEW using the inverse phone orientation");
+
     endxrClearHeadOrientation();
     expect(locateSpace(localSpace, localSpace, 1, &location) == XR_SUCCESS &&
+               location.locationFlags ==
+                   (XR_SPACE_LOCATION_POSITION_VALID_BIT |
+                    XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) &&
+               std::abs(location.pose.orientation.w - 1.0f) < 0.001f,
+           "same-reference-space locations remain valid when the phone sensor goes stale");
+    expect(locateSpace(viewSpace, localSpace, 1, &location) == XR_SUCCESS &&
                location.locationFlags == 0,
-           "clearing phone sensor orientation removes stale tracked flags");
+           "cross-reference-space locations lose tracked flags when the sensor goes stale");
 
     auto applyHaptic = reinterpret_cast<PFN_xrApplyHapticFeedback>(
         resolve(request.getInstanceProcAddr, instance, "xrApplyHapticFeedback"));
@@ -1092,6 +1142,7 @@ void testActionInputApiLifecycleAndNeutralState() {
     auto destroySpace = reinterpret_cast<PFN_xrDestroySpace>(
         resolve(request.getInstanceProcAddr, instance, "xrDestroySpace"));
     expect(destroySpace(actionSpace) == XR_SUCCESS, "destroy action space");
+    expect(destroySpace(viewSpace) == XR_SUCCESS, "destroy VIEW reference space");
     expect(destroySpace(localSpace) == XR_SUCCESS, "destroy local reference space");
 
     auto requestExit = reinterpret_cast<PFN_xrRequestExitSession>(
