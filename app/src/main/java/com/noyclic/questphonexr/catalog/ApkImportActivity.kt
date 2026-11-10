@@ -1,14 +1,19 @@
 package com.noyclic.questphonexr.catalog
 
+import android.Manifest
 import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.view.View
@@ -20,9 +25,12 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
-import com.noyclic.questphonexr.runtime.EndXrInputContentProvider
+import com.noyclic.questphonexr.runtime.AndroidRuntimeBrokerContract
 import com.noyclic.questphonexr.runtime.AndroidRuntimeBrokerProbe
+import com.noyclic.questphonexr.runtime.EndXrHandTrackingService
+import com.noyclic.questphonexr.runtime.EndXrInputAccessManager
 import com.noyclic.questphonexr.ui.applyNextVreraStyle
 import com.noyclic.questphonexr.ui.nextVreraToneFor
 import java.io.File
@@ -40,6 +48,32 @@ class ApkImportActivity : ComponentActivity() {
     private val importExecutor = Executors.newSingleThreadExecutor()
     private var pendingLaunchReport: String? = null
     private var pendingLaunchTitle: String = "Диагностика запуска Quest APK"
+    private var awaitingBrokerReturnForEndXrId: String? = null
+    private var pendingCameraLaunch: PendingEndXrLaunch? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private data class PendingEndXrLaunch(
+        val infoId: String,
+        val brokerReport: String,
+        val inputIpcGranted: Boolean,
+        val cameraPermissionGranted: Boolean? = null
+    )
+
+    private val endXrCameraPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val pending = pendingCameraLaunch ?: return@registerForActivityResult
+        pendingCameraLaunch = null
+        val info = store.getAll().firstOrNull { it.id == pending.infoId }
+        if (info == null) {
+            statusView.text = "APK пропал из локальной библиотеки; запуск отменён."
+            return@registerForActivityResult
+        }
+        startEndXrManagedLaunch(
+            info,
+            pending.copy(cameraPermissionGranted = granted)
+        )
+    }
 
     private val documentPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -60,6 +94,29 @@ class ApkImportActivity : ComponentActivity() {
         if (report != null) {
             pendingLaunchReport = null
             showLaunchDiagnostic(pendingLaunchTitle, report)
+        }
+
+        val pendingId = awaitingBrokerReturnForEndXrId
+        if (pendingId != null) {
+            awaitingBrokerReturnForEndXrId = null
+            mainHandler.post {
+                if (isFinishing || isDestroyed) return@post
+                val info = store.getAll().firstOrNull { it.id == pendingId } ?: return@post
+                val broker = runCatching { AndroidRuntimeBrokerProbe.inspect(this) }
+                    .getOrNull()
+                if (broker?.endXrIsLikelySelected == true) {
+                    continueEndXrManagedLaunch(info, broker.toDisplayText())
+                } else {
+                    val status = broker?.toDisplayText()
+                        ?: "Не удалось повторно прочитать RuntimeBroker."
+                    statusView.text = "EndXR пока не подтверждён как активный runtime. Проверь выбор в Runtime Broker и повтори запуск.\n$status"
+                    Toast.makeText(
+                        this,
+                        "EndXR всё ещё не выбран. NextVRera не будет запускать игру как будто перехват уже включён.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
         }
     }
 
@@ -300,6 +357,11 @@ class ApkImportActivity : ComponentActivity() {
         card.addView(button("Открыть установленное приложение").apply {
             setOnClickListener { launchInstalled(info) }
         })
+        if (runtimeAssessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE) {
+            card.addView(button("Запустить через NextVRera + EndXR").apply {
+                setOnClickListener { launchThroughNextVreraEndXr(info) }
+            })
+        }
         card.addView(button("Установить на Android").apply {
             setOnClickListener { installOnAndroid(info) }
         })
@@ -384,17 +446,9 @@ class ApkImportActivity : ComponentActivity() {
         assessment: ApkRuntimeAssessment,
         brokerReport: String
     ) {
-        val ipcGranted = if (assessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE) {
-            runCatching {
-                grantUriPermission(
-                    info.packageName,
-                    Uri.parse(EndXrInputContentProvider.CONTENT_URI),
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            }.isSuccess
-        } else {
-            false
-        }
+        // Ordinary Android launch is not an implicit consent to expose EndXR input.
+        // Use the dedicated NextVRera + EndXR preflight for a scoped, user-approved URI grant.
+        val ipcGranted = false
 
         runCatching {
             pendingLaunchTitle = "Отчёт после запуска: ${info.displayName}"
@@ -404,10 +458,8 @@ class ApkImportActivity : ComponentActivity() {
             )
             startActivity(launchIntent)
             val message = when {
-                assessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE && ipcGranted ->
-                    "Команда запуска отправлена Android. IPC-доступ EndXR выдан; загрузка OpenXR Runtime самой игрой ещё должна быть подтверждена."
                 assessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE ->
-                    "Команда запуска отправлена Android, но IPC-доступ EndXR не удалось выдать."
+                    "Это обычный запуск Android без подготовки EndXR. Для Broker-проверки, разрешения ввода и фонового трекинга используй «Запустить через NextVRera + EndXR»."
                 else ->
                     "Команда запуска отправлена Android. Это пока не подтверждает работу XR/Quest Runtime."
             }
