@@ -321,52 +321,79 @@ class ApkImportActivity : ComponentActivity() {
     private fun launchInstalled(info: ImportedApkInfo) {
         val launchIntent = packageManager.getLaunchIntentForPackage(info.packageName)
         if (launchIntent == null) {
-            statusView.text = "Для ${info.displayName} не найдено установленное Android-приложение с экраном запуска. Сначала установи APK."
+            val message = "Не найден экран запуска для пакета ${info.packageName}. Проверь, что APK действительно установлен целиком (включая split APK), а не только импортирован."
+            statusView.text = message
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
             return
         }
+
         val archive = File(filesDir, "imported-apks/${info.fileName}")
         val missing = info.requiredFeatures.filterNot { packageManager.hasSystemFeature(it) }.toSet()
-        val assessment = ApkRuntimeCompatibility.inspect(info, archive, android.os.Build.VERSION.SDK_INT,
-            android.os.Build.SUPPORTED_ABIS.toList(), missing)
-        if (
-            assessment.route == ApkLaunchRoute.DEVICE_REQUIREMENTS_BLOCKED ||
-            assessment.route == ApkLaunchRoute.QUEST_RUNTIME_REQUIRED ||
-            assessment.route == ApkLaunchRoute.GEAR_VR_LEGACY_CANDIDATE ||
-            assessment.route == ApkLaunchRoute.LEGACY_OCULUS_MOBILE_CANDIDATE
+        val assessment = ApkRuntimeCompatibility.inspect(
+            info,
+            archive,
+            android.os.Build.VERSION.SDK_INT,
+            android.os.Build.SUPPORTED_ABIS.toList(),
+            missing
+        )
+
+        // Static APK heuristics must warn, not silently prevent the user from
+        // testing an installed app. In particular, Quest/Meta markers do not
+        // prove that Android cannot start its launcher Activity.
+        if (assessment.route != ApkLaunchRoute.ANDROID_APP_CANDIDATE &&
+            assessment.route != ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE
         ) {
-            statusView.text = assessment.details.joinToString("\n").ifBlank {
-                "Для этого APK пока нет совместимого маршрута запуска."
-            }
+            AlertDialog.Builder(this)
+                .setTitle("Запуск с предупреждением")
+                .setMessage(
+                    assessment.details.joinToString("\n").ifBlank {
+                        "Для этого APK совместимость не подтверждена."
+                    } + "\n\nПопробовать открыть установленное приложение обычным способом Android?"
+                )
+                .setNegativeButton("Отмена", null)
+                .setPositiveButton("Всё равно открыть") { _, _ ->
+                    startInstalledPackage(info, launchIntent, assessment)
+                }
+                .show()
             return
         }
-        if (assessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE) {
-            // Grant the exact read-only URI to the imported game package. This
-            // lets its process read EndXR snapshots even when it did not declare
-            // package-visibility queries for our provider authority.
-            val inputIpcGranted = runCatching {
+
+        startInstalledPackage(info, launchIntent, assessment)
+    }
+
+    private fun startInstalledPackage(
+        info: ImportedApkInfo,
+        launchIntent: Intent,
+        assessment: ApkRuntimeAssessment
+    ) {
+        val ipcGranted = if (assessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE) {
+            runCatching {
                 grantUriPermission(
                     info.packageName,
                     Uri.parse(EndXrInputContentProvider.CONTENT_URI),
                     Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             }.isSuccess
-            runCatching {
-                startActivity(launchIntent)
-                statusView.text = if (inputIpcGranted) {
-                    "Передано Android. Доступ к IPC-снимку EndXR выдан. Важно: источник ввода пока очищается при паузе Sandbox; непрерывное управление во внешней игре ещё не готово."
-                } else {
-                    "Передано Android, но не удалось выдать IPC-доступ EndXR. Управление и полноценная игра не гарантированы."
-                }
-            }.onFailure { error ->
-                statusView.text = "Не удалось открыть приложение: ${error.message ?: "ошибка запуска"}"
-            }
-            return
+        } else {
+            false
         }
+
         runCatching {
             startActivity(launchIntent)
-            statusView.text = "Открываем ${info.displayName} как обычное Android-приложение, вне XR-сессии."
+            val message = when {
+                assessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE && ipcGranted ->
+                    "Команда запуска отправлена Android. IPC-доступ EndXR выдан; загрузка OpenXR Runtime самой игрой ещё должна быть подтверждена."
+                assessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE ->
+                    "Команда запуска отправлена Android, но IPC-доступ EndXR не удалось выдать."
+                else ->
+                    "Команда запуска отправлена Android. Это пока не подтверждает работу XR/Quest Runtime."
+            }
+            statusView.text = message
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         }.onFailure { error ->
-            statusView.text = "Android не смог открыть приложение: ${error.message ?: "ошибка запуска"}"
+            val message = "Android не смог открыть ${info.displayName}: ${error.message ?: error.javaClass.simpleName}"
+            statusView.text = message
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         }
     }
 
