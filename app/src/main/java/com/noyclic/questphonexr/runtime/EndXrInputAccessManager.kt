@@ -6,6 +6,8 @@ import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
+import java.util.concurrent.ConcurrentHashMap
 import java.security.MessageDigest
 import java.util.Locale
 
@@ -79,6 +81,34 @@ class EndXrInputAccessManager(context: Context) {
         readRecords().any {
             EndXrInputGrantCodec.matches(it, client) && it.runtimeTelemetryGranted
         }
+
+    /**
+     * Provider hot-path check. Controller input is queried around 50 times per
+     * second by the game's background worker, so avoid doing PackageManager and
+     * signing-certificate lookups for every IPC snapshot.
+     */
+    internal fun isPackageAuthorized(
+        packageName: String,
+        requireRuntimeTelemetry: Boolean
+    ): Boolean {
+        if (!EndXrInputGrantCodec.isValidPackageName(packageName)) return false
+        val cacheKey = packageName + if (requireRuntimeTelemetry) "|telemetry" else "|input"
+        val now = SystemClock.elapsedRealtime()
+        val cached = CALLER_ACCESS_CACHE[cacheKey]
+        if (cached != null) {
+            val maxAgeMs = if (cached.allowed) 5_000L else 1_000L
+            if (now - cached.checkedAtElapsedMs in 0L..maxAgeMs) return cached.allowed
+        }
+
+        val client = installedLaunchableClient(packageName)
+        val allowed = client != null && if (requireRuntimeTelemetry) {
+            isRuntimeTelemetryAuthorized(client)
+        } else {
+            isAuthorized(client)
+        }
+        CALLER_ACCESS_CACHE[cacheKey] = CachedCallerAuthorization(allowed, now)
+        return allowed
+    }
 
     /**
      * Re-applies approved temporary URI grants after the app is opened.
@@ -204,6 +234,7 @@ class EndXrInputAccessManager(context: Context) {
         preferences.edit()
             .putStringSet(KEY_GRANTS, EndXrInputGrantCodec.encode(records))
             .apply()
+        invalidateAuthorizationCache()
     }
 
     private fun revokeQuietly(packageName: String) {
@@ -268,7 +299,17 @@ class EndXrInputAccessManager(context: Context) {
         joinToString("") { byte -> "%02x".format(Locale.ROOT, byte.toInt() and 0xff) }
 
     companion object {
+        private data class CachedCallerAuthorization(
+            val allowed: Boolean,
+            val checkedAtElapsedMs: Long
+        )
+
         private val GRANT_STATE_LOCK = Any()
+        private val CALLER_ACCESS_CACHE = ConcurrentHashMap<String, CachedCallerAuthorization>()
+
+        internal fun invalidateAuthorizationCache() {
+            CALLER_ACCESS_CACHE.clear()
+        }
         private const val PREFERENCES_NAME = "endxr_input_access"
         private const val KEY_GRANTS = "approved_package_signers"
         private val INPUT_URI: Uri = Uri.parse(EndXrInputContentProvider.CONTENT_URI)
