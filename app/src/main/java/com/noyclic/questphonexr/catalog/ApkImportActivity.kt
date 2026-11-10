@@ -578,7 +578,7 @@ class ApkImportActivity : ComponentActivity() {
         val steps = listOf(
             "apk" to ("1 · APK и ABI" to "Статическая проверка завершена."),
             "broker" to ("2 · RuntimeBroker" to "Ожидает проверки активного OpenXR runtime."),
-            "input" to ("3 · Ввод EndXR" to "Ожидает проверки разрешения controller_state."),
+            "input" to ("3 · Ввод и телеметрия EndXR" to "Ожидает отдельных разрешений: чтение controller_state и запись runtime_event."),
             "camera" to ("4 · Камера и MediaPipe" to "Ожидает разрешения и свежего кадра."),
             "launch" to ("5 · Запуск игры" to "Запрос запуска ещё не отправлен."),
             "capture" to ("6 · Связь игры с EndXR" to "Не подтверждена; нужен сигнал из процесса игры.")
@@ -601,7 +601,7 @@ class ApkImportActivity : ComponentActivity() {
         }
 
         root.addView(text(
-            "RuntimeBroker показывает вероятного кандидата Loader, но не доказывает загрузку EndXR игрой. Реальное подключение можно подтвердить только событиями xrCreateInstance / xrCreateSession / xrEndFrame.",
+            "RuntimeBroker показывает вероятного кандидата Loader, но не доказывает загрузку EndXR игрой. Подтверждение требует xrCreateInstance, xrCreateSession и реальной композиции projection layer.",
             11f, 0xFFFFD28A.toInt()
         ).apply {
             background = rounded(0xFF29251D.toInt(), dp(9).toFloat())
@@ -1102,7 +1102,7 @@ class ApkImportActivity : ComponentActivity() {
             )
             updateEndXrPrepStep(
                 "capture",
-                "Ожидает реального события xrCreateInstance / xrCreateSession / xrEndFrame.",
+                "Ожидает подтверждения xrCreateInstance, XR-сессии и композиции изображения игры.",
                 0xFFFFD28A.toInt()
             )
             endXrPrepDialog?.dismiss()
