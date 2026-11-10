@@ -59,6 +59,11 @@ class EndXrInputAccessManager(context: Context) {
     fun isAuthorized(client: EndXrInputClient): Boolean =
         readRecords().any { EndXrInputGrantCodec.matches(it, client) }
 
+    fun isRuntimeTelemetryAuthorized(client: EndXrInputClient): Boolean =
+        readRecords().any {
+            EndXrInputGrantCodec.matches(it, client) && it.runtimeTelemetryGranted
+        }
+
     /**
      * Re-applies approved temporary URI grants after the app is opened.
      * Stale approvals are removed when the package disappears or its signer changes.
@@ -81,11 +86,19 @@ class EndXrInputAccessManager(context: Context) {
                         INPUT_URI,
                         Intent.FLAG_GRANT_READ_URI_PERMISSION
                     )
-                    appContext.grantUriPermission(
-                        record.packageName,
-                        RUNTIME_EVENT_URI,
-                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                    )
+                    if (record.runtimeTelemetryGranted) {
+                        appContext.grantUriPermission(
+                            record.packageName,
+                            RUNTIME_EVENT_URI,
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                        )
+                    } else {
+                        appContext.revokeUriPermission(
+                            record.packageName,
+                            RUNTIME_EVENT_URI,
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                        )
+                    }
                 }.isSuccess
                 if (granted) {
                     retained += record
@@ -124,7 +137,11 @@ class EndXrInputAccessManager(context: Context) {
                 )
                 writeRecords(
                     readRecords().filterNot { it.packageName == client.packageName } +
-                        EndXrInputGrantRecord(client.packageName, client.signingCertificateSha256)
+                        EndXrInputGrantRecord(
+                            client.packageName,
+                            client.signingCertificateSha256,
+                            runtimeTelemetryGranted = true
+                        )
                 )
             } catch (error: Throwable) {
                 runCatching {
@@ -244,7 +261,8 @@ class EndXrInputAccessManager(context: Context) {
 
 internal data class EndXrInputGrantRecord(
     val packageName: String,
-    val signingCertificateSha256: String
+    val signingCertificateSha256: String,
+    val runtimeTelemetryGranted: Boolean = false
 )
 
 internal object EndXrInputGrantCodec {
@@ -267,18 +285,28 @@ internal object EndXrInputGrantCodec {
                     isValidFingerprint(it.signingCertificateSha256)
             }
             .distinctBy { it.packageName }
-            .map { it.packageName + "|" + it.signingCertificateSha256 }
+            .map {
+                it.packageName + "|" + it.signingCertificateSha256 + "|" +
+                    if (it.runtimeTelemetryGranted) "1" else "0"
+            }
             .toSet()
 
     fun decode(values: Set<String>?): List<EndXrInputGrantRecord> =
         values.orEmpty().mapNotNull { value ->
-            val separator = value.lastIndexOf('|')
-            if (separator <= 0 || separator == value.lastIndex) return@mapNotNull null
-            val packageName = value.substring(0, separator)
-            val fingerprint = value.substring(separator + 1)
+            val parts = value.split('|')
+            if (parts.size !in 2..3) return@mapNotNull null
+            val packageName = parts[0]
+            val fingerprint = parts[1]
             if (!isValidPackageName(packageName) || !isValidFingerprint(fingerprint)) {
                 return@mapNotNull null
             }
-            EndXrInputGrantRecord(packageName, fingerprint)
+            // Two-field records are grants created before runtime telemetry
+            // existed. Preserve input access, but never silently add write access.
+            val telemetryGranted = when (parts.getOrNull(2)) {
+                null, "0" -> false
+                "1" -> true
+                else -> return@mapNotNull null
+            }
+            EndXrInputGrantRecord(packageName, fingerprint, telemetryGranted)
         }.distinctBy { it.packageName }
 }
