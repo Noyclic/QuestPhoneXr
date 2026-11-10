@@ -200,6 +200,8 @@ void testSystemDiscoveryAndGraphicsRequirements() {
            "query phone system capabilities");
     expect(handProperties.supportsHandTracking == XR_TRUE,
            "advertise XR_EXT_hand_tracking support when enabled");
+    expect(properties.graphicsProperties.maxLayerCount == 1,
+           "advertise only the single composition layer currently implemented by the phone compositor");
     expect(properties.trackingProperties.orientationTracking == XR_TRUE &&
                properties.trackingProperties.positionTracking == XR_FALSE,
            "advertise orientation-only tracking");
