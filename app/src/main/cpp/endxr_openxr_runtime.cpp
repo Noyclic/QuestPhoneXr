@@ -1,4 +1,7 @@
 
+#if defined(__ANDROID__)
+#include <android/log.h>
+#endif
 #include "endxr_openxr_runtime.hpp"
 
 #include <algorithm>
@@ -794,29 +797,17 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrCreateInstance(
 #if defined(__ANDROID__)
     if (created->androidExtensionEnabled &&
         !startExternalControllerInputPolling(created)) {
-        {
-            std::lock_guard<std::mutex> lock(g_instanceMutex);
-            g_instances.erase(createdHandle);
-        }
-        // The Android extension was explicitly requested. Do not report a
-        // usable instance when its required input worker could not be created.
-        JNIEnv* env = nullptr;
-        bool attachedHere = false;
-        const jint envStatus = created->applicationVm->GetEnv(
-            reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
-        if (envStatus == JNI_EDETACHED) {
-            if (created->applicationVm->AttachCurrentThread(&env, nullptr) == JNI_OK) {
-                attachedHere = true;
-            }
-        } else if (envStatus != JNI_OK) {
-            env = nullptr;
-        }
-        if (env != nullptr && created->applicationActivity != nullptr) {
-            env->DeleteGlobalRef(created->applicationActivity);
-        }
-        if (attachedHere) created->applicationVm->DetachCurrentThread();
-        delete created;
-        return XR_ERROR_RUNTIME_FAILURE;
+        // Controller IPC is optional to the OpenXR instance itself. Do not make
+        // a camera/provider/thread failure prevent the game from creating its
+        // runtime instance and attempting graphics/session setup.
+        endxrClearControllerInput();
+        endxrClearHeadOrientation();
+        endxrClearHandPoses();
+        __android_log_print(
+            ANDROID_LOG_WARN,
+            "EndXR",
+            "Input IPC worker unavailable; continuing without live external input."
+        );
     }
 #endif
     *instance = createdHandle;
