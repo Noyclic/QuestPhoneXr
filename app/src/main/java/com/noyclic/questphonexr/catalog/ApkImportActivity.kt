@@ -1162,8 +1162,8 @@ class ApkImportActivity : ComponentActivity() {
         appendLine("Input IPC permission does not select the OpenXR runtime and does not prove the game reads controller data.")
         appendLine()
         appendLine("[OPENXR CAPTURE]")
-        appendLine("Status: NOT CONFIRMED")
-        appendLine("The current host app cannot observe another process calling xrCreateInstance/xrCreateSession. Android Activity launch success is not proof of an OpenXR connection.")
+        appendLine("Status: awaiting package-scoped EndXR runtime telemetry after the game returns.")
+        appendLine("Runtime selection, xrCreateInstance, xrCreateSession and successful xrEndFrame are tracked as separate evidence levels.")
         appendLine()
         appendLine("[RUNTIMEBROKER / RUNTIME SERVICE]")
         appendLine(brokerReport)
@@ -1172,7 +1172,7 @@ class ApkImportActivity : ComponentActivity() {
         assessment.details.forEach { appendLine("- $it") }
         appendLine()
         appendLine("[NEXT STEP]")
-        appendLine("Run the separate external OpenXR client probe. Definitive game capture needs a runtime-to-host event channel for xrCreateInstance, xrCreateSession and xrEndFrame.")
+        appendLine("Close or return from the game to let NextVRera collect the latest runtime telemetry. A separate external OpenXR probe remains useful for independent loader/runtime validation.")
     }
 
     private fun pollRuntimeTelemetryAfterReturn(
