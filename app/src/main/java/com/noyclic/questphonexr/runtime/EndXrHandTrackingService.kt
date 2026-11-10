@@ -786,6 +786,12 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
 
         fun isRunning(): Boolean = activeOrPending
 
+        /** Restarts the user-configured camera pipeline with its last saved settings. */
+        fun createResumeIntent(context: Context): Intent {
+            activeOrPending = true
+            return Intent(context, EndXrHandTrackingService::class.java)
+        }
+
         fun diagnosticReport(): String = EndXrHandTrackingDiagnostics.report()
 
         fun diagnosticState(): String = EndXrHandTrackingDiagnostics.currentState()
