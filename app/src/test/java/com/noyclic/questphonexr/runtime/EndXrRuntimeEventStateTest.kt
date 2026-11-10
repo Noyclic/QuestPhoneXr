@@ -10,6 +10,7 @@ class EndXrRuntimeEventStateTest {
     private val createInstance = EndXrRuntimeEventContentProvider.EVENT_CREATE_INSTANCE
     private val createSession = EndXrRuntimeEventContentProvider.EVENT_CREATE_SESSION
     private val beginSession = EndXrRuntimeEventContentProvider.EVENT_BEGIN_SESSION
+    private val endSession = EndXrRuntimeEventContentProvider.EVENT_END_SESSION
     private val endFrame = EndXrRuntimeEventContentProvider.EVENT_END_FRAME
     private val destroySession = EndXrRuntimeEventContentProvider.EVENT_DESTROY_SESSION
     private val destroyInstance = EndXrRuntimeEventContentProvider.EVENT_DESTROY_INSTANCE
@@ -23,6 +24,9 @@ class EndXrRuntimeEventStateTest {
         state = state.reduce(beginSession, "game-instance", "session-1", 0L)!!.state
         state = state.reduce(endFrame, "game-instance", "session-1", 1L)!!.state
         state = state.reduce(endFrame, "game-instance", "session-1", 30L)!!.state
+        state = state.reduce(endSession, "game-instance", "session-1", 0L)!!.state
+        assertFalse(state.sessionRunning)
+        assertTrue(state.sessionCreated)
         state = state.reduce(destroySession, "game-instance", "session-1", 0L)!!.state
         state = state.reduce(destroyInstance, "game-instance", null, 0L)!!.state
 
@@ -67,6 +71,27 @@ class EndXrRuntimeEventStateTest {
         val frame30 = running.reduce(endFrame, "game", "session", 30L)!!.state
         assertTrue(frame30.reduce(endFrame, "game", "session", 30L)!!.changed.not())
         assertNull(frame30.reduce(endFrame, "game", "session", 29L))
+    }
+
+    @Test
+    fun endSessionStopsCurrentSessionWithoutErasingHistoricalEvidence() {
+        val running = EndXrRuntimeEventState()
+            .reduce(createInstance, "game", null, 0L)!!.state
+            .reduce(createSession, "game", "session", 0L)!!.state
+            .reduce(beginSession, "game", "session", 0L)!!.state
+            .reduce(endFrame, "game", "session", 1L)!!.state
+
+        val ended = running.reduce(endSession, "game", "session", 0L)!!.state
+
+        assertTrue(ended.instanceCreated)
+        assertTrue(ended.sessionCreated)
+        assertFalse(ended.sessionRunning)
+        assertTrue(ended.instanceSeen)
+        assertTrue(ended.sessionSeen)
+        assertTrue(ended.sessionEverRunning)
+        assertEquals(1L, ended.frameCount)
+        assertFalse(ended.reduce(endSession, "game", "session", 0L)!!.changed)
+        assertNull(ended.reduce(endSession, "game", "other-session", 0L))
     }
 
     @Test
