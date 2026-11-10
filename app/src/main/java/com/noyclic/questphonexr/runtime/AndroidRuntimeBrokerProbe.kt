@@ -154,16 +154,12 @@ object AndroidRuntimeBrokerProbe {
             context = context,
             authority = INSTALLABLE_AUTHORITY,
             label = "installable RuntimeBroker",
-            expectedPackage = context.packageName,
-            expectedSoFilename = soFilename,
             abi = abi
         )
         val system = queryBroker(
             context = context,
             authority = SYSTEM_AUTHORITY,
             label = "system RuntimeBroker",
-            expectedPackage = context.packageName,
-            expectedSoFilename = soFilename,
             abi = abi
         )
         val loaderSelection = selectLoaderBrokerRuntime(installable, system)
@@ -225,8 +221,6 @@ object AndroidRuntimeBrokerProbe {
         context: Context,
         authority: String,
         label: String,
-        expectedPackage: String,
-        expectedSoFilename: String?,
         abi: String?
     ): BrokerQuerySnapshot {
         val provider = runCatching {
