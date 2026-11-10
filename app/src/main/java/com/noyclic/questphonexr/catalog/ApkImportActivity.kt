@@ -109,10 +109,24 @@ class ApkImportActivity : ComponentActivity() {
                 val broker = runCatching { AndroidRuntimeBrokerProbe.inspect(this, runtimeAbiFor(info)) }
                     .getOrNull()
                 if (broker?.endXrIsLikelySelected == true) {
+                    updateEndXrPrepStep(
+                        "broker",
+                        "EndXR снова подтверждён как вероятный кандидат Loader.",
+                        0xFF8FE0B5.toInt()
+                    )
                     continueEndXrManagedLaunch(info, broker.toDisplayText())
                 } else {
                     val status = broker?.toDisplayText()
                         ?: "Не удалось повторно прочитать RuntimeBroker."
+                    updateEndXrPrepStep(
+                        "broker",
+                        "EndXR всё ещё не выбран. Повтори проверку после выбора в Broker.",
+                        0xFFFFD28A.toInt()
+                    )
+                    endXrPrepActionButton?.apply {
+                        isEnabled = true
+                        text = "Проверить снова"
+                    }
                     statusView.text = "EndXR пока не подтверждён как активный runtime. Проверь выбор в Runtime Broker и повтори запуск.\n$status"
                     Toast.makeText(
                         this,
@@ -726,7 +740,13 @@ class ApkImportActivity : ComponentActivity() {
         val manager = EndXrInputAccessManager(this)
         val client = manager.installedLaunchableClients()
             .firstOrNull { it.packageName == info.packageName }
+        updateEndXrPrepStep("input", "Проверяем подпись APK и существующее разрешение ввода…")
         if (client == null) {
+            updateEndXrPrepStep(
+                "input",
+                "Не удалось подтвердить доверенный клиент. Разрешение ввода не будет выдано автоматически.",
+                0xFFFFD28A.toInt()
+            )
             AlertDialog.Builder(this)
                 .setTitle("Нет безопасного IPC-доступа")
                 .setMessage(
@@ -749,6 +769,11 @@ class ApkImportActivity : ComponentActivity() {
             val activeGrants = manager.reconcileGrants()
             val grantRestored = activeGrants.any { it.packageName == client.packageName }
             if (grantRestored) {
+                updateEndXrPrepStep(
+                    "input",
+                    "Read-only доступ к controller_state уже разрешён для этого пакета.",
+                    0xFF8FE0B5.toInt()
+                )
                 requestCameraThenLaunch(
                     PendingEndXrLaunch(info.id, brokerReport, inputIpcGranted = true),
                     launchIntent,
@@ -758,6 +783,11 @@ class ApkImportActivity : ComponentActivity() {
             }
         }
 
+        updateEndXrPrepStep(
+            "input",
+            "Ожидает явного подтверждения read-only доступа к controller_state.",
+            0xFFFFD28A.toInt()
+        )
         AlertDialog.Builder(this)
             .setTitle("Разрешить ввод EndXR для игры?")
             .setMessage(
@@ -770,6 +800,11 @@ class ApkImportActivity : ComponentActivity() {
             .setPositiveButton("Разрешить и продолжить") { _, _ ->
                 runCatching { manager.authorize(client.packageName) }
                     .onSuccess {
+                        updateEndXrPrepStep(
+                            "input",
+                            "Read-only доступ к controller_state выдан этому приложению.",
+                            0xFF8FE0B5.toInt()
+                        )
                         requestCameraThenLaunch(
                             PendingEndXrLaunch(info.id, brokerReport, inputIpcGranted = true),
                             launchIntent,
@@ -829,6 +864,7 @@ class ApkImportActivity : ComponentActivity() {
         launchIntent: Intent,
         assessment: ApkRuntimeAssessment
     ) {
+        updateEndXrPrepStep("camera", "Проверяем разрешение камеры…")
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
         ) {
@@ -865,6 +901,11 @@ class ApkImportActivity : ComponentActivity() {
         assessment: ApkRuntimeAssessment
     ) {
         if (pending.cameraPermissionGranted != true) {
+            updateEndXrPrepStep(
+                "camera",
+                "Разрешение камеры отсутствует. Игра может запуститься без MediaPipe-трекинга.",
+                0xFFFFD28A.toInt()
+            )
             launchEndXrManagedPackage(
                 pending,
                 launchIntent,
@@ -878,10 +919,12 @@ class ApkImportActivity : ComponentActivity() {
         if (EndXrHandTrackingService.isRunning() &&
             EndXrHandTrackingService.diagnosticState() == "running"
         ) {
+            updateEndXrPrepStep("camera", "Сервис трекинга активен; проверяем свежесть последнего кадра.")
             waitForEndXrCameraReady(pending, launchIntent, assessment, attempt = 0)
             return
         }
 
+        updateEndXrPrepStep("camera", "Запускаем foreground-сервис камеры и ждём свежий кадр MediaPipe…")
         runCatching {
             ContextCompat.startForegroundService(
                 this,
@@ -919,6 +962,11 @@ class ApkImportActivity : ComponentActivity() {
         val frameReady = EndXrHandTrackingService.latestFrame().timestampMs > 0L &&
             frameAgeMs in 0L..1_500L
         if (state == "running" && frameReady) {
+            updateEndXrPrepStep(
+                "camera",
+                "MediaPipe готов · свежий кадр получен (" + frameAgeMs + " мс).",
+                0xFF8FE0B5.toInt()
+            )
             launchEndXrManagedPackage(
                 pending,
                 launchIntent,
@@ -930,6 +978,11 @@ class ApkImportActivity : ComponentActivity() {
         }
         if (state == "error" || state == "stopped" || attempt >= 28) {
             val reason = EndXrHandTrackingService.diagnosticLastError()
+            updateEndXrPrepStep(
+                "camera",
+                "Кадр не получен · state=" + state + " · age_ms=" + frameAgeMs + " · " + reason,
+                0xFFFFD28A.toInt()
+            )
             launchEndXrManagedPackage(
                 pending,
                 launchIntent,
@@ -939,6 +992,10 @@ class ApkImportActivity : ComponentActivity() {
             )
             return
         }
+        updateEndXrPrepStep(
+            "camera",
+            "Ожидаем свежий кадр MediaPipe… " + (attempt * 250) + " мс; service=" + state
+        )
         mainHandler.postDelayed({
             waitForEndXrCameraReady(pending, launchIntent, assessment, attempt + 1)
         }, 250L)
@@ -989,7 +1046,19 @@ class ApkImportActivity : ComponentActivity() {
                 launchError = null,
                 launchResult = "NextVRera preflight passed; Android accepted startActivity."
             ) + launchDetails
+            updateEndXrPrepStep("launch", "Передаём запрос запуска в Android…")
             startActivity(launchIntent)
+            updateEndXrPrepStep(
+                "launch",
+                "Android принял startActivity для " + info.displayName + ".",
+                0xFF8FE0B5.toInt()
+            )
+            updateEndXrPrepStep(
+                "capture",
+                "Ожидает реального события xrCreateInstance / xrCreateSession / xrEndFrame.",
+                0xFFFFD28A.toInt()
+            )
+            endXrPrepDialog?.dismiss()
             val message = if (trackingStarted) {
                 "NextVRera подготовила EndXR: runtime-кандидат подтверждён, IPC разрешён, MediaPipe передал свежий кадр. Запрос запуска отправлен; подключение самой игры ещё нужно подтвердить."
             } else {
@@ -998,6 +1067,11 @@ class ApkImportActivity : ComponentActivity() {
             statusView.text = message
             Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         }.onFailure { error ->
+            updateEndXrPrepStep(
+                "launch",
+                "Android отклонил запуск: " + (error.message ?: error.javaClass.simpleName),
+                0xFFFFD28A.toInt()
+            )
             pendingLaunchReport = null
             val report = buildLaunchReport(
                 info,
