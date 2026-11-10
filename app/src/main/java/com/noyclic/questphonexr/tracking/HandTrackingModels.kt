@@ -54,6 +54,16 @@ class PinchEstimator(
         timestampMs: Long? = null,
         worldPoints: List<HandPoint> = emptyList()
     ): PinchSignal {
+        // MediaPipe can deliver callbacks late or repeat a source frame. A stale sample
+        // must not advance smoothing, trigger/release a pinch, or move the timestamp
+        // cursor backwards; otherwise the next valid sample gets the wrong time delta.
+        if (timestampMs != null) {
+            val previous = lastTimestampMs
+            if (previous != null && timestampMs <= previous) {
+                return PinchSignal(filteredStrength, isPinching)
+            }
+        }
+
         val thumb = points.getOrNull(4)
         val index = points.getOrNull(8)
         val indexMcp = points.getOrNull(5)
@@ -171,8 +181,9 @@ class PinchEstimator(
     private fun smoothingAlpha(timestampMs: Long?): Float {
         if (timestampMs == null) return smoothing
         val previous = lastTimestampMs
+        if (previous != null && timestampMs <= previous) return 0f
         lastTimestampMs = timestampMs
-        if (previous == null || timestampMs <= previous) return smoothing
+        if (previous == null) return smoothing
         val elapsedMs = (timestampMs - previous).coerceIn(1L, MAX_PINCH_SAMPLE_GAP_MS)
         if (smoothing >= 1f) return 1f
         val timeConstantMs = -REFERENCE_INTERVAL_MS / kotlin.math.ln(1.0 - smoothing.toDouble())
