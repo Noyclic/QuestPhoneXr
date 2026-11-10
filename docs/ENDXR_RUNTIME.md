@@ -16,7 +16,8 @@ EndXR is an early, minimal runtime implementation. It is not yet a conformant, g
 - Action-set/action creation and destruction, per-instance path interning, suggested interaction-profile bindings, session attachment, `xrSyncActions`, boolean/float/vector/pose state queries, action spaces and localized source-name queries. These APIs are covered by native host tests.
 - A read-only Android ContentProvider used to expose input snapshots across the app-process boundary. EndXR starts a per-instance native polling worker after instance creation; Binder queries run on that worker at a bounded cadence, while `xrLocateViews`, `xrLocateSpace` and `xrSyncActions` consume cached state without synchronously querying Android IPC. The worker is stopped and joined before the runtime releases its global Activity reference. The default read permission remains signature-protected. QuestPhoneXR can issue a user-approved, read-only URI grant for the exact `controller_state` path to one selected installed launcher app; the approval is tied to that package's signing-certificate fingerprint and can be revoked. The paired diagnostic APK continues to use the signature permission directly. The runtime-owned worker polls the provider independently of the app's frame and action calls.
 - A user-started camera foreground service that can keep CameraX and MediaPipe tracking active while Sandbox is paused and another app is in the foreground, provided the user starts it while QuestPhoneXR is visible and grants camera permission. Android displays a persistent notification while the camera remains active. The service uses `START_STICKY` so Android can recreate it after reclaiming the process, and it restores the last selected camera settings; an explicit user stop remains non-sticky.
-- MediaPipe pinch/grip values and approximate left/right palm poses. Estimated poses are exposed through `POSE_INPUT` / `xrLocateSpace` with `POSITION_VALID` and `ORIENTATION_VALID`, deliberately without `TRACKED` flags.
+- MediaPipe pinch trigger, natural three-or-more-finger power grip, and approximate left/right palm poses are mapped to the existing controller Action sample. Camera-derived stick axes and physical face buttons remain neutral.
+- A basic `XR_EXT_hand_tracking` runtime path: tracker create/destroy and `xrLocateHandJointsEXT` for 26 joints per hand. MediaPipe's 21 landmarks are mapped to 26 OpenXR joints; the palm and four finger metacarpal bases are estimated. The Android provider transports fixed-size joint samples, and the native runtime supplies estimated positions/orientations with `POSITION_VALID` and `ORIENTATION_VALID`, deliberately without `TRACKED` flags.
 - Phone head orientation from the rotation-vector sensor. This is orientation-only; phone translation is not measured.
 - Haptic entry points validate their inputs but return `XR_ERROR_FEATURE_UNSUPPORTED` until a device haptic transport exists.
 - In-process Sandbox diagnostics have exercised 30 consecutive stereo projection frames and read back the expected left/right colors on the Sandbox EGL surface.
@@ -43,7 +44,7 @@ EndXR does not currently provide:
 - Verified active-runtime selection through RuntimeBroker on the target physical phone.
 - Verified third-party game GLES session, swapchain and rendered-frame interoperability on the Redmi Note 13 4G.
 - 6DoF positional tracking.
-- The `XR_EXT_hand_tracking` runtime extension. MediaPipe palm grip estimates are available through `POSE_INPUT`, but they are not joint-level OpenXR hand tracking.
+- Independently measured metric 6DoF hand/controller tracking. The basic `XR_EXT_hand_tracking` extension path is implemented, but continuous delivery to a third-party game and compatibility on the target phone have not been verified. It supplies estimated camera-derived joints, not independently tracked metric joints.
 - Haptic output transport.
 - Global Android gamepad capture while another application owns focus, or system-wide input injection into unrelated apps.
 - Meta/Oculus Android runtime services required by many Quest-only APKs.
@@ -58,11 +59,12 @@ A successful `xrCreateInstance` will still not mean that a particular game is pl
 3. **Android service discovery** — exported service and library visibility from a separate package are covered by emulator instrumentation.
 4. **Official Khronos loader integration** — the separate-package probe initializes the official loader in CI and records the result. Active-runtime selection must be confirmed on a device with a usable RuntimeBroker.
 5. **OpenXR Action API surface** — initial core action, path, attach, sync and state-query entry points are implemented and host-tested.
-6. **Sandbox input bridge** — left/right MediaPipe pinch/grip samples and estimated palm grip poses are mapped to OpenXR input paths. Estimated poses are not marked `TRACKED`.
+6. **Sandbox input bridge** — left/right MediaPipe pinch/power-grip samples, estimated palm poses and 26-joint hand samples are mapped to the Android IPC snapshot. Estimated poses/joints are not marked `TRACKED`.
 7. **Cross-process input IPC** — snapshot provider and native runtime polling are implemented. Signature-level default read access is enforced; one-package, read-only URI grants include explicit confirmation, signer binding, startup reconciliation and revocation. External-game query and continuous physical-device input still need testing.
-8. **6DoF tracking and OpenXR hand tracking** — not implemented.
-9. **Third-party session/frame interoperability** — not yet verified on the target phone.
-10. **Game-by-game APK support** — not yet verified.
+8. **Basic OpenXR hand skeleton** — `XR_EXT_hand_tracking` tracker lifecycle and `xrLocateHandJointsEXT` are implemented natively; camera-derived joints are estimates and external-app/device behavior remains unverified.
+9. **6DoF position tracking** — not implemented; camera-derived hand joints do not establish room-scale positional tracking.
+10. **Third-party session/frame interoperability** — not yet verified on the target phone.
+11. **Game-by-game APK support** — not yet verified.
 
 ## Performance target
 

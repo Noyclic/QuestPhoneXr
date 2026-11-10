@@ -56,10 +56,7 @@ class EndXrInputAccessManager(context: Context) {
             .toList()
 
     fun isAuthorized(client: EndXrInputClient): Boolean =
-        readRecords().any {
-            it.packageName == client.packageName &&
-                it.signingCertificateSha256 == client.signingCertificateSha256
-        }
+        readRecords().any { EndXrInputGrantCodec.matches(it, client) }
 
     /**
      * Re-applies approved temporary URI grants after the app is opened.
@@ -67,32 +64,34 @@ class EndXrInputAccessManager(context: Context) {
      */
     fun reconcileGrants(): List<EndXrInputClient> {
         val installed = installedLaunchableClients().associateBy { it.packageName }
-        val retained = mutableListOf<EndXrInputGrantRecord>()
-        val active = mutableListOf<EndXrInputClient>()
+        return synchronized(GRANT_STATE_LOCK) {
+            val retained = mutableListOf<EndXrInputGrantRecord>()
+            val active = mutableListOf<EndXrInputClient>()
 
-        readRecords().forEach { record ->
-            val client = installed[record.packageName]
-            if (client == null || client.signingCertificateSha256 != record.signingCertificateSha256) {
-                revokeQuietly(record.packageName)
-                return@forEach
+            readRecords().forEach { record ->
+                val client = installed[record.packageName]
+                if (client == null || !EndXrInputGrantCodec.matches(record, client)) {
+                    revokeQuietly(record.packageName)
+                    return@forEach
+                }
+                val granted = runCatching {
+                    appContext.grantUriPermission(
+                        record.packageName,
+                        INPUT_URI,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                }.isSuccess
+                if (granted) {
+                    retained += record
+                    active += client
+                } else {
+                    revokeQuietly(record.packageName)
+                }
             }
-            val granted = runCatching {
-                appContext.grantUriPermission(
-                    record.packageName,
-                    INPUT_URI,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            }.isSuccess
-            if (granted) {
-                retained += record
-                active += client
-            } else {
-                revokeQuietly(record.packageName)
-            }
+
+            writeRecords(retained)
+            active
         }
-
-        writeRecords(retained)
-        return active
     }
 
     /** Call only after the UI has shown the exact package and the user confirmed. */
@@ -105,27 +104,31 @@ class EndXrInputAccessManager(context: Context) {
                 "Приложение не найдено среди установленных пользовательских приложений с ярлыком запуска."
             )
 
-        appContext.grantUriPermission(
-            client.packageName,
-            INPUT_URI,
-            Intent.FLAG_GRANT_READ_URI_PERMISSION
-        )
-        writeRecords(
-            readRecords().filterNot { it.packageName == client.packageName } +
-                EndXrInputGrantRecord(client.packageName, client.signingCertificateSha256)
-        )
+        synchronized(GRANT_STATE_LOCK) {
+            appContext.grantUriPermission(
+                client.packageName,
+                INPUT_URI,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+            writeRecords(
+                readRecords().filterNot { it.packageName == client.packageName } +
+                    EndXrInputGrantRecord(client.packageName, client.signingCertificateSha256)
+            )
+        }
         return client
     }
 
     /** Revokes only the selected package's read grant. */
     fun revoke(packageName: String): Boolean {
         if (!EndXrInputGrantCodec.isValidPackageName(packageName)) return false
-        appContext.revokeUriPermission(
-            packageName,
-            INPUT_URI,
-            Intent.FLAG_GRANT_READ_URI_PERMISSION
-        )
-        writeRecords(readRecords().filterNot { it.packageName == packageName })
+        synchronized(GRANT_STATE_LOCK) {
+            appContext.revokeUriPermission(
+                packageName,
+                INPUT_URI,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+            writeRecords(readRecords().filterNot { it.packageName == packageName })
+        }
         return true
     }
 
@@ -193,6 +196,7 @@ class EndXrInputAccessManager(context: Context) {
         joinToString("") { byte -> "%02x".format(Locale.ROOT, byte.toInt() and 0xff) }
 
     companion object {
+        private val GRANT_STATE_LOCK = Any()
         private const val PREFERENCES_NAME = "endxr_input_access"
         private const val KEY_GRANTS = "approved_package_signers"
         private val INPUT_URI: Uri = Uri.parse(EndXrInputContentProvider.CONTENT_URI)
@@ -211,6 +215,11 @@ internal object EndXrInputGrantCodec {
 
     fun isValidPackageName(value: String): Boolean = packageNamePattern.matches(value)
     fun isValidFingerprint(value: String): Boolean = fingerprintPattern.matches(value)
+
+    /** An approval belongs to one exact package identity and signing certificate. */
+    fun matches(record: EndXrInputGrantRecord, client: EndXrInputClient): Boolean =
+        record.packageName == client.packageName &&
+            record.signingCertificateSha256 == client.signingCertificateSha256
 
     fun encode(records: Collection<EndXrInputGrantRecord>): Set<String> =
         records.asSequence()

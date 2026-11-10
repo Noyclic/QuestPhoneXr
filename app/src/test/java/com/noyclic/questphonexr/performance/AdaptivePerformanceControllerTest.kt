@@ -92,6 +92,38 @@ class AdaptivePerformanceControllerTest {
         assertEquals(20, controller.currentState().renderFpsCap)
     }
 
+
+    @Test
+    fun zeroInferenceIntervalDoesNotTurnEverySampleIntoAnOverload() {
+        val controller = AdaptivePerformanceController(
+            preset = DevicePerformancePreset(
+                tier = DevicePerformanceTier.BALANCED,
+                maxRenderFps = 30,
+                cameraWidthPx = 640,
+                cameraHeightPx = 480,
+                maxTrackedHands = 1,
+                minimumInferenceIntervalMs = 0L
+            ),
+            userRequestedFps = 30
+        )
+
+        controller.observe(
+            nowMs = 0L,
+            renderFps = 30f,
+            handTrackingFps = 5f,
+            pipelineLatencyMs = 120L
+        )
+        val state = controller.observe(
+            nowMs = 3_000L,
+            renderFps = 30f,
+            handTrackingFps = 5f,
+            pipelineLatencyMs = 120L
+        )
+
+        assertEquals(0, state.level)
+        assertEquals(0L, state.minimumInferenceIntervalMs)
+    }
+
     private fun controller() = AdaptivePerformanceController(
         preset = DevicePerformancePreset(
             tier = DevicePerformanceTier.BALANCED,

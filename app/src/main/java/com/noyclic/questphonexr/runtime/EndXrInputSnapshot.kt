@@ -1,15 +1,14 @@
 package com.noyclic.questphonexr.runtime
 
 import android.os.SystemClock
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.math.sqrt
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
-/**
- * A normalized orientation sample from the phone rotation-vector sensor.
- * It is orientation-only: it contains no absolute position or 6DoF translation.
- */
+/** Orientation-only phone rotation-vector sample; it contains no absolute 6DoF position. */
 internal data class EndXrHeadOrientationSample(
     val active: Boolean = false,
     val x: Float = 0f,
@@ -38,11 +37,7 @@ internal data class EndXrHeadOrientationSample(
     }
 }
 
-/**
- * A short-lived, process-safe snapshot of the controls QuestPhoneXR currently
- * observes. The ContentProvider exposes this snapshot to the OpenXR runtime
- * after it has been loaded inside a different Android application process.
- */
+/** A short-lived controller sample exposed to the external OpenXR process. */
 internal data class EndXrControllerSample(
     val active: Boolean = false,
     val trigger: Float = 0f,
@@ -62,19 +57,16 @@ internal data class EndXrControllerSample(
                 stickX = finite(row[3]).coerceIn(-1f, 1f),
                 stickY = finite(row[4]).coerceIn(-1f, 1f),
                 buttons = finite(row[5]).coerceAtLeast(0f).roundToInt()
-            ).let { sample ->
-                if (sample.active) sample else EMPTY
-            }
+            ).let { sample -> if (sample.active) sample else EMPTY }
         }
 
         val EMPTY = EndXrControllerSample()
     }
 }
 
-
 /**
- * A camera-derived palm pose estimate. Translation uses monocular perspective,
- * orientation uses the hand-local MediaPipe skeleton. It is not metric 6DoF.
+ * Camera-derived palm pose. Its depth is monocular and estimated; it is not
+ * metric 6DoF tracking and therefore never claims OpenXR TRACKED location flags.
  */
 internal data class EndXrHandPoseSample(
     val active: Boolean = false,
@@ -114,6 +106,65 @@ internal data class EndXrHandPoseSample(
     }
 }
 
+/**
+ * Compact OpenXR joint buffer. Four floats per joint: palm-local position XYZ
+ * and collision radius. Native runtime composes each point with the current palm
+ * pose and supplies its orientation. The payload is fixed-size for cheap IPC.
+ */
+internal data class EndXrHandJointSample(
+    val active: Boolean = false,
+    val values: FloatArray = FloatArray(FLOAT_COUNT)
+) {
+    fun toBlob(): ByteArray {
+        val buffer = ByteBuffer.allocate(BLOB_SIZE).order(ByteOrder.nativeOrder())
+        val source = if (active && values.size == FLOAT_COUNT) values else FloatArray(FLOAT_COUNT)
+        source.forEach { buffer.putFloat(if (it.isFinite()) it else 0f) }
+        return buffer.array()
+    }
+
+    companion object {
+        const val JOINT_COUNT = 26
+        const val FLOATS_PER_JOINT = 8
+        const val FLOAT_COUNT = JOINT_COUNT * FLOATS_PER_JOINT
+        const val BLOB_SIZE = FLOAT_COUNT * Float.SIZE_BYTES
+
+        val EMPTY = EndXrHandJointSample()
+
+        fun fromValues(values: FloatArray): EndXrHandJointSample {
+            if (values.size != FLOAT_COUNT || !values.all(Float::isFinite)) return EMPTY
+            for (index in 0 until JOINT_COUNT) {
+                val offset = index * FLOATS_PER_JOINT
+                if (kotlin.math.abs(values[offset]) > 0.24f ||
+                    kotlin.math.abs(values[offset + 1]) > 0.24f ||
+                    kotlin.math.abs(values[offset + 2]) > 0.24f ||
+                    values[offset + 3] !in 0.001f..0.04f
+                ) return EMPTY
+                val qx = values[offset + 4]
+                val qy = values[offset + 5]
+                val qz = values[offset + 6]
+                val qw = values[offset + 7]
+                val magnitude = sqrt(
+                    qx.toDouble() * qx + qy.toDouble() * qy +
+                        qz.toDouble() * qz + qw.toDouble() * qw
+                )
+                if (!magnitude.isFinite() || magnitude < 0.5 || magnitude > 1.5) return EMPTY
+                values[offset + 4] = (qx / magnitude).toFloat()
+                values[offset + 5] = (qy / magnitude).toFloat()
+                values[offset + 6] = (qz / magnitude).toFloat()
+                values[offset + 7] = (qw / magnitude).toFloat()
+            }
+            return EndXrHandJointSample(true, values.copyOf())
+        }
+
+        fun fromBlob(bytes: ByteArray?): EndXrHandJointSample {
+            if (bytes == null || bytes.size != BLOB_SIZE) return EMPTY
+            val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.nativeOrder())
+            val values = FloatArray(FLOAT_COUNT) { buffer.float }
+            return fromValues(values)
+        }
+    }
+}
+
 internal data class EndXrInputSnapshot(
     val sequence: Long,
     val updatedAtElapsedRealtimeNanos: Long,
@@ -125,14 +176,15 @@ internal data class EndXrInputSnapshot(
     val headOrientationStale: Boolean,
     val leftHandPose: EndXrHandPoseSample,
     val rightHandPose: EndXrHandPoseSample,
+    val leftHandJoints: EndXrHandJointSample,
+    val rightHandJoints: EndXrHandJointSample,
     val handPoseUpdatedAtElapsedRealtimeNanos: Long,
     val handPoseStale: Boolean
 )
 
 /**
- * This is intentionally in-memory: controller values must never survive a
- * process restart. Camera and sensor callbacks publish independently; CAS
- * updates prevent one producer from accidentally overwriting the other.
+ * In-memory only: input never survives a process restart. Independent callback
+ * producers use CAS updates so camera and sensor publication cannot overwrite each other.
  */
 internal object EndXrInputSnapshotStore {
     const val MAX_SAMPLE_AGE_NANOS = 300_000_000L
@@ -151,6 +203,8 @@ internal object EndXrInputSnapshotStore {
             headOrientationStale = true,
             leftHandPose = EndXrHandPoseSample.EMPTY,
             rightHandPose = EndXrHandPoseSample.EMPTY,
+            leftHandJoints = EndXrHandJointSample.EMPTY,
+            rightHandJoints = EndXrHandJointSample.EMPTY,
             handPoseUpdatedAtElapsedRealtimeNanos = 0L,
             handPoseStale = true
         )
@@ -185,6 +239,8 @@ internal object EndXrInputSnapshotStore {
     fun publishHandPoses(
         left: EndXrHandPoseSample,
         right: EndXrHandPoseSample,
+        leftJoints: EndXrHandJointSample = EndXrHandJointSample.EMPTY,
+        rightJoints: EndXrHandJointSample = EndXrHandJointSample.EMPTY,
         nowElapsedRealtimeNanos: Long = SystemClock.elapsedRealtimeNanos()
     ) {
         val timestamp = nowElapsedRealtimeNanos.coerceAtLeast(0L)
@@ -192,6 +248,36 @@ internal object EndXrInputSnapshotStore {
             current.copy(
                 leftHandPose = left,
                 rightHandPose = right,
+                leftHandJoints = if (left.active) leftJoints else EndXrHandJointSample.EMPTY,
+                rightHandJoints = if (right.active) rightJoints else EndXrHandJointSample.EMPTY,
+                handPoseUpdatedAtElapsedRealtimeNanos = timestamp,
+                handPoseStale = false
+            )
+        }
+    }
+
+    fun publishTrackingFrame(
+        leftRow: FloatArray,
+        rightRow: FloatArray,
+        leftPose: EndXrHandPoseSample,
+        rightPose: EndXrHandPoseSample,
+        leftJoints: EndXrHandJointSample,
+        rightJoints: EndXrHandJointSample,
+        nowElapsedRealtimeNanos: Long = SystemClock.elapsedRealtimeNanos()
+    ) {
+        val timestamp = nowElapsedRealtimeNanos.coerceAtLeast(0L)
+        val left = EndXrControllerSample.fromNativeRow(leftRow)
+        val right = EndXrControllerSample.fromNativeRow(rightRow)
+        update { current ->
+            current.copy(
+                updatedAtElapsedRealtimeNanos = timestamp,
+                left = left,
+                right = right,
+                stale = false,
+                leftHandPose = leftPose,
+                rightHandPose = rightPose,
+                leftHandJoints = if (leftPose.active) leftJoints else EndXrHandJointSample.EMPTY,
+                rightHandJoints = if (rightPose.active) rightJoints else EndXrHandJointSample.EMPTY,
                 handPoseUpdatedAtElapsedRealtimeNanos = timestamp,
                 handPoseStale = false
             )
@@ -229,13 +315,17 @@ internal object EndXrInputSnapshotStore {
                 headOrientationStale = true,
                 leftHandPose = EndXrHandPoseSample.EMPTY,
                 rightHandPose = EndXrHandPoseSample.EMPTY,
+                leftHandJoints = EndXrHandJointSample.EMPTY,
+                rightHandJoints = EndXrHandJointSample.EMPTY,
                 handPoseUpdatedAtElapsedRealtimeNanos = timestamp,
                 handPoseStale = true
             )
         }
     }
 
-    fun snapshotForIpc(nowElapsedRealtimeNanos: Long = SystemClock.elapsedRealtimeNanos()): EndXrInputSnapshot {
+    fun snapshotForIpc(
+        nowElapsedRealtimeNanos: Long = SystemClock.elapsedRealtimeNanos()
+    ): EndXrInputSnapshot {
         val current = state.get()
         val now = nowElapsedRealtimeNanos.coerceAtLeast(0L)
         val controllerAge = (now - current.updatedAtElapsedRealtimeNanos).coerceAtLeast(0L)
@@ -253,6 +343,8 @@ internal object EndXrInputSnapshotStore {
             headOrientationStale = headStale,
             leftHandPose = if (poseStale) EndXrHandPoseSample.EMPTY else current.leftHandPose,
             rightHandPose = if (poseStale) EndXrHandPoseSample.EMPTY else current.rightHandPose,
+            leftHandJoints = if (poseStale) EndXrHandJointSample.EMPTY else current.leftHandJoints,
+            rightHandJoints = if (poseStale) EndXrHandJointSample.EMPTY else current.rightHandJoints,
             handPoseStale = poseStale
         )
     }

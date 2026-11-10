@@ -22,6 +22,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import com.noyclic.questphonexr.runtime.EndXrInputContentProvider
+import com.noyclic.questphonexr.runtime.AndroidRuntimeBrokerProbe
+import com.noyclic.questphonexr.ui.applyNextVreraStyle
+import com.noyclic.questphonexr.ui.nextVreraToneFor
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -35,6 +38,8 @@ class ApkImportActivity : ComponentActivity() {
     private lateinit var statusView: TextView
     private val store by lazy { ImportedApkStore(this) }
     private val importExecutor = Executors.newSingleThreadExecutor()
+    private var pendingLaunchReport: String? = null
+    private var pendingLaunchTitle: String = "Диагностика запуска Quest APK"
 
     private val documentPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -51,6 +56,11 @@ class ApkImportActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (::entriesContainer.isInitialized) renderEntries()
+        val report = pendingLaunchReport
+        if (report != null) {
+            pendingLaunchReport = null
+            showLaunchDiagnostic(pendingLaunchTitle, report)
+        }
     }
 
     override fun onDestroy() {
@@ -62,11 +72,11 @@ class ApkImportActivity : ComponentActivity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(14), dp(18), dp(12))
-            setBackgroundColor(Color.rgb(14, 17, 23))
+            setBackgroundResource(com.noyclic.questphonexr.R.drawable.bg_nextvrera_atmosphere)
         }
         root.addView(button("← Библиотека").apply { setOnClickListener { finish() } },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        root.addView(text("QuestPhoneXR  /  ФАЙЛЫ ИГР", 12f, 0xFF9CA9BC.toInt(), Typeface.BOLD))
+        root.addView(text("NextVRera  /  ФАЙЛЫ ИГР", 12f, 0xFF9CA9BC.toInt(), Typeface.BOLD))
         root.addView(text("Импорт APK", 28f, Color.WHITE, Typeface.BOLD))
         root.addView(text(
             "Выбери APK через системный файловый менеджер. QuestPhoneXR скопирует его в своё закрытое хранилище и прочитает метаданные.",
@@ -318,54 +328,175 @@ class ApkImportActivity : ComponentActivity() {
 
     private fun launchInstalled(info: ImportedApkInfo) {
         val launchIntent = packageManager.getLaunchIntentForPackage(info.packageName)
-        if (launchIntent == null) {
-            statusView.text = "Для ${info.displayName} не найдено установленное Android-приложение с экраном запуска. Сначала установи APK."
-            return
-        }
         val archive = File(filesDir, "imported-apks/${info.fileName}")
         val missing = info.requiredFeatures.filterNot { packageManager.hasSystemFeature(it) }.toSet()
-        val assessment = ApkRuntimeCompatibility.inspect(info, archive, android.os.Build.VERSION.SDK_INT,
-            android.os.Build.SUPPORTED_ABIS.toList(), missing)
-        if (
-            assessment.route == ApkLaunchRoute.DEVICE_REQUIREMENTS_BLOCKED ||
-            assessment.route == ApkLaunchRoute.QUEST_RUNTIME_REQUIRED ||
-            assessment.route == ApkLaunchRoute.GEAR_VR_LEGACY_CANDIDATE ||
-            assessment.route == ApkLaunchRoute.LEGACY_OCULUS_MOBILE_CANDIDATE
-        ) {
-            statusView.text = assessment.details.joinToString("\n").ifBlank {
-                "Для этого APK пока нет совместимого маршрута запуска."
-            }
+        val assessment = ApkRuntimeCompatibility.inspect(
+            info,
+            archive,
+            android.os.Build.VERSION.SDK_INT,
+            android.os.Build.SUPPORTED_ABIS.toList(),
+            missing
+        )
+        val brokerReport = runCatching {
+            AndroidRuntimeBrokerProbe.inspect(this).toDisplayText()
+        }.getOrElse {
+            "RuntimeBroker probe failed: ${it.message ?: it.javaClass.simpleName}"
+        }
+
+        if (launchIntent == null) {
+            val report = buildLaunchReport(
+                info, assessment, brokerReport, false, false, null,
+                "Установленный пакет не предоставил Android launcher Activity."
+            )
+            val message = "Не найден экран запуска для пакета ${info.packageName}. Проверь, что APK действительно установлен целиком (включая split APK), а не только импортирован."
+            statusView.text = message
+            showLaunchDiagnostic("APK не удалось открыть", report)
             return
         }
-        if (assessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE) {
-            // Grant the exact read-only URI to the imported game package. This
-            // lets its process read EndXR snapshots even when it did not declare
-            // package-visibility queries for our provider authority.
-            val inputIpcGranted = runCatching {
+
+        // Static APK heuristics must warn, not silently prevent the user from
+        // testing an installed app. Quest/Meta markers do not prove that Android
+        // cannot start its launcher Activity.
+        if (assessment.route != ApkLaunchRoute.ANDROID_APP_CANDIDATE &&
+            assessment.route != ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE
+        ) {
+            AlertDialog.Builder(this)
+                .setTitle("Запуск с предупреждением")
+                .setMessage(
+                    assessment.details.joinToString("\n").ifBlank {
+                        "Для этого APK совместимость не подтверждена."
+                    } + "\n\nПопробовать открыть установленное приложение обычным способом Android?"
+                )
+                .setNegativeButton("Отмена", null)
+                .setPositiveButton("Всё равно открыть") { _, _ ->
+                    startInstalledPackage(info, launchIntent, assessment, brokerReport)
+                }
+                .show()
+            return
+        }
+
+        startInstalledPackage(info, launchIntent, assessment, brokerReport)
+    }
+
+    private fun startInstalledPackage(
+        info: ImportedApkInfo,
+        launchIntent: Intent,
+        assessment: ApkRuntimeAssessment,
+        brokerReport: String
+    ) {
+        val ipcGranted = if (assessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE) {
+            runCatching {
                 grantUriPermission(
                     info.packageName,
                     Uri.parse(EndXrInputContentProvider.CONTENT_URI),
                     Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             }.isSuccess
-            runCatching {
-                startActivity(launchIntent)
-                statusView.text = if (inputIpcGranted) {
-                    "Передано Android. Доступ к IPC-снимку EndXR выдан. Важно: источник ввода пока очищается при паузе Sandbox; непрерывное управление во внешней игре ещё не готово."
-                } else {
-                    "Передано Android, но не удалось выдать IPC-доступ EndXR. Управление и полноценная игра не гарантированы."
-                }
-            }.onFailure { error ->
-                statusView.text = "Не удалось открыть приложение: ${error.message ?: "ошибка запуска"}"
-            }
-            return
+        } else {
+            false
         }
+
         runCatching {
+            pendingLaunchTitle = "Отчёт после запуска: ${info.displayName}"
+            pendingLaunchReport = buildLaunchReport(
+                info, assessment, brokerReport, true, ipcGranted, null,
+                "Android принял запрос startActivity."
+            )
             startActivity(launchIntent)
-            statusView.text = "Открываем ${info.displayName} как обычное Android-приложение, вне XR-сессии."
+            val message = when {
+                assessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE && ipcGranted ->
+                    "Команда запуска отправлена Android. IPC-доступ EndXR выдан; загрузка OpenXR Runtime самой игрой ещё должна быть подтверждена."
+                assessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE ->
+                    "Команда запуска отправлена Android, но IPC-доступ EndXR не удалось выдать."
+                else ->
+                    "Команда запуска отправлена Android. Это пока не подтверждает работу XR/Quest Runtime."
+            }
+            statusView.text = message
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         }.onFailure { error ->
-            statusView.text = "Android не смог открыть приложение: ${error.message ?: "ошибка запуска"}"
+            pendingLaunchReport = null
+            val message = error.message ?: error.javaClass.simpleName
+            val report = buildLaunchReport(
+                info, assessment, brokerReport, true, ipcGranted,
+                message, "Android отклонил запуск Activity."
+            )
+            statusView.text = "Android не смог открыть ${info.displayName}: ${message}"
+            showLaunchDiagnostic("Ошибка запуска APK", report)
         }
+    }
+
+    private fun buildLaunchReport(
+        info: ImportedApkInfo,
+        assessment: ApkRuntimeAssessment,
+        brokerReport: String,
+        launcherActivityFound: Boolean,
+        inputIpcGranted: Boolean,
+        launchError: String?,
+        launchResult: String
+    ): String = buildString {
+        appendLine("NextVRera / EndXR — Quest APK launch diagnostic")
+        appendLine("Time: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}")
+        appendLine("Device: ${android.os.Build.MODEL} · Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
+        appendLine()
+        appendLine("[APK]")
+        appendLine("Name: ${info.displayName}")
+        appendLine("Package: ${info.packageName}")
+        appendLine("Version: ${info.versionName} (${info.versionCode})")
+        appendLine("Route: ${assessment.route.label}")
+        appendLine("Engine: ${assessment.engine}")
+        appendLine("XR markers: ${assessment.xrTechnologies.joinToString().ifBlank { "none detected" }}")
+        appendLine("ABI: ${assessment.audit.abiSummary}")
+        appendLine()
+        appendLine("[ANDROID LAUNCH]")
+        appendLine("Launcher Activity: ${if (launcherActivityFound) "FOUND" else "NOT FOUND"}")
+        appendLine("Result: $launchResult")
+        appendLine("startActivity error: ${launchError ?: "none"}")
+        appendLine()
+        appendLine("[ENDXR INPUT IPC]")
+        appendLine("Read-only input URI grant: ${if (inputIpcGranted) "GRANTED" else "NOT GRANTED / NOT REQUIRED"}")
+        appendLine("Input IPC permission does not select the OpenXR runtime and does not prove the game reads controller data.")
+        appendLine()
+        appendLine("[OPENXR CAPTURE]")
+        appendLine("Status: NOT CONFIRMED")
+        appendLine("The current host app cannot observe another process calling xrCreateInstance/xrCreateSession. Android Activity launch success is not proof of an OpenXR connection.")
+        appendLine()
+        appendLine("[RUNTIMEBROKER / RUNTIME SERVICE]")
+        appendLine(brokerReport)
+        appendLine()
+        appendLine("[COMPATIBILITY DETAILS]")
+        assessment.details.forEach { appendLine("- $it") }
+        appendLine()
+        appendLine("[NEXT STEP]")
+        appendLine("Run the separate external OpenXR client probe. Definitive game capture needs a runtime-to-host event channel for xrCreateInstance, xrCreateSession and xrEndFrame.")
+    }
+
+    private fun showLaunchDiagnostic(title: String, report: String) {
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+        }
+        content.addView(text("OPENXR-ПЕРЕХВАТ: НЕ ПОДТВЕРЖДЁН", 13f, 0xFFFFD28A.toInt(), Typeface.BOLD)
+            .apply { setPadding(0, 0, 0, dp(8)) })
+        content.addView(text(
+            "Это не означает, что игра точно не подключилась. Сейчас NextVRera подтверждает запуск Android и проверяет RuntimeBroker, но ещё не получает обратное событие из процесса игры.",
+            12f, 0xFFD0D7E2.toInt()
+        ).apply { setPadding(0, 0, 0, dp(10)) })
+        content.addView(text(report, 10f, 0xFFB8C2D0.toInt()))
+        val scroll = ScrollView(this).apply { addView(content); isFillViewport = true }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(scroll)
+            .setPositiveButton("Закрыть", null)
+            .setNeutralButton("Копировать лог", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("NextVRera OpenXR launch log", report))
+                Toast.makeText(this, "Лог скопирован. Вставь его сюда.", Toast.LENGTH_LONG).show()
+            }
+        }
+        dialog.show()
     }
 
     private fun installOnAndroid(info: ImportedApkInfo) {
@@ -467,8 +598,7 @@ class ApkImportActivity : ComponentActivity() {
     private fun button(label: String): Button = Button(this).apply {
         text = label
         isAllCaps = false
-        setTextColor(Color.WHITE)
-        background = rounded(0xFF303B4B.toInt(), dp(9).toFloat())
+        applyNextVreraStyle(nextVreraToneFor(label))
     }
 
     private fun text(

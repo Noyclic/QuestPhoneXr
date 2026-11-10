@@ -1,33 +1,38 @@
 package com.noyclic.questphonexr.runtime
 
-import com.noyclic.questphonexr.input.ControllerInputSource
-import com.noyclic.questphonexr.input.VirtualControllerMapper
-import com.noyclic.questphonexr.input.VirtualControllerState
 import com.noyclic.questphonexr.sandbox.MonocularHandDepthEstimator
 import com.noyclic.questphonexr.tracking.HandPoint
+import com.noyclic.questphonexr.tracking.HandGestureEstimator
+import com.noyclic.questphonexr.tracking.HandKinematicReconstructor
+import com.noyclic.questphonexr.tracking.AdaptiveHandOrientationFilter
+import com.noyclic.questphonexr.tracking.AdaptiveHandRootPositionFilter
 import com.noyclic.questphonexr.tracking.HandSide
+import com.noyclic.questphonexr.tracking.NaturalGestureClassifier
+import com.noyclic.questphonexr.tracking.NaturalGestureResult
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.TrackedHand
-import com.noyclic.questphonexr.vr.PhoneVrMath
 import kotlin.math.sqrt
 
 /**
- * Camera-local palm poses are estimates, not metric controller tracking.
- * Image x/y place the palm in the interaction frustum; apparent palm width
- * estimates distance; MediaPipe world landmarks supply palm orientation.
- *
- * This deliberately does not call the result 6DoF. Translation is monocular
- * and orientation is derived from a hand skeleton, not a tracked controller.
+ * Camera-local hand poses are estimates, not metric controller tracking.
+ * The 26 OpenXR joint positions are reconstructed from MediaPipe's 21 landmarks:
+ * palm and four finger metacarpal bases are derived, while the measured wrist,
+ * thumb and finger joints retain their MediaPipe positions.
  */
 internal data class EndXrEncodedHandInput(
     val leftRow: FloatArray,
     val rightRow: FloatArray,
     val leftPose: EndXrHandPoseSample,
-    val rightPose: EndXrHandPoseSample
+    val rightPose: EndXrHandPoseSample,
+    val leftJoints: EndXrHandJointSample,
+    val rightJoints: EndXrHandJointSample,
+    val leftGesture: NaturalGestureResult,
+    val rightGesture: NaturalGestureResult
 )
 
 internal object EndXrHandInputEncoder {
     private data class Vec3(val x: Float, val y: Float, val z: Float) {
+        operator fun plus(other: Vec3) = Vec3(x + other.x, y + other.y, z + other.z)
         operator fun minus(other: Vec3) = Vec3(x - other.x, y - other.y, z - other.z)
         operator fun times(scale: Float) = Vec3(x * scale, y * scale, z * scale)
         fun length(): Float = sqrt(x * x + y * y + z * z)
@@ -38,225 +43,388 @@ internal object EndXrHandInputEncoder {
         }
     }
 
-    private val mapper = VirtualControllerMapper()
-    private val leftPoseState = HandPoseState()
-    private val rightPoseState = HandPoseState()
-
-    @Synchronized
-    fun encode(frame: HandTrackingFrame): EndXrEncodedHandInput {
-        val mapped = mapper.map(frame, emptyList())
-        val hands = frame.hands.filter { it.side != HandSide.UNKNOWN }.associateBy { it.side }
-        val left = hands[HandSide.LEFT]
-        val right = hands[HandSide.RIGHT]
-
-        val leftPose = encodePose(left, leftPoseState, frame.timestampMs)
-        val rightPose = encodePose(right, rightPoseState, frame.timestampMs)
-
-        return EndXrEncodedHandInput(
-            leftRow = encodeState(mapped.left),
-            rightRow = encodeState(mapped.right),
-            leftPose = leftPose,
-            rightPose = rightPose
-        )
-    }
-
-    private fun encodePose(
-        hand: TrackedHand?,
-        state: HandPoseState,
-        timestampMs: Long
-    ): EndXrHandPoseSample {
-        // Sandbox renders at a higher cadence than MediaPipe inference. Return the
-        // cached result for duplicate/out-of-order callbacks instead of repeatedly
-        // advancing the monocular depth estimator and temporal filters on one frame.
-        if (timestampMs > 0L && state.lastTimestampMs > 0L &&
-            timestampMs <= state.lastTimestampMs
-        ) return state.lastPose
-
-        if (hand == null || hand.points.size < LANDMARK_COUNT ||
-            hand.worldPoints.size < LANDMARK_COUNT
-        ) return state.invalidate(timestampMs)
-
-        val imageCenter = average(hand.points, PALM_INDICES)
-            ?: return state.invalidate(timestampMs)
-        val worldCenter = average(hand.worldPoints, PALM_INDICES)
-            ?: return state.invalidate(timestampMs)
-        val distance = state.depthEstimator.update(hand.points, timestampMs)?.takeIf { it.isFinite() }
-            ?: DEFAULT_HAND_DISTANCE_METERS
-
-        val x = ((imageCenter.x - 0.5f) * distance * HORIZONTAL_FOV_SCALE)
-            .coerceIn(-MAX_HAND_X_METERS, MAX_HAND_X_METERS)
-        val y = ((0.5f - imageCenter.y) * distance * VERTICAL_FOV_SCALE)
-            .coerceIn(-MAX_HAND_Y_METERS, MAX_HAND_Y_METERS)
-        val z = (-distance + worldCenter.z.coerceIn(-MAX_LOCAL_DEPTH_METERS, MAX_LOCAL_DEPTH_METERS) *
-            LOCAL_DEPTH_SCALE).coerceIn(-MAX_HAND_DISTANCE_METERS, -0.25f)
-
-        val position = state.positionSmoother.update(x, y, z, timestampMs)
-            ?: return state.invalidate(timestampMs)
-        val rawOrientation = palmOrientation(hand.worldPoints)
-            ?: return state.invalidate(timestampMs)
-        val orientation = state.orientationSmoother.update(rawOrientation, timestampMs)
-            ?: return state.invalidate(timestampMs)
-        val pose = EndXrHandPoseSample.fromCameraPose(
-            x = position[0], y = position[1], z = position[2],
-            qx = orientation[0], qy = orientation[1],
-            qz = orientation[2], qw = orientation[3]
-        )
-        if (!pose.active) return state.invalidate(timestampMs)
-        state.store(timestampMs, pose)
-        return pose
-    }
-
-    /** All temporal state is per hand; a missing left hand cannot reset the right hand. */
-    private class HandPoseState {
-        val depthEstimator = MonocularHandDepthEstimator()
-        val positionSmoother = PalmPositionSmoother()
-        val orientationSmoother = PalmOrientationSmoother()
-        var lastTimestampMs: Long = 0L
-            private set
-        var lastPose: EndXrHandPoseSample = EndXrHandPoseSample.EMPTY
-            private set
-
-        fun store(timestampMs: Long, pose: EndXrHandPoseSample) {
-            lastTimestampMs = timestampMs.coerceAtLeast(0L)
-            lastPose = pose
-        }
-
-        fun invalidate(timestampMs: Long): EndXrHandPoseSample {
-            depthEstimator.reset()
-            positionSmoother.reset()
-            orientationSmoother.reset()
-            store(timestampMs, EndXrHandPoseSample.EMPTY)
-            return lastPose
+    private data class EncodedHand(
+        val pose: EndXrHandPoseSample,
+        val joints: EndXrHandJointSample
+    ) {
+        companion object {
+            val EMPTY = EncodedHand(
+                EndXrHandPoseSample.EMPTY,
+                EndXrHandJointSample.EMPTY
+            )
         }
     }
 
-    /**
-     * Time-based position filter with a hard per-sample displacement bound.
-     * It reduces low-motion jitter while following faster movements more closely.
-     */
-    private class PalmPositionSmoother {
-        private var previous: FloatArray? = null
-        private var previousTimestampMs = 0L
+    private class EncodedHandSampleCache {
+        private var trackingId = NO_TRACKING_ID
+        private var sampleTimestampMs = Long.MIN_VALUE
+        private var encoded = EncodedHand.EMPTY
 
-        fun update(x: Float, y: Float, z: Float, timestampMs: Long): FloatArray? {
-            val measured = floatArrayOf(x, y, z)
-            if (!measured.all(Float::isFinite)) return null
+        fun matches(nextTrackingId: Long, nextTimestampMs: Long): Boolean =
+            trackingId == nextTrackingId && sampleTimestampMs == nextTimestampMs
 
-            val current = previous
-            if (current == null || timestampMs <= 0L || previousTimestampMs <= 0L) {
-                previous = measured
-                previousTimestampMs = timestampMs.coerceAtLeast(0L)
-                return measured.copyOf()
-            }
-            if (timestampMs <= previousTimestampMs) return current.copyOf()
+        fun value(): EncodedHand = encoded
 
-            val elapsedMs = timestampMs - previousTimestampMs
-            if (elapsedMs > MAX_CONTINUOUS_GAP_MS) {
-                previous = measured
-                previousTimestampMs = timestampMs
-                return measured.copyOf()
-            }
-
-            val deltaSeconds = (elapsedMs / 1_000f).coerceIn(
-                MIN_DELTA_SECONDS,
-                MAX_DELTA_SECONDS
-            )
-            val dx = measured[0] - current[0]
-            val dy = measured[1] - current[1]
-            val dz = measured[2] - current[2]
-            val rawDistance = sqrt(dx * dx + dy * dy + dz * dz)
-            if (!rawDistance.isFinite()) return null
-
-            val rawSpeed = rawDistance / deltaSeconds
-            val maximumStep = MAX_POSITION_SPEED_METERS_PER_SECOND * deltaSeconds
-            val clampScale = if (rawDistance > maximumStep && rawDistance > 0f) {
-                maximumStep / rawDistance
-            } else {
-                1f
-            }
-            val limitedTarget = floatArrayOf(
-                current[0] + dx * clampScale,
-                current[1] + dy * clampScale,
-                current[2] + dz * clampScale
-            )
-
-            val fastMotion = (
-                (rawSpeed - LOW_MOTION_SPEED_METERS_PER_SECOND) /
-                    (HIGH_MOTION_SPEED_METERS_PER_SECOND - LOW_MOTION_SPEED_METERS_PER_SECOND)
-                ).coerceIn(0f, 1f)
-            val timeConstant = BASE_TIME_CONSTANT_SECONDS *
-                (1f - FAST_MOTION_REDUCTION * fastMotion)
-            val alpha = (
-                1f - kotlin.math.exp(-deltaSeconds / timeConstant)
-                ).coerceIn(0f, 1f)
-
-            val filtered = FloatArray(3) { index ->
-                current[index] + (limitedTarget[index] - current[index]) * alpha
-            }
-            if (!filtered.all(Float::isFinite)) return null
-            previous = filtered
-            previousTimestampMs = timestampMs
-            return filtered.copyOf()
+        fun store(nextTrackingId: Long, nextTimestampMs: Long, value: EncodedHand) {
+            trackingId = nextTrackingId
+            sampleTimestampMs = nextTimestampMs
+            encoded = value
         }
 
         fun reset() {
-            previous = null
-            previousTimestampMs = 0L
+            trackingId = NO_TRACKING_ID
+            sampleTimestampMs = Long.MIN_VALUE
+            encoded = EncodedHand.EMPTY
         }
 
         private companion object {
-            const val BASE_TIME_CONSTANT_SECONDS = 0.060f
-            const val FAST_MOTION_REDUCTION = 0.55f
-            const val LOW_MOTION_SPEED_METERS_PER_SECOND = 0.25f
-            const val HIGH_MOTION_SPEED_METERS_PER_SECOND = 3.5f
-            const val MAX_POSITION_SPEED_METERS_PER_SECOND = 8f
-            const val MIN_DELTA_SECONDS = 0.001f
-            const val MAX_DELTA_SECONDS = 0.25f
-            const val MAX_CONTINUOUS_GAP_MS = 250L
+            const val NO_TRACKING_ID = Long.MIN_VALUE
         }
     }
 
-    private fun average(points: List<HandPoint>, indices: IntArray): Vec3? {
-        if (indices.any { it !in points.indices }) return null
-        val selected = indices.map { points[it] }
-        if (selected.any { !it.x.isFinite() || !it.y.isFinite() || !it.z.isFinite() }) return null
-        val count = selected.size.toFloat()
-        return Vec3(
-            selected.sumOf { it.x.toDouble() }.toFloat() / count,
-            selected.sumOf { it.y.toDouble() }.toFloat() / count,
-            selected.sumOf { it.z.toDouble() }.toFloat() / count
+    private val leftDepthEstimator = MonocularHandDepthEstimator()
+    private val rightDepthEstimator = MonocularHandDepthEstimator()
+    private val leftSkeletonReconstructor = HandKinematicReconstructor()
+    private val rightSkeletonReconstructor = HandKinematicReconstructor()
+    private val leftOrientationFilter = AdaptiveHandOrientationFilter()
+    private val rightOrientationFilter = AdaptiveHandOrientationFilter()
+    private val leftRootPositionFilter = AdaptiveHandRootPositionFilter()
+    private val rightRootPositionFilter = AdaptiveHandRootPositionFilter()
+    private val leftSampleCache = EncodedHandSampleCache()
+    private val rightSampleCache = EncodedHandSampleCache()
+    private val leftGestureClassifier = NaturalGestureClassifier()
+    private val rightGestureClassifier = NaturalGestureClassifier()
+
+    @Synchronized
+    fun encode(frame: HandTrackingFrame): EndXrEncodedHandInput {
+        var left: TrackedHand? = null
+        var right: TrackedHand? = null
+        for (hand in frame.hands) {
+            when (hand.side) {
+                HandSide.LEFT -> left = hand
+                HandSide.RIGHT -> right = hand
+                HandSide.UNKNOWN -> Unit
+            }
+        }
+
+        val leftEncoded = encodeHand(
+            left, leftDepthEstimator, leftSkeletonReconstructor, leftOrientationFilter,
+            leftRootPositionFilter, leftSampleCache, frame.timestampMs
+        )
+        val rightEncoded = encodeHand(
+            right, rightDepthEstimator, rightSkeletonReconstructor, rightOrientationFilter,
+            rightRootPositionFilter, rightSampleCache, frame.timestampMs
+        )
+        val leftGesture = leftGestureClassifier.update(left, frame.timestampMs)
+        val rightGesture = rightGestureClassifier.update(right, frame.timestampMs)
+        if (left == null) {
+            leftDepthEstimator.reset()
+            leftSkeletonReconstructor.reset()
+            leftOrientationFilter.reset()
+            leftRootPositionFilter.reset()
+            leftSampleCache.reset()
+        }
+        if (right == null) {
+            rightDepthEstimator.reset()
+            rightSkeletonReconstructor.reset()
+            rightOrientationFilter.reset()
+            rightRootPositionFilter.reset()
+            rightSampleCache.reset()
+        }
+
+        return EndXrEncodedHandInput(
+            leftRow = encodeControllerRow(left),
+            rightRow = encodeControllerRow(right),
+            leftPose = leftEncoded.pose,
+            rightPose = rightEncoded.pose,
+            leftJoints = leftEncoded.joints,
+            rightJoints = rightEncoded.joints,
+            leftGesture = leftGesture,
+            rightGesture = rightGesture
         )
     }
 
     /**
-     * Construct an approximate palm basis from wrist, index/middle/pinky MCP.
-     * The basis is hand-local and camera-aligned; it is not a controller model.
+     * Camera hands supply pinch trigger and a digital natural power grip only.
+     * Stick axes and physical face buttons remain neutral, not fabricated.
      */
+    private fun encodeControllerRow(hand: TrackedHand?): FloatArray {
+        if (hand == null || hand.points.size < LANDMARK_COUNT ||
+            hand.points.any { !it.x.isFinite() || !it.y.isFinite() || !it.z.isFinite() }
+        ) return FloatArray(CONTROLLER_ROW_SIZE)
+
+        val rawTrigger = hand.pinchStrength.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+        val trigger = if (hand.isPinching) maxOf(rawTrigger, PINCH_ACTIVE_FLOOR) else rawTrigger
+        val grip = if (HandGestureEstimator.isPowerGrip(hand)) 1f else 0f
+        return floatArrayOf(1f, trigger, grip, 0f, 0f, 0f)
+    }
+
+    private fun encodeHand(
+        hand: TrackedHand?,
+        depthEstimator: MonocularHandDepthEstimator,
+        skeletonReconstructor: HandKinematicReconstructor,
+        orientationFilter: AdaptiveHandOrientationFilter,
+        rootPositionFilter: AdaptiveHandRootPositionFilter,
+        sampleCache: EncodedHandSampleCache,
+        timestampMs: Long
+    ): EncodedHand {
+        if (hand == null) {
+            sampleCache.reset()
+            return EncodedHand.EMPTY
+        }
+
+        val sampleTimestampMs = hand.rawTimestampMs.takeIf { it >= 0L } ?: timestampMs
+        if (sampleCache.matches(hand.trackingId, sampleTimestampMs)) {
+            val sampleAgeMs = timestampMs - sampleTimestampMs
+            if (sampleAgeMs in 0L..MAX_CACHED_SAMPLE_AGE_MS) {
+                // A temporary detector miss can expose the last raw sample again.
+                // Reuse its encoded pose/joints instead of feeding the same timestamp
+                // into temporal filters, which would otherwise reset their history.
+                return sampleCache.value()
+            }
+
+            // Keep the expired key as a tombstone so the same stale observation
+            // cannot be treated as fresh again on the next encoder call.
+            sampleCache.store(hand.trackingId, sampleTimestampMs, EncodedHand.EMPTY)
+            skeletonReconstructor.reset()
+            orientationFilter.reset()
+            rootPositionFilter.reset()
+            depthEstimator.reset()
+            return EncodedHand.EMPTY
+        }
+
+        val encoded = encodeHandFresh(
+            hand, depthEstimator, skeletonReconstructor, orientationFilter,
+            rootPositionFilter, timestampMs
+        )
+        sampleCache.store(hand.trackingId, sampleTimestampMs, encoded)
+        return encoded
+    }
+
+    private fun encodeHandFresh(
+        hand: TrackedHand,
+        depthEstimator: MonocularHandDepthEstimator,
+        skeletonReconstructor: HandKinematicReconstructor,
+        orientationFilter: AdaptiveHandOrientationFilter,
+        rootPositionFilter: AdaptiveHandRootPositionFilter,
+        timestampMs: Long
+    ): EncodedHand {
+        if (hand.rawPoints.size < LANDMARK_COUNT ||
+            hand.rawWorldPoints.size < LANDMARK_COUNT ||
+            hand.rawPoints.take(LANDMARK_COUNT).any { !it.x.isFinite() || !it.y.isFinite() || !it.z.isFinite() } ||
+            hand.rawWorldPoints.take(LANDMARK_COUNT).any { !it.x.isFinite() || !it.y.isFinite() || !it.z.isFinite() }
+        ) {
+            skeletonReconstructor.reset()
+            orientationFilter.reset()
+            rootPositionFilter.reset()
+            depthEstimator.reset()
+            return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
+        }
+
+        // EndXR uses the newest observation here. The reconstructor owns the
+        // adaptive joint filter; feeding it One-Euro-filtered render points would
+        // stack two temporal filters and add avoidable input lag.
+        val sampleTimestampMs = hand.rawTimestampMs.takeIf { it >= 0L } ?: timestampMs
+        val imageCenter = average(hand.rawPoints, PALM_INDICES) ?: run {
+            skeletonReconstructor.reset()
+            orientationFilter.reset()
+            rootPositionFilter.reset()
+            depthEstimator.reset()
+            return EncodedHand.EMPTY
+        }
+        val worldCenter = average(hand.rawWorldPoints, PALM_INDICES) ?: run {
+            skeletonReconstructor.reset()
+            orientationFilter.reset()
+            rootPositionFilter.reset()
+            depthEstimator.reset()
+            return EncodedHand.EMPTY
+        }
+        // Depth is already smoothed by MonocularHandDepthEstimator. Use its
+        // current scale to cap camera-plane jumps in metres, then keep the existing
+        // One-Euro smoothing rather than stacking a second pose filter.
+        val distance = depthEstimator.update(hand.rawPoints, sampleTimestampMs)?.takeIf { it.isFinite() }
+            ?: DEFAULT_HAND_DISTANCE_METERS
+        val stableImageCenter = rootPositionFilter.update(
+            imageCenter.x,
+            imageCenter.y,
+            hand.trackingId,
+            sampleTimestampMs,
+            metersPerNormalizedUnit = distance * HORIZONTAL_FOV_SCALE
+        ) ?: return EncodedHand(EndXrHandPoseSample.EMPTY, EndXrHandJointSample.EMPTY)
+
+        val x = ((stableImageCenter.x - 0.5f) * distance * HORIZONTAL_FOV_SCALE)
+            .coerceIn(-MAX_HAND_X_METERS, MAX_HAND_X_METERS)
+        val y = ((0.5f - stableImageCenter.y) * distance * VERTICAL_FOV_SCALE)
+            .coerceIn(-MAX_HAND_Y_METERS, MAX_HAND_Y_METERS)
+        val z = (-distance + worldCenter.z.coerceIn(-MAX_LOCAL_DEPTH_METERS, MAX_LOCAL_DEPTH_METERS) *
+            LOCAL_DEPTH_SCALE).coerceIn(-MAX_HAND_DISTANCE_METERS, -0.25f)
+        val measuredOrientation = palmOrientation(hand.rawWorldPoints) ?: run {
+            skeletonReconstructor.reset()
+            orientationFilter.reset()
+            rootPositionFilter.reset()
+            depthEstimator.reset()
+            return EncodedHand.EMPTY
+        }
+        val orientation = orientationFilter.update(
+            measuredOrientation,
+            trackingId = hand.trackingId,
+            timestampMs = sampleTimestampMs
+        ) ?: run {
+            skeletonReconstructor.reset()
+            rootPositionFilter.reset()
+            depthEstimator.reset()
+            return EncodedHand.EMPTY
+        }
+        val pose = EndXrHandPoseSample.fromCameraPose(
+            x = x, y = y, z = z,
+            qx = orientation[0], qy = orientation[1],
+            qz = orientation[2], qw = orientation[3]
+        )
+        if (!pose.active) {
+            skeletonReconstructor.reset()
+            orientationFilter.reset()
+            rootPositionFilter.reset()
+            depthEstimator.reset()
+            return EncodedHand.EMPTY
+        }
+
+        val reconstructedJoints = skeletonReconstructor.reconstruct(
+            hand.rawWorldPoints,
+            hand.trackingId,
+            sampleTimestampMs
+        ) ?: return EncodedHand(pose, EndXrHandJointSample.EMPTY)
+        val joints = encodeJoints(reconstructedJoints, pose)
+        return EncodedHand(pose, joints)
+    }
+
+    /**
+     * Reconstruct OpenXR's 26-joint order from MediaPipe's 21 landmarks.
+     * Four finger metacarpals are estimated along the wrist-to-MCP segment.
+     * All joint offsets and orientations are kept in MediaPipe world space,
+     * so the native runtime composes them with the monocular palm pose once.
+     */
+    private fun encodeJoints(
+        reconstructed: List<HandPoint>,
+        palmPose: EndXrHandPoseSample
+    ): EndXrHandJointSample {
+        if (reconstructed.size != EndXrHandJointSample.JOINT_COUNT) {
+            return EndXrHandJointSample.EMPTY
+        }
+        val jointPoints = reconstructed.map { it.toVec3() ?: return EndXrHandJointSample.EMPTY }
+        val palm = jointPoints[0]
+        if (jointPoints.size != EndXrHandJointSample.JOINT_COUNT) {
+            return EndXrHandJointSample.EMPTY
+        }
+
+        val inversePalm = floatArrayOf(
+            -palmPose.qx, -palmPose.qy, -palmPose.qz, palmPose.qw
+        )
+        val values = FloatArray(EndXrHandJointSample.FLOAT_COUNT)
+        for (index in jointPoints.indices) {
+            val localOffset = rotate(inversePalm, jointPoints[index] - palm)
+            if (!localOffset.x.isFinite() || !localOffset.y.isFinite() ||
+                !localOffset.z.isFinite() || kotlin.math.abs(localOffset.x) > 0.24f ||
+                kotlin.math.abs(localOffset.y) > 0.24f ||
+                kotlin.math.abs(localOffset.z) > 0.24f
+            ) return EndXrHandJointSample.EMPTY
+
+            val nextIndex = nextJointIndex(index)
+            val direction = if (nextIndex >= 0) {
+                (jointPoints[nextIndex] - jointPoints[index]).normalized()
+            } else if (index > 1) {
+                (jointPoints[index] - jointPoints[previousJointIndex(index)]).normalized()
+            } else {
+                null
+            }
+            val localDirection = direction?.let { rotate(inversePalm, it) }
+            val localOrientation = localDirection?.let(::quaternionFromDirection)
+                ?: floatArrayOf(0f, 0f, 0f, 1f)
+
+            val offset = index * EndXrHandJointSample.FLOATS_PER_JOINT
+            values[offset] = localOffset.x
+            values[offset + 1] = localOffset.y
+            values[offset + 2] = localOffset.z
+            values[offset + 3] = jointRadius(index)
+            values[offset + 4] = localOrientation[0]
+            values[offset + 5] = localOrientation[1]
+            values[offset + 6] = localOrientation[2]
+            values[offset + 7] = localOrientation[3]
+        }
+        return EndXrHandJointSample.fromValues(values)
+    }
+
+    private fun nextJointIndex(index: Int): Int = when {
+        index in 2..4 -> index + 1
+        index in 6..9 -> index + 1
+        index in 11..14 -> index + 1
+        index in 16..19 -> index + 1
+        index in 21..24 -> index + 1
+        else -> -1
+    }
+
+    private fun previousJointIndex(index: Int): Int = when {
+        index == 5 -> 4
+        index in 7..10 -> index - 1
+        index in 12..15 -> index - 1
+        index in 17..20 -> index - 1
+        index in 22..25 -> index - 1
+        else -> 1
+    }
+
+    private fun quaternionFromDirection(direction: Vec3): FloatArray? {
+        val forward = direction.normalized() ?: return null
+        val reference = Vec3(0f, 0f, 1f)
+        val right = cross(forward, reference).normalized()
+            ?: cross(forward, Vec3(0f, 1f, 0f)).normalized()
+            ?: return null
+        val up = cross(right, forward).normalized() ?: return null
+        return quaternionFromBasis(right, forward, up)
+    }
+    private fun jointRadius(index: Int): Float = when {
+        index == 0 -> 0.022f
+        index == 1 -> 0.014f
+        index in 2..5 -> 0.010f
+        index % 5 == 0 -> 0.008f
+        else -> 0.009f
+    }
+
+    /** Rotate a vector by a normalized quaternion. */
+    private fun rotate(q: FloatArray, value: Vec3): Vec3 {
+        val qv = Vec3(q[0], q[1], q[2])
+        val cross1 = cross(qv, value)
+        val cross2 = cross(qv, cross1 + value * q[3])
+        return value + cross2 * 2f
+    }
+
+    private fun average(points: List<HandPoint>, indices: IntArray): Vec3? {
+        if (indices.isEmpty()) return null
+        var sumX = 0.0
+        var sumY = 0.0
+        var sumZ = 0.0
+        for (index in indices) {
+            val point = points.getOrNull(index) ?: return null
+            if (!point.x.isFinite() || !point.y.isFinite() || !point.z.isFinite()) return null
+            sumX += point.x.toDouble()
+            sumY += point.y.toDouble()
+            sumZ += point.z.toDouble()
+        }
+        val count = indices.size.toDouble()
+        return Vec3(
+            (sumX / count).toFloat(),
+            (sumY / count).toFloat(),
+            (sumZ / count).toFloat()
+        )
+    }
+
     private fun palmOrientation(points: List<HandPoint>): FloatArray? {
         val wrist = points.getOrNull(0)?.toVec3() ?: return null
         val indexMcp = points.getOrNull(5)?.toVec3() ?: return null
         val middleMcp = points.getOrNull(9)?.toVec3() ?: return null
         val pinkyMcp = points.getOrNull(17)?.toVec3() ?: return null
 
-        val acrossPalm = indexMcp - pinkyMcp
-        val towardFingers = middleMcp - wrist
-        val palmWidth = acrossPalm.length()
-        val palmLength = towardFingers.length()
-
-        // MediaPipe world landmarks are metric hand-local coordinates. Reject
-        // collapsed/noisy skeletons before normalization amplifies their noise.
-        if (!palmWidth.isFinite() || palmWidth !in MIN_PALM_WIDTH_METERS..MAX_PALM_WIDTH_METERS ||
-            !palmLength.isFinite() || palmLength !in MIN_PALM_LENGTH_METERS..MAX_PALM_LENGTH_METERS
-        ) return null
-
-        val xAxis = acrossPalm.normalized() ?: return null
-        val yCandidate = towardFingers.normalized() ?: return null
-        val zUnnormalized = cross(xAxis, yCandidate)
-        val basisSine = zUnnormalized.length()
-        // The palm's width and length axes must not be almost collinear.
-        if (!basisSine.isFinite() || basisSine < MIN_BASIS_SINE) return null
-
-        val zAxis = (zUnnormalized * (1f / basisSine)).normalized() ?: return null
+        val xAxis = (indexMcp - pinkyMcp).normalized() ?: return null
+        val yCandidate = (middleMcp - wrist).normalized() ?: return null
+        val zAxis = cross(xAxis, yCandidate).normalized() ?: return null
         val yAxis = cross(zAxis, xAxis).normalized() ?: return null
         return quaternionFromBasis(xAxis, yAxis, zAxis)
     }
@@ -309,95 +477,12 @@ internal object EndXrHandInputEncoder {
         return q.takeIf { it.all(Float::isFinite) }
     }
 
-    private fun encodeState(state: VirtualControllerState): FloatArray = floatArrayOf(
-        if (state.source != ControllerInputSource.NONE) 1f else 0f,
-        state.trigger.coerceIn(0f, 1f),
-        state.grip.coerceIn(0f, 1f),
-        0f,
-        0f,
-        0f
-    )
 
-    /**
-     * Per-hand temporal quaternion filter. Duplicate callbacks are ignored so the
-     * foreground service and Sandbox render loop cannot advance one sample twice.
-     */
-    private class PalmOrientationSmoother {
-        private var previous: FloatArray? = null
-        private var previousTimestampMs = 0L
-
-        fun update(raw: FloatArray, timestampMs: Long): FloatArray? {
-            val normalized = PhoneVrMath.normalizedQuaternion(raw) ?: return null
-            val current = previous
-
-            if (current == null || timestampMs <= 0L || previousTimestampMs <= 0L) {
-                previous = normalized
-                previousTimestampMs = timestampMs.coerceAtLeast(0L)
-                return normalized.copyOf()
-            }
-
-            // Ignore duplicate and out-of-order results; never rewind a tracked pose.
-            if (timestampMs <= previousTimestampMs) return current.copyOf()
-
-            val elapsedMs = timestampMs - previousTimestampMs
-            if (elapsedMs > MAX_CONTINUOUS_GAP_MS) {
-                previous = normalized
-                previousTimestampMs = timestampMs
-                return normalized.copyOf()
-            }
-
-            val deltaSeconds = (elapsedMs / 1_000f).coerceIn(
-                MIN_DELTA_SECONDS,
-                MAX_DELTA_SECONDS
-            )
-            val dot = kotlin.math.abs(
-                current[0] * normalized[0] +
-                    current[1] * normalized[1] +
-                    current[2] * normalized[2] +
-                    current[3] * normalized[3]
-            ).coerceIn(0f, 1f)
-            val angularSpeed = (
-                2.0 * kotlin.math.acos(dot.toDouble()) / deltaSeconds.toDouble()
-                ).toFloat()
-            val fastMotion = (
-                (angularSpeed - LOW_ANGULAR_SPEED_RAD_S) /
-                    (HIGH_ANGULAR_SPEED_RAD_S - LOW_ANGULAR_SPEED_RAD_S)
-                ).coerceIn(0f, 1f)
-            val timeConstant = BASE_TIME_CONSTANT_SECONDS *
-                (1f - FAST_MOTION_REDUCTION * fastMotion)
-            val alpha = (
-                1f - kotlin.math.exp(-deltaSeconds / timeConstant)
-                ).coerceIn(0f, 1f)
-
-            val filtered = PhoneVrMath.slerpQuat(current, normalized, alpha) ?: return null
-            previous = filtered
-            previousTimestampMs = timestampMs
-            return filtered.copyOf()
-        }
-
-        fun reset() {
-            previous = null
-            previousTimestampMs = 0L
-        }
-
-        private companion object {
-            const val BASE_TIME_CONSTANT_SECONDS = 0.085f
-            const val FAST_MOTION_REDUCTION = 0.45f
-            const val LOW_ANGULAR_SPEED_RAD_S = 1.5f
-            const val HIGH_ANGULAR_SPEED_RAD_S = 8f
-            const val MIN_DELTA_SECONDS = 0.001f
-            const val MAX_DELTA_SECONDS = 0.1f
-            const val MAX_CONTINUOUS_GAP_MS = 250L
-        }
-    }
-
-    private const val MIN_PALM_WIDTH_METERS = 0.015f
-    private const val MAX_PALM_WIDTH_METERS = 0.22f
-    private const val MIN_PALM_LENGTH_METERS = 0.02f
-    private const val MAX_PALM_LENGTH_METERS = 0.25f
-    private const val MIN_BASIS_SINE = 0.15f
+    private const val MAX_CACHED_SAMPLE_AGE_MS = 140L
     private const val LANDMARK_COUNT = 21
-    private val PALM_INDICES = intArrayOf(0, 5, 9, 13, 17)
+    private const val CONTROLLER_ROW_SIZE = 6
+    private const val PINCH_ACTIVE_FLOOR = 0.62f
+    private val PALM_INDICES = intArrayOf(5, 9, 13, 17)
     private const val DEFAULT_HAND_DISTANCE_METERS = 2.55f
     private const val HORIZONTAL_FOV_SCALE = 2.4f
     private const val VERTICAL_FOV_SCALE = 1.8f

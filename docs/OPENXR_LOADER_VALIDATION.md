@@ -28,17 +28,24 @@ The probe records these stages:
    HMD system, and confirms `XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO`,
    the probe creates an independent EGL ES 3 pbuffer context, queries graphics
    requirements, and attempts `xrCreateSession` / `xrBeginSession`.
-7. It enumerates the swapchain formats advertised by that session, prefers
+7. When `XR_EXT_hand_tracking` is advertised, it resolves the three hand-tracking
+   entry points, creates left and right hand trackers in the external session,
+   and calls `xrLocateHandJointsEXT` at the predicted frame time in a LOCAL
+   reference space. The report records whether each hand is active, how many of
+   the 26 joint positions/orientations are valid, and how many claim TRACKED.
+   An inactive hand is expected when no fresh camera frame is being published;
+   active camera-estimated joints must not claim TRACKED.
+8. It enumerates the swapchain formats advertised by that session, prefers
    `GL_RGBA8` when available, and otherwise uses the runtime's first advertised
    format. It creates a 128x64 GLES swapchain for two 64x64 eye regions.
-8. It renders a red left-eye region and blue right-eye region into a released
+9. It renders a red left-eye region and blue right-eye region into a released
    swapchain image, waits/begins a frame, locates the two stereo views, and
    submits one `XrCompositionLayerProjection` with separate side-by-side image
    rectangles. After `xrEndFrame`, it reads one pixel from each half of the
    probe's EGL pbuffer to check that the compositor copied the expected colors.
    The probe enumerates environment blend modes and prefers `OPAQUE` when
    supported; otherwise it uses the first mode advertised by the runtime.
-9. It tears down the reference space, swapchain, session, EGL context and instance.
+10. It tears down the reference space, swapchain, session, EGL context and instance.
    If the HMD system or primary stereo view is unavailable, the GLES session
    stage is skipped rather than issuing calls with an invalid system ID. If no
    blend mode is reported, the frame lifecycle is skipped.
@@ -65,6 +72,13 @@ a local imitation of the loader or RuntimeBroker.
   stereo view configuration.
 - `external_xrCreateSession=XR_SUCCESS` means the runtime accepted a real
   EGL-bound session from the separate client process.
+- `external_xrCreateHandTrackerEXT_left=XR_SUCCESS` and
+  `external_xrCreateHandTrackerEXT_right=XR_SUCCESS` mean the external process
+  created both hand trackers. The corresponding `external_xrLocateHandJointsEXT_*`
+  lines report live state and validity for all 26 joints. `active=NO` is not an
+  API failure; it means no fresh camera hand sample was available at that instant.
+  `tracked=0` is intentional because the phone-camera estimates are not true
+  tracked metric poses.
 - `external_projection_layer_submission=PASS` means the separate client
   submitted a two-view projection layer and the runtime returned success from
   `xrEndFrame`.

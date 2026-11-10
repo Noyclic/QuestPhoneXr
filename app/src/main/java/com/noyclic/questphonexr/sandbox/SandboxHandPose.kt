@@ -25,10 +25,15 @@ internal object SandboxHandPoseMapper {
         val distance = (estimatedDistanceMeters ?: -CURSOR_DEPTH).coerceIn(0.5f, 6.0f)
         val horizontalReach = distance * HORIZONTAL_FOV_SCALE
         val verticalReach = distance * VERTICAL_FOV_SCALE
-        return points.take(HAND_LANDMARK_COUNT).mapIndexed { index, point ->
+        val rotation = if (isValidRotation(cameraToWorldRotation)) cameraToWorldRotation else null
+        val count = minOf(points.size, HAND_LANDMARK_COUNT)
+        val mapped = ArrayList<SandboxVector3>(count)
+
+        for (index in 0 until count) {
+            val point = points[index]
             val relativeDepth = (
-                worldPoints.getOrNull(index)?.z
-                    ?: point.z.coerceIn(-MAX_RELATIVE_DEPTH, MAX_RELATIVE_DEPTH)
+                if (index < worldPoints.size) worldPoints[index].z
+                else point.z.coerceIn(-MAX_RELATIVE_DEPTH, MAX_RELATIVE_DEPTH)
                 ).coerceIn(-MAX_RELATIVE_DEPTH, MAX_RELATIVE_DEPTH)
             val cameraPoint = SandboxVector3(
                 x = (
@@ -41,18 +46,25 @@ internal object SandboxHandPoseMapper {
                     ).coerceIn(-MAX_VERTICAL_REACH, MAX_VERTICAL_REACH),
                 z = -distance + relativeDepth * safeCalibration.relativeDepthScale
             )
-            cameraPoint.toWorldSpace(cameraToWorldRotation)
+            mapped.add(cameraPoint.toWorldSpace(rotation))
         }
+        return mapped
     }
 
     /**
      * Sensor rotation is also used as the renderer's world-to-camera view rotation.
      * Transposing it maps camera-relative hand positions back into the stable world frame.
      */
-    private fun SandboxVector3.toWorldSpace(rotation: FloatArray?): SandboxVector3 {
-        if (rotation == null || rotation.size < 9 || !rotation.take(9).all { it.isFinite() }) {
-            return this
+    private fun isValidRotation(rotation: FloatArray?): Boolean {
+        if (rotation == null || rotation.size < 9) return false
+        for (index in 0 until 9) {
+            if (!rotation[index].isFinite()) return false
         }
+        return true
+    }
+
+    private fun SandboxVector3.toWorldSpace(rotation: FloatArray?): SandboxVector3 {
+        if (rotation == null) return this
         return SandboxVector3(
             x = rotation[0] * x + rotation[1] * y + rotation[2] * z,
             y = rotation[3] * x + rotation[4] * y + rotation[5] * z,
@@ -145,127 +157,5 @@ internal class MonocularHandDepthEstimator(
         const val MIN_DELTA_SECONDS = 0.001f
         const val MAX_DELTA_SECONDS = 0.25f
         const val MAX_CONTINUOUS_GAP_MS = 250L
-    }
-}
-
-/**
- * Per-joint adaptive low-pass filter.
- *
- * The time-based overload keeps the response stable across render rates and
- * reduces smoothing lag when the hand is moving quickly. Invalid samples never
- * poison the last valid pose.
- */
-internal class SandboxHandPoseSmoother(
-    private val response: Float = DEFAULT_RESPONSE
-) {
-    private var previous: List<SandboxVector3> = emptyList()
-
-    init {
-        require(response > 0f && response <= 1f) {
-            "Hand pose smoothing response must be in the range (0, 1]."
-        }
-    }
-
-    /** Compatibility overload for deterministic callers and existing tests. */
-    fun update(target: List<SandboxVector3>): List<SandboxVector3> {
-        if (target.isEmpty()) {
-            reset()
-            return emptyList()
-        }
-        if (!target.all(::isFinite)) return previous
-        return filter(target, response)
-    }
-
-    /**
-     * Updates using elapsed render time. At low motion this follows the configured
-     * 60 Hz response; at higher motion it increases the response to reduce lag.
-     */
-    fun update(
-        target: List<SandboxVector3>,
-        deltaSeconds: Float
-    ): List<SandboxVector3> {
-        if (target.isEmpty()) {
-            reset()
-            return emptyList()
-        }
-        if (!target.all(::isFinite)) return previous
-
-        val current = previous
-        if (current.isEmpty() || current.size != target.size) {
-            previous = target.toList()
-            return previous
-        }
-
-        val dt = if (deltaSeconds.isFinite()) {
-            deltaSeconds.coerceIn(MIN_DELTA_SECONDS, MAX_DELTA_SECONDS)
-        } else {
-            DEFAULT_DELTA_SECONDS
-        }
-
-        // Filter each landmark independently. A single fast fingertip should catch up
-        // without forcing the entire palm to use the same low-smoothing response.
-        val baseTimeConstant = if (response >= 1f) {
-            0f
-        } else {
-            -1f / (60f * kotlin.math.ln(1f - response))
-        }
-        val filtered = target.mapIndexed { index, next ->
-            val displacement = distance(current[index], next)
-            val speed = displacement / dt
-            val motion = (
-                (speed - LOW_MOTION_SPEED) /
-                    (HIGH_MOTION_SPEED - LOW_MOTION_SPEED)
-                ).coerceIn(0f, 1f)
-            val timeConstant = baseTimeConstant * (1f - FAST_MOTION_TIME_REDUCTION * motion)
-            val alpha = if (timeConstant <= MIN_TIME_CONSTANT_SECONDS) {
-                1f
-            } else {
-                (1f - kotlin.math.exp(-dt / timeConstant)).coerceIn(0f, 1f)
-            }
-            current[index] + (next - current[index]) * alpha
-        }
-        previous = filtered
-        return filtered
-    }
-
-    private fun filter(
-        target: List<SandboxVector3>,
-        alpha: Float
-    ): List<SandboxVector3> {
-        val current = previous
-        val filtered = if (current.size != target.size) {
-            target.toList()
-        } else {
-            target.mapIndexed { index, next ->
-                current[index] + (next - current[index]) * alpha
-            }
-        }
-        previous = filtered
-        return filtered
-    }
-
-    private fun isFinite(point: SandboxVector3): Boolean =
-        point.x.isFinite() && point.y.isFinite() && point.z.isFinite()
-
-    private fun distance(a: SandboxVector3, b: SandboxVector3): Float {
-        val dx = a.x - b.x
-        val dy = a.y - b.y
-        val dz = a.z - b.z
-        return kotlin.math.sqrt(dx * dx + dy * dy + dz * dz)
-    }
-
-    fun reset() {
-        previous = emptyList()
-    }
-
-    private companion object {
-        const val DEFAULT_RESPONSE = 0.42f
-        const val MIN_DELTA_SECONDS = 1f / 120f
-        const val MAX_DELTA_SECONDS = 0.1f
-        const val DEFAULT_DELTA_SECONDS = 1f / 60f
-        const val LOW_MOTION_SPEED = 0.35f
-        const val HIGH_MOTION_SPEED = 2.25f
-        const val FAST_MOTION_TIME_REDUCTION = 0.65f
-        const val MIN_TIME_CONSTANT_SECONDS = 0.0001f
     }
 }

@@ -27,8 +27,15 @@ class EndXrHandInputEncoderTest {
 
         assertTrue(encoded.leftPose.active)
         assertTrue(encoded.rightPose.active)
+        assertTrue(encoded.leftJoints.active)
+        assertTrue(encoded.rightJoints.active)
+        assertEquals(EndXrHandJointSample.FLOAT_COUNT, encoded.leftJoints.values.size)
+        assertEquals(EndXrHandJointSample.BLOB_SIZE, encoded.leftJoints.toBlob().size)
+        val restored = EndXrHandJointSample.fromBlob(encoded.leftJoints.toBlob())
+        assertTrue(restored.active)
+        assertEquals(encoded.leftJoints.values.toList(), restored.values.toList())
         val estimatedDistance = 2.55f * 0.18f / 0.20f
-        val expectedLeftX = (0.49f - 0.5f) * estimatedDistance * 2.4f
+        val expectedLeftX = (0.4875f - 0.5f) * estimatedDistance * 2.4f
         assertEquals(expectedLeftX, encoded.leftPose.x, 0.002f)
         assertTrue(encoded.rightPose.x > encoded.leftPose.x)
         assertTrue(encoded.leftPose.z < -0.25f)
@@ -38,10 +45,122 @@ class EndXrHandInputEncoderTest {
     }
 
     @Test
+    fun smoothsEstimatedPalmTranslationWithoutChangingRawPinchInput() {
+        val firstHand = trackedHand(HandSide.LEFT, centerX = 0.5f).copy(trackingId = 42L)
+        val movedHand = trackedHand(HandSide.LEFT, centerX = 0.70f).copy(
+            trackingId = 42L,
+            pinchStrength = 0.91f,
+            isPinching = true
+        )
+
+        EndXrHandInputEncoder.encode(HandTrackingFrame(100L, listOf(firstHand)))
+        val moved = EndXrHandInputEncoder.encode(HandTrackingFrame(116L, listOf(movedHand)))
+
+        val rawImageCenterX = 0.70f - 0.0125f
+        val estimatedDistance = 2.55f * 0.18f / 0.20f
+        val unsmoothedX = (rawImageCenterX - 0.5f) * estimatedDistance * 2.4f
+
+        assertTrue("palm root should be smoothed on the camera plane", moved.leftPose.x < unsmoothedX)
+        assertEquals("raw pinch strength must not be delayed by root smoothing",
+            0.91f, moved.leftRow[1], 0.0001f)
+        assertTrue(moved.leftRow[0] == 1f)
+        assertTrue(moved.leftRow[1] > 0.8f)
+    }
+
+    @Test
+    fun reusesEncodedPoseForDuplicateCameraSampleButKeepsGestureRowFresh() {
+        val firstHand = trackedHand(HandSide.LEFT, 0.5f).copy(
+            trackingId = 42L,
+            rawTimestampMs = 100L,
+            pinchStrength = 0.93f,
+            isPinching = true
+        )
+        val first = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(100L, listOf(firstHand))
+        )
+
+        // A short detector miss may return the last raw landmark timestamp,
+        // while the tracking manager has already released the pinch state.
+        val repeatedHand = trackedHand(HandSide.LEFT, 0.78f).copy(
+            trackingId = 42L,
+            rawTimestampMs = 100L,
+            pinchStrength = 0f,
+            isPinching = false
+        )
+        val repeated = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(116L, listOf(repeatedHand))
+        )
+
+        assertEquals(first.leftPose, repeated.leftPose)
+        assertEquals(first.leftJoints.values.toList(), repeated.leftJoints.values.toList())
+        assertEquals(0f, repeated.leftRow[1], 0.0001f)
+        assertFalse(repeated.leftRow[1] > 0f)
+    }
+
+    @Test
+    fun expiresDuplicateCameraSampleAfterReacquisitionWindow() {
+        val firstHand = trackedHand(HandSide.LEFT, 0.5f).copy(
+            trackingId = 7L,
+            rawTimestampMs = 100L
+        )
+        val first = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(100L, listOf(firstHand))
+        )
+        assertTrue(first.leftPose.active)
+
+        val stale = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(241L, listOf(firstHand))
+        )
+        assertFalse(stale.leftPose.active)
+        assertFalse(stale.leftJoints.active)
+
+        // A repeated stale timestamp stays expired; it must not be reprocessed
+        // merely because the first expiry cleared the active filter state.
+        val stillStale = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(250L, listOf(firstHand))
+        )
+        assertFalse(stillStale.leftPose.active)
+        assertFalse(stillStale.leftJoints.active)
+
+        val reacquiredHand = firstHand.copy(rawTimestampMs = 260L)
+        val reacquired = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(260L, listOf(reacquiredHand))
+        )
+        assertTrue(reacquired.leftPose.active)
+        assertTrue(reacquired.leftJoints.active)
+    }
+
+    @Test
+    fun endXrSkeletonUsesRawMediaPipeWorldLandmarksNotRenderSmoothedPoints() {
+        val baseline = trackedHand(HandSide.LEFT, centerX = 0.5f)
+        val shiftedRawWorld = baseline.worldPoints.toMutableList().also {
+            it[8] = HandPoint(it[8].x + 0.018f, it[8].y, it[8].z)
+        }
+        val rawObservation = baseline.copy(
+            rawWorldPoints = shiftedRawWorld,
+            rawTimestampMs = 100L
+        )
+
+        val encoded = EndXrHandInputEncoder.encode(
+            HandTrackingFrame(100L, listOf(rawObservation))
+        )
+
+        // OpenXR index fingertip is joint 10; X is the first local position value.
+        val fingertipX = encoded.leftJoints.values[10 * EndXrHandJointSample.FLOATS_PER_JOINT]
+        assertTrue("fresh raw tip observation must reach the kinematic filter", kotlin.math.abs(fingertipX) > 0.0001f)
+    }
+
+    @Test
     fun refusesPoseWhenMetricPalmBasisIsDegenerateOrWorldLandmarksAreMissing() {
-        val missingWorld = trackedHand(HandSide.LEFT, centerX = 0.5f).copy(worldPoints = emptyList())
+        val missingWorld = trackedHand(HandSide.LEFT, centerX = 0.5f).copy(
+            worldPoints = emptyList(),
+            rawWorldPoints = emptyList()
+        )
         val degenerateWorld = List(21) { HandPoint(0f, 0f, 0f) }
-        val degenerate = trackedHand(HandSide.RIGHT, centerX = 0.5f).copy(worldPoints = degenerateWorld)
+        val degenerate = trackedHand(HandSide.RIGHT, centerX = 0.5f).copy(
+            worldPoints = degenerateWorld,
+            rawWorldPoints = degenerateWorld
+        )
 
         val encoded = EndXrHandInputEncoder.encode(
             HandTrackingFrame(2L, listOf(missingWorld, degenerate))
@@ -61,6 +180,32 @@ class EndXrHandInputEncoderTest {
         val lost = EndXrHandInputEncoder.encode(HandTrackingFrame(4L, emptyList()))
         assertFalse(lost.leftPose.active)
         assertFalse(lost.rightPose.active)
+        assertFalse(lost.leftJoints.active)
+        assertFalse(lost.rightJoints.active)
+    }
+
+    @Test
+    fun mapsCameraPinchAndPowerGripIntoControllerActionRows() {
+        val pinching = trackedHand(HandSide.LEFT, centerX = 0.5f).copy(
+            pinchStrength = 0.83f,
+            isPinching = true
+        )
+        val gripping = trackedHand(HandSide.RIGHT, centerX = 0.75f).copy(
+            worldPoints = curledWorldPoints(3)
+        )
+        val encoded = EndXrHandInputEncoder.encode(HandTrackingFrame(5L, listOf(pinching, gripping)))
+
+        assertEquals(6, encoded.leftRow.size)
+        assertEquals(6, encoded.rightRow.size)
+        assertEquals(1f, encoded.leftRow[0], 0f)
+        assertEquals(0.83f, encoded.leftRow[1], 0.0001f)
+        assertEquals(0f, encoded.leftRow[2], 0f)
+        assertEquals(1f, encoded.rightRow[0], 0f)
+        assertEquals(0f, encoded.rightRow[1], 0f)
+        assertEquals(1f, encoded.rightRow[2], 0f)
+        assertEquals(0f, encoded.leftRow[3], 0f)
+        assertEquals(0f, encoded.leftRow[4], 0f)
+        assertEquals(0f, encoded.leftRow[5], 0f)
     }
 
     private fun trackedHand(side: HandSide, centerX: Float): TrackedHand {
@@ -85,273 +230,31 @@ class EndXrHandInputEncoderTest {
         )
     }
 
+    private fun curledWorldPoints(curledCount: Int): List<HandPoint> {
+        val wrist = HandPoint(0f, 0f, 0f)
+        val points = MutableList(21) { wrist }
+        val bases = listOf(
+            HandPoint(0.035f, 0.030f, 0f), HandPoint(0f, 0.055f, 0f),
+            HandPoint(-0.025f, 0.045f, 0f), HandPoint(-0.040f, 0.025f, 0f)
+        )
+        val mcps = intArrayOf(5, 9, 13, 17)
+        for (finger in mcps.indices) {
+            val mcp = bases[finger]
+            points[mcps[finger]] = mcp
+            points[mcps[finger] + 1] = HandPoint(mcp.x, mcp.y + 0.018f, 0f)
+            points[mcps[finger] + 2] = if (finger < curledCount) HandPoint(mcp.x + 0.012f, mcp.y + 0.016f, 0f)
+                else HandPoint(mcp.x, mcp.y + 0.036f, 0f)
+            points[mcps[finger] + 3] = if (finger < curledCount) HandPoint(mcp.x + 0.006f, mcp.y + 0.006f, 0f)
+                else HandPoint(mcp.x, mcp.y + 0.060f, 0f)
+        }
+        return points
+    }
+
     private fun assertQuaternionNormalized(pose: EndXrHandPoseSample) {
         val norm = kotlin.math.sqrt(
             pose.qx * pose.qx + pose.qy * pose.qy +
                 pose.qz * pose.qz + pose.qw * pose.qw
         )
         assertEquals(1f, norm, 0.001f)
-    }
-
-    @Test
-    fun temporalPalmOrientationUsesShortestPathAndSmoothsRotation() {
-        val first = trackedHand(HandSide.LEFT, 0.5f)
-        val turned = rotateWorldAroundY(first, Math.toRadians(90.0).toFloat())
-
-        val initial = EndXrHandInputEncoder.encode(HandTrackingFrame(1_000L, listOf(first))).leftPose
-        val smoothed = EndXrHandInputEncoder.encode(HandTrackingFrame(1_016L, listOf(turned))).leftPose
-
-        assertTrue(initial.active)
-        assertTrue(smoothed.active)
-        assertQuaternionNormalized(smoothed)
-        val progressRadians = 2.0 * kotlin.math.acos(kotlin.math.abs(smoothed.qw).coerceIn(0f, 1f))
-        assertTrue("Orientation should progress toward the new palm basis", progressRadians > 0.01)
-        assertTrue("Orientation should not jump to the full measured rotation", progressRadians < Math.PI / 2.0)
-    }
-
-    @Test
-    fun temporalPalmOrientationDoesNotAdvanceTwiceForTheSameFrameTimestamp() {
-        val first = trackedHand(HandSide.LEFT, 0.5f)
-        val turned = rotateWorldAroundY(first, Math.toRadians(90.0).toFloat())
-
-        val initial = EndXrHandInputEncoder.encode(HandTrackingFrame(2_000L, listOf(first))).leftPose
-        val duplicate = EndXrHandInputEncoder.encode(HandTrackingFrame(2_000L, listOf(turned))).leftPose
-
-        assertEquals(initial.qx, duplicate.qx, 0.0001f)
-        assertEquals(initial.qy, duplicate.qy, 0.0001f)
-        assertEquals(initial.qz, duplicate.qz, 0.0001f)
-        assertEquals(initial.qw, duplicate.qw, 0.0001f)
-    }
-
-    @Test
-    fun leftAndRightPalmOrientationFiltersRemainIndependent() {
-        val identityLeft = trackedHand(HandSide.LEFT, 0.4f)
-        val identityRight = trackedHand(HandSide.RIGHT, 0.7f)
-        val turnedLeft = rotateWorldAroundY(identityLeft, Math.toRadians(90.0).toFloat())
-
-        EndXrHandInputEncoder.encode(
-            HandTrackingFrame(3_000L, listOf(identityLeft, identityRight))
-        )
-        val encoded = EndXrHandInputEncoder.encode(
-            HandTrackingFrame(3_016L, listOf(turnedLeft, identityRight))
-        )
-
-        assertTrue(kotlin.math.abs(encoded.leftPose.qy) > 0.01f)
-        assertEquals(0f, encoded.rightPose.qy, 0.001f)
-        assertQuaternionNormalized(encoded.leftPose)
-        assertQuaternionNormalized(encoded.rightPose)
-    }
-
-    @Test
-    fun trackingLossResetsPalmOrientationFilterBeforeReacquisition() {
-        val initial = trackedHand(HandSide.LEFT, 0.5f)
-        val turned = rotateWorldAroundY(initial, Math.toRadians(90.0).toFloat())
-
-        EndXrHandInputEncoder.encode(HandTrackingFrame(4_000L, listOf(initial)))
-        EndXrHandInputEncoder.encode(HandTrackingFrame(4_016L, emptyList()))
-        val reacquired = EndXrHandInputEncoder.encode(
-            HandTrackingFrame(4_032L, listOf(turned))
-        ).leftPose
-
-        assertTrue(reacquired.active)
-        assertEquals(kotlin.math.sin(Math.PI / 4.0).toFloat(), reacquired.qy, 0.002f)
-        assertEquals(kotlin.math.cos(Math.PI / 4.0).toFloat(), reacquired.qw, 0.002f)
-    }
-
-    private fun rotateWorldAroundY(hand: TrackedHand, angleRadians: Float): TrackedHand {
-        val cosine = kotlin.math.cos(angleRadians)
-        val sine = kotlin.math.sin(angleRadians)
-        val rotated = hand.worldPoints.map { point ->
-            HandPoint(
-                x = cosine * point.x + sine * point.z,
-                y = point.y,
-                z = -sine * point.x + cosine * point.z
-            )
-        }
-        return hand.copy(worldPoints = rotated)
-    }
-
-    @Test
-    fun temporalOrientationSmoothingIsConsistentAtThirtyAndSixtySamplesPerSecond() {
-        fun simulate(frameRate: Int): EndXrHandPoseSample {
-            EndXrHandInputEncoder.encode(HandTrackingFrame(0L, emptyList()))
-            val base = trackedHand(HandSide.LEFT, 0.5f)
-            var latest = EndXrHandInputEncoder.encode(
-                HandTrackingFrame(10_000L, listOf(base))
-            ).leftPose
-            for (frame in 1..frameRate) {
-                val elapsedMs = frame * 1_000L / frameRate
-                val angle = Math.toRadians(90.0 * frame / frameRate).toFloat()
-                val moved = rotateWorldAroundY(base, angle)
-                latest = EndXrHandInputEncoder.encode(
-                    HandTrackingFrame(10_000L + elapsedMs, listOf(moved))
-                ).leftPose
-            }
-            return latest
-        }
-
-        val at30Fps = simulate(30)
-        val at60Fps = simulate(60)
-
-        assertEquals(at30Fps.qy, at60Fps.qy, 0.035f)
-        assertEquals(at30Fps.qw, at60Fps.qw, 0.035f)
-    }
-
-    @Test
-    fun longOrientationSampleGapReinitializesInsteadOfBlendingAcrossLostTime() {
-        val initial = trackedHand(HandSide.LEFT, 0.5f)
-        val turned = rotateWorldAroundY(initial, Math.toRadians(90.0).toFloat())
-        EndXrHandInputEncoder.encode(HandTrackingFrame(5_000L, listOf(initial)))
-
-        val afterGap = EndXrHandInputEncoder.encode(
-            HandTrackingFrame(5_300L, listOf(turned))
-        ).leftPose
-
-        assertEquals(kotlin.math.sin(Math.PI / 4.0).toFloat(), afterGap.qy, 0.002f)
-        assertEquals(kotlin.math.cos(Math.PI / 4.0).toFloat(), afterGap.qw, 0.002f)
-    }
-
-    @Test
-    fun rejectsNearlyCollinearPalmBasisInsteadOfAmplifyingLandmarkNoise() {
-        val base = trackedHand(HandSide.LEFT, 0.5f)
-        val almostCollinear = base.worldPoints.toMutableList().also {
-            it[0] = HandPoint(0f, 0f, 0f)
-            it[5] = HandPoint(0.04f, 0f, 0f)
-            it[9] = HandPoint(0.02f, 0.0001f, 0f)
-            it[17] = HandPoint(-0.04f, 0f, 0f)
-        }
-        val pose = EndXrHandInputEncoder.encode(
-            HandTrackingFrame(6_000L, listOf(base.copy(worldPoints = almostCollinear)))
-        ).leftPose
-
-        assertEquals(EndXrHandPoseSample.EMPTY, pose)
-    }
-
-    @Test
-    fun rejectsCollapsedPalmWorldLandmarks() {
-        val base = trackedHand(HandSide.RIGHT, 0.5f)
-        val collapsed = base.worldPoints.map { point ->
-            HandPoint(point.x * 0.01f, point.y * 0.01f, point.z * 0.01f)
-        }
-        val pose = EndXrHandInputEncoder.encode(
-            HandTrackingFrame(7_000L, listOf(base.copy(worldPoints = collapsed)))
-        ).rightPose
-
-        assertEquals(EndXrHandPoseSample.EMPTY, pose)
-    }
-
-    @Test
-    fun rejectsNonFinitePalmLandmarkBeforeQuaternionConversion() {
-        val base = trackedHand(HandSide.LEFT, 0.5f)
-        val invalid = base.worldPoints.toMutableList().also {
-            it[9] = HandPoint(Float.NaN, 0.05f, 0f)
-        }
-        val pose = EndXrHandInputEncoder.encode(
-            HandTrackingFrame(8_000L, listOf(base.copy(worldPoints = invalid)))
-        ).leftPose
-
-        assertEquals(EndXrHandPoseSample.EMPTY, pose)
-    }
-
-    @Test
-    fun duplicateFrameTimestampDoesNotAdvancePositionOrDepthEstimatorTwice() {
-        val first = EndXrHandInputEncoder.encode(
-            HandTrackingFrame(9_000L, listOf(trackedHand(HandSide.LEFT, 0.5f)))
-        ).leftPose
-        val duplicateTimestamp = EndXrHandInputEncoder.encode(
-            HandTrackingFrame(9_000L, listOf(trackedHand(HandSide.LEFT, 0.9f)))
-        ).leftPose
-
-        assertEquals(first.x, duplicateTimestamp.x, 0.0001f)
-        assertEquals(first.y, duplicateTimestamp.y, 0.0001f)
-        assertEquals(first.z, duplicateTimestamp.z, 0.0001f)
-        assertEquals(first.qx, duplicateTimestamp.qx, 0.0001f)
-        assertEquals(first.qy, duplicateTimestamp.qy, 0.0001f)
-        assertEquals(first.qz, duplicateTimestamp.qz, 0.0001f)
-        assertEquals(first.qw, duplicateTimestamp.qw, 0.0001f)
-    }
-
-    @Test
-    fun positionFilterLimitsSingleFrameTeleportAndRemainsFinite() {
-        val first = EndXrHandInputEncoder.encode(
-            HandTrackingFrame(10_000L, listOf(trackedHand(HandSide.LEFT, 0.5f)))
-        ).leftPose
-        val jumped = EndXrHandInputEncoder.encode(
-            HandTrackingFrame(10_016L, listOf(trackedHand(HandSide.LEFT, 0.95f)))
-        ).leftPose
-
-        val displacement = kotlin.math.sqrt(
-            (jumped.x - first.x) * (jumped.x - first.x) +
-                (jumped.y - first.y) * (jumped.y - first.y) +
-                (jumped.z - first.z) * (jumped.z - first.z)
-        )
-        assertTrue(jumped.active)
-        assertTrue(displacement > 0f)
-        assertTrue("Position update must respect the per-frame speed bound", displacement <= 0.14f)
-        assertTrue(listOf(jumped.x, jumped.y, jumped.z).all(Float::isFinite))
-    }
-
-    @Test
-    fun positionSmoothingRemainsConsistentAtThirtyAndSixtySamplesPerSecond() {
-        fun simulate(frameRate: Int): EndXrHandPoseSample {
-            EndXrHandInputEncoder.encode(HandTrackingFrame(0L, emptyList()))
-            var latest = EndXrHandInputEncoder.encode(
-                HandTrackingFrame(20_000L, listOf(trackedHand(HandSide.LEFT, 0.45f)))
-            ).leftPose
-            for (frame in 1..frameRate) {
-                val progress = frame.toFloat() / frameRate
-                val timestamp = 20_000L + frame * 1_000L / frameRate
-                latest = EndXrHandInputEncoder.encode(
-                    HandTrackingFrame(
-                        timestamp,
-                        listOf(trackedHand(HandSide.LEFT, 0.45f + 0.1f * progress))
-                    )
-                ).leftPose
-            }
-            return latest
-        }
-
-        val at30Fps = simulate(30)
-        val at60Fps = simulate(60)
-        assertEquals(at30Fps.x, at60Fps.x, 0.05f)
-        assertEquals(at30Fps.y, at60Fps.y, 0.05f)
-        assertEquals(at30Fps.z, at60Fps.z, 0.05f)
-    }
-
-    @Test
-    fun longPositionSampleGapReinitializesInsteadOfDraggingAcrossLostTime() {
-        EndXrHandInputEncoder.encode(
-            HandTrackingFrame(30_000L, listOf(trackedHand(HandSide.LEFT, 0.45f)))
-        )
-        val reacquired = EndXrHandInputEncoder.encode(
-            HandTrackingFrame(30_300L, listOf(trackedHand(HandSide.LEFT, 0.75f)))
-        ).leftPose
-
-        val expectedDistance = 2.55f * 0.18f / 0.20f
-        val expectedX = (0.74f - 0.5f) * expectedDistance * 2.4f
-        assertEquals(expectedX, reacquired.x, 0.01f)
-    }
-
-    @Test
-    fun leftAndRightPositionFiltersRemainIndependent() {
-        val left = trackedHand(HandSide.LEFT, 0.4f)
-        val right = trackedHand(HandSide.RIGHT, 0.7f)
-        val initial = EndXrHandInputEncoder.encode(
-            HandTrackingFrame(40_000L, listOf(left, right))
-        )
-
-        val updated = EndXrHandInputEncoder.encode(
-            HandTrackingFrame(
-                40_016L,
-                listOf(trackedHand(HandSide.LEFT, 0.6f), right)
-            )
-        )
-
-        val expectedLeftTargetX = (0.59f - 0.5f) * (2.55f * 0.18f / 0.20f) * 2.4f
-        assertTrue(updated.leftPose.active)
-        assertTrue("Left hand should move toward its new camera position", updated.leftPose.x > initial.leftPose.x)
-        assertTrue("Temporal smoothing should prevent a one-frame teleport", updated.leftPose.x < expectedLeftTargetX)
-        val expectedRightX = (0.69f - 0.5f) * (2.55f * 0.18f / 0.20f) * 2.4f
-        assertEquals(expectedRightX, updated.rightPose.x, 0.01f)
     }
 }

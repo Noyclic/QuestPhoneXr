@@ -165,170 +165,66 @@ class SandboxHandPoseTest {
         assertTrue(mapped.all { kotlin.math.abs(it.z + 2.55f) < 0.0001f })
     }
 
-    @Test
-    fun poseSmootherFiltersEveryJointAndCanReset() {
-        val smoother = SandboxHandPoseSmoother(response = 0.5f)
-        val first = List(21) { SandboxVector3(0f, 0f, -2.5f) }
-        val second = List(21) { SandboxVector3(1f, 0.4f, -2.3f) }
-
-        assertEquals(first, smoother.update(first))
-        val filtered = smoother.update(second)
-        assertEquals(0.5f, filtered[0].x, 0.001f)
-        assertEquals(0.2f, filtered[8].y, 0.001f)
-        assertEquals(-2.4f, filtered[20].z, 0.001f)
-
-        smoother.reset()
-        assertEquals(second, smoother.update(second))
-    }
 
     @Test
-    fun poseSmootherResetsWhenTrackingPointCountChanges() {
-        val smoother = SandboxHandPoseSmoother(response = 0.5f)
-        smoother.update(List(21) { SandboxVector3(0f, 0f, -2.5f) })
-        val shortPose = listOf(SandboxVector3(1f, 0f, -2.5f))
-
-        assertEquals(shortPose, smoother.update(shortPose))
-    }
-
-    @Test
-    fun adaptiveSmoothingKeepsSimilarResponseAtThirtyAndSixtyFps() {
-        fun run(frameCount: Int): Float {
-            val smoother = SandboxHandPoseSmoother()
-            val dt = 1f / frameCount
-            smoother.update(List(21) { SandboxVector3(0f, 0f, -2.5f) }, dt)
-            var result = 0f
-            for (frame in 1..frameCount) {
-                val x = frame.toFloat() / frameCount
-                result = smoother.update(
-                    List(21) { SandboxVector3(x, 0f, -2.5f) },
-                    dt
-                )[0].x
-            }
-            return result
-        }
-
-        val at30Fps = run(30)
-        val at60Fps = run(60)
-        assertEquals(at30Fps, at60Fps, 0.025f)
-        assertTrue(at30Fps > 0.9f)
-    }
-
-    @Test
-    fun adaptiveSmoothingRespondsFasterToFastHandMotion() {
-        fun responseFraction(targetX: Float): Float {
-            val smoother = SandboxHandPoseSmoother()
-            val dt = 1f / 60f
-            val origin = List(21) { SandboxVector3(0f, 0f, -2.5f) }
-            smoother.update(origin, dt)
-            val target = List(21) { SandboxVector3(targetX, 0f, -2.5f) }
-            return smoother.update(target, dt)[0].x / targetX
-        }
-
-        val slowResponse = responseFraction(0.02f)
-        val fastResponse = responseFraction(1.0f)
-        assertTrue("Fast movement should receive a higher filter response", fastResponse > slowResponse)
-    }
-
-    @Test
-    fun adaptiveSmootherIgnoresNonFinitePoseSamples() {
-        val smoother = SandboxHandPoseSmoother()
-        val valid = List(21) { SandboxVector3(0.25f, 0.1f, -2.5f) }
-        assertEquals(valid, smoother.update(valid, 1f / 60f))
-
-        val invalid = valid.toMutableList().also {
-            it[8] = SandboxVector3(Float.NaN, 0f, -2.5f)
-        }
-        assertEquals(valid, smoother.update(invalid, 1f / 60f))
-    }
-
-    @Test
-    fun depthEstimatorIgnoresDuplicateAndOutOfOrderCameraTimestamps() {
+    fun timestampedDepthIgnoresDuplicateAndOutOfOrderSamples() {
         val estimator = MonocularHandDepthEstimator()
-        fun points(width: Float): List<HandPoint> =
-            MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }.also {
-                it[5] = HandPoint(0.5f + width / 2f, 0.4f, 0f)
-                it[17] = HandPoint(0.5f - width / 2f, 0.4f, 0f)
-            }
+        val narrow = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+        narrow[5] = HandPoint(0.40f, 0.4f, 0f)
+        narrow[17] = HandPoint(0.22f, 0.4f, 0f)
+        val initial = estimator.update(narrow, 1_000L)!!
 
-        val initial = estimator.update(points(0.20f), 1_000L)!!
-        val duplicate = estimator.update(points(0.10f), 1_000L)!!
-        val outOfOrder = estimator.update(points(0.08f), 990L)!!
-
-        assertEquals(initial, duplicate, 0.0001f)
-        assertEquals(initial, outOfOrder, 0.0001f)
-    }
-
-    @Test
-    fun depthEstimatorUsesElapsedTimeInsteadOfUpdateCount() {
-        fun simulate(frameRate: Int): Float {
-            val estimator = MonocularHandDepthEstimator()
-            fun points(width: Float): List<HandPoint> =
-                MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }.also {
-                    it[5] = HandPoint(0.5f + width / 2f, 0.4f, 0f)
-                    it[17] = HandPoint(0.5f - width / 2f, 0.4f, 0f)
-                }
-
-            var distance = estimator.update(points(0.20f), 10_000L)!!
-            for (frame in 1..frameRate) {
-                val progress = frame.toFloat() / frameRate
-                val width = 0.20f - 0.10f * progress
-                val timestamp = 10_000L + frame * 1_000L / frameRate
-                distance = estimator.update(points(width), timestamp)!!
-            }
-            return distance
-        }
-
-        val at30Fps = simulate(30)
-        val at60Fps = simulate(60)
-        assertEquals(at30Fps, at60Fps, 0.025f)
-    }
-
-    @Test
-    fun depthEstimatorReinitializesAfterLongSourceFrameGap() {
-        val estimator = MonocularHandDepthEstimator()
-        val narrow = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }.also {
-            it[5] = HandPoint(0.60f, 0.4f, 0f)
-            it[17] = HandPoint(0.40f, 0.4f, 0f)
-        }
         val wide = narrow.toMutableList().also {
-            it[5] = HandPoint(0.55f, 0.4f, 0f)
-            it[17] = HandPoint(0.45f, 0.4f, 0f)
+            it[5] = HandPoint(0.46f, 0.4f, 0f)
+            it[17] = HandPoint(0.22f, 0.4f, 0f)
         }
+        val updated = estimator.update(wide, 1_033L)!!
+        assertTrue(updated < initial)
 
-        estimator.update(narrow, 20_000L)
-        val reacquired = estimator.update(wide, 20_300L)!!
-
-        assertEquals(4.5f, reacquired, 0.001f)
+        val duplicateDifferentPose = narrow.toMutableList().also {
+            it[5] = HandPoint(0.35f, 0.4f, 0f)
+            it[17] = HandPoint(0.22f, 0.4f, 0f)
+        }
+        assertEquals(updated, estimator.update(duplicateDifferentPose, 1_033L)!!, 0f)
+        assertEquals(updated, estimator.update(narrow, 1_020L)!!, 0f)
     }
 
     @Test
-    fun adaptiveSmoothingRespondsPerJointInsteadOfAveragingAcrossThePalm() {
-        val smoother = SandboxHandPoseSmoother()
-        val origin = List(21) { SandboxVector3(0f, 0f, -2.5f) }
-        smoother.update(origin, 1f / 60f)
+    fun timestampedDepthResponseIsIndependentOfCameraSampleRate() {
+        fun landmarks(palmWidth: Float): List<HandPoint> =
+            MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }.also {
+                it[5] = HandPoint(0.5f, 0.4f, 0f)
+                it[17] = HandPoint(0.5f - palmWidth, 0.4f, 0f)
+            }
 
-        val target = origin.toMutableList().also {
-            // One fingertip makes a small but quick movement while the palm barely moves.
-            it[8] = SandboxVector3(0.08f, 0f, -2.5f)
-            it[0] = SandboxVector3(0.02f, 0f, -2.5f)
+        val at30Fps = MonocularHandDepthEstimator()
+        val at60Fps = MonocularHandDepthEstimator()
+        at30Fps.update(landmarks(0.18f), 1_000L)
+        at60Fps.update(landmarks(0.18f), 1_000L)
+        var depth30 = 0f
+        var depth60 = 0f
+        for (frame in 1..30) {
+            depth30 = at30Fps.update(landmarks(0.10f), 1_000L + frame * 33L)!!
         }
-        val filtered = smoother.update(target, 1f / 60f)
-        val fingertipFraction = filtered[8].x / target[8].x
-        val wristFraction = filtered[0].x / target[0].x
-
-        assertTrue("Fast fingertip motion should respond faster than the slow wrist motion",
-            fingertipFraction > wristFraction)
-        assertTrue("The fingertip must not teleport to its target", fingertipFraction < 1f)
-        assertTrue("The wrist should remain more strongly smoothed", wristFraction < 0.8f)
+        for (frame in 1..60) {
+            depth60 = at60Fps.update(landmarks(0.10f), 1_000L + frame * 16L)!!
+        }
+        assertEquals(depth30, depth60, 0.08f)
     }
 
     @Test
-    fun responseOneDisablesSmoothingWithoutCreatingAnInfiniteTimeConstant() {
-        val smoother = SandboxHandPoseSmoother(response = 1f)
-        val origin = List(21) { SandboxVector3(0f, 0f, -2.5f) }
-        val target = List(21) { SandboxVector3(0.2f, -0.1f, -2.4f) }
-
-        smoother.update(origin, 1f / 60f)
-        assertEquals(target, smoother.update(target, 1f / 60f))
+    fun timestampedDepthResetsItsRateHistoryAfterLongTrackingGap() {
+        val estimator = MonocularHandDepthEstimator()
+        val narrow = MutableList(21) { HandPoint(0.5f, 0.5f, 0f) }
+        narrow[5] = HandPoint(0.40f, 0.4f, 0f)
+        narrow[17] = HandPoint(0.22f, 0.4f, 0f)
+        estimator.update(narrow, 1_000L)
+        val wide = narrow.toMutableList().also {
+            it[5] = HandPoint(0.46f, 0.4f, 0f)
+            it[17] = HandPoint(0.22f, 0.4f, 0f)
+        }
+        val afterGap = estimator.update(wide, 1_400L)!!
+        assertEquals(1.9125f, afterGap, 0.0001f)
     }
+
 }

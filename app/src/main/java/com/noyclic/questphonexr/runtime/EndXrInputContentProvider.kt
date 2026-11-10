@@ -71,7 +71,11 @@ class EndXrInputContentProvider : ContentProvider() {
                 snapshot.rightHandPose.qx,
                 snapshot.rightHandPose.qy,
                 snapshot.rightHandPose.qz,
-                snapshot.rightHandPose.qw
+                snapshot.rightHandPose.qw,
+                snapshot.leftHandJoints.active.asInt(),
+                snapshot.leftHandJoints.toBlob(),
+                snapshot.rightHandJoints.active.asInt(),
+                snapshot.rightHandJoints.toBlob()
             )
         )
 
@@ -85,7 +89,14 @@ class EndXrInputContentProvider : ContentProvider() {
         return MatrixCursor(projection).also { projected ->
             if (cursor.moveToFirst()) {
                 projected.addRow(projection.map { name ->
-                    cursor.getColumnIndexOrThrow(name).let(cursor::getString)
+                    val index = cursor.getColumnIndexOrThrow(name)
+                    when (cursor.getType(index)) {
+                        Cursor.FIELD_TYPE_BLOB -> cursor.getBlob(index)
+                        Cursor.FIELD_TYPE_FLOAT -> cursor.getDouble(index)
+                        Cursor.FIELD_TYPE_INTEGER -> cursor.getLong(index)
+                        Cursor.FIELD_TYPE_STRING -> cursor.getString(index)
+                        else -> null
+                    }
                 }.toTypedArray())
             }
             cursor.close()
@@ -159,7 +170,11 @@ class EndXrInputContentProvider : ContentProvider() {
             "right_pose_qx",
             "right_pose_qy",
             "right_pose_qz",
-            "right_pose_qw"
+            "right_pose_qw",
+            "left_joints_active",
+            "left_joints",
+            "right_joints_active",
+            "right_joints"
         )
     }
 }

@@ -18,9 +18,11 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
+import androidx.core.app.NotificationManagerCompat
 import android.opengl.GLSurfaceView
 import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.os.Handler
 import android.os.Looper
@@ -48,19 +50,24 @@ import com.noyclic.questphonexr.input.ControllerBindingProfile
 import com.noyclic.questphonexr.input.ControllerBindingStore
 import com.noyclic.questphonexr.input.ControllerBindingsActivity
 import com.noyclic.questphonexr.input.VirtualGamepadButton
+import com.noyclic.questphonexr.input.GamepadButtonCodes
 import com.noyclic.questphonexr.input.VirtualControllerMapper
 import com.noyclic.questphonexr.input.VirtualControllerState
 import com.noyclic.questphonexr.input.ControllerInputSource
 import com.noyclic.questphonexr.tracking.HandLandmarkerController
+import com.google.mediapipe.tasks.core.Delegate
 import com.noyclic.questphonexr.tracking.HandCameraPreference
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.HandTrackingMetricsSnapshot
 import com.noyclic.questphonexr.tracking.HandTrackingPreset
+import com.noyclic.questphonexr.tracking.HandTrackingDelegatePreference
 import com.noyclic.questphonexr.tracking.HandTrackingPresetStore
 import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
 import com.noyclic.questphonexr.input.XrTrackingUdpSender
 import com.noyclic.questphonexr.vr.ViewerProfile
 import com.noyclic.questphonexr.vr.ViewerProfileStore
+import com.noyclic.questphonexr.ui.applyNextVreraStyle
+import com.noyclic.questphonexr.ui.nextVreraToneFor
 import com.noyclic.questphonexr.performance.AndroidDeviceProfiler
 import com.noyclic.questphonexr.performance.AdaptivePerformanceController
 import com.noyclic.questphonexr.performance.AdaptivePerformanceState
@@ -102,6 +109,11 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
     private lateinit var glView: GLSurfaceView
     private lateinit var renderer: SandboxRenderer
+    private lateinit var browserPanel: SandboxBrowserPanelView
+    private var browserSettingsPanel: View? = null
+    private var restoreSettingsAfterBrowser = false
+    private var sandboxBrowserVisible = false
+    private var lastBrowserTextureUpdateMs = 0L
     private val xrSurfaceLifecycle = EndXrGlSurfaceLifecycle()
     private val endXrRuntime = EndXrRuntimeBridge()
     @Volatile private var endXrRuntimeLabel = "ожидает GLES surface"
@@ -123,6 +135,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private lateinit var adaptivePerformance: AdaptivePerformanceController
     private lateinit var handTrackingPresetStore: HandTrackingPresetStore
     private var handTrackingPreset = HandTrackingPreset.BALANCED
+    private var handTrackingDelegatePreference = HandTrackingDelegatePreference.GPU_PREFERRED
     private var adaptivePerformanceState = AdaptivePerformanceState(30, 66L, 0)
     private var handCalibration = SandboxHandCalibration.DEFAULT
     private var viewerProfile = ViewerProfile()
@@ -154,11 +167,42 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         openPcBridgeDialogIfRequested()
     }
 
+    private val notificationPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted && NotificationManagerCompat.from(this).areNotificationsEnabled()) {
+            startPersistentHandTrackingService()
+        } else {
+            cameraStatusMessage =
+                "Уведомления EndXR отключены · разреши их в настройках Android"
+            updateStatus()
+            showNotificationPermissionSettingsDialog()
+        }
+    }
+
     private val frameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
             if (isFinishing || !::glView.isInitialized) return
 
             val nowMs = SystemClock.uptimeMillis()
+            if (::browserPanel.isInitialized) {
+                if (sandboxBrowserVisible) {
+                    browserPanel.updateHandInput(simulation.snapshot())
+                    if (nowMs - lastBrowserTextureUpdateMs >= BROWSER_TEXTURE_REFRESH_MS) {
+                        lastBrowserTextureUpdateMs = nowMs
+                        runCatching { browserPanel.captureTextureBitmap() }
+                            .onSuccess { bitmap ->
+                                renderer.submitBrowserBitmap(bitmap)
+                                glView.requestRender()
+                            }
+                            .onFailure { error ->
+                                Log.w(TAG, "Sandbox browser texture capture failed", error)
+                            }
+                    }
+                } else {
+                    browserPanel.releaseHandPointer()
+                }
+            }
             val serviceActive = EndXrHandTrackingService.isRunning()
             val currentHandTrackingFps = if (serviceActive) {
                 EndXrHandTrackingService.diagnosticFps()
@@ -174,9 +218,16 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             )
             if (updatedAdaptiveState != adaptivePerformanceState) {
                 adaptivePerformanceState = updatedAdaptiveState
-                handTracker?.updateMinimumInferenceIntervalMs(
-                    updatedAdaptiveState.minimumInferenceIntervalMs
-                )
+                if (serviceActive) {
+                    EndXrHandTrackingService.updateInferenceInterval(
+                        this@SandboxActivity,
+                        updatedAdaptiveState.minimumInferenceIntervalMs
+                    )
+                } else {
+                    handTracker?.updateMinimumInferenceIntervalMs(
+                        updatedAdaptiveState.minimumInferenceIntervalMs
+                    )
+                }
                 updateStatus()
             }
 
@@ -228,13 +279,22 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     trackingSender?.publish(latestHands)
                 }
                 publishOpenXrInput(hands, snapshot)
-                val cameraToWorldRotation = renderer.cameraToWorldRotation()
                 val mappedControllers = virtualControllerMapper.map(
                     hands, snapshot, controllerBindingProfile
                 )
                 val simulationControllers = virtualControllerMapper.toPhysicalSnapshots(mappedControllers)
+                val cameraToWorldRotation = renderer.cameraToWorldRotation()
                 glView.queueEvent {
-                    simulation.update(simulationControllers, hands, deltaSeconds, cameraToWorldRotation)
+                    // Use GL-thread time for presentation so interpolation follows actual rendering.
+                    val renderTimeMs = SystemClock.uptimeMillis()
+                    simulation.update(
+                        simulationControllers,
+                        hands,
+                        deltaSeconds,
+                        cameraToWorldRotation,
+                        receivedAtMs,
+                        renderTimeMs
+                    )
                     renderer.updateScene(simulation.snapshot())
                     glView.requestRender()
                 }
@@ -249,11 +309,11 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        controllerBindingProfile = ControllerBindingStore.load(this)
         requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         applyImmersiveMode()
 
-        controllerBindingProfile = ControllerBindingStore.load(this)
         viewerProfileStore = ViewerProfileStore(this)
         viewerProfile = viewerProfileStore.load()
         handCalibrationStore = SandboxHandCalibrationStore(this)
@@ -267,6 +327,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         handTrackingPreset = handTrackingPresetStore.load(
             HandTrackingPreset.recommend(performancePreset.tier)
         )
+        handTrackingDelegatePreference = handTrackingPresetStore.loadDelegatePreference()
         val trackingPerformancePreset = performancePreset.copy(
             minimumInferenceIntervalMs = handTrackingPreset.minimumInferenceIntervalMs
         )
@@ -449,6 +510,12 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             append("sandbox_camera_frame_rotation=").append(sandboxMetrics?.lastFrameRotationDegrees ?: 0).append('\n')
             append("sandbox_camera_luma_mean=").append(sandboxMetrics?.lastFrameLumaMean ?: 0f).append('\n')
             append("sandbox_camera_luma_stddev=").append(sandboxMetrics?.lastFrameLumaStdDev ?: 0f).append('\n')
+            appendLine("sandbox_mediapipe_delegate=${sandboxMetrics?.delegateName ?: "unknown"}")
+            appendLine("sandbox_mediapipe_delegate_init_thread_id=${sandboxMetrics?.delegateInitThreadId ?: 0L}")
+            appendLine("sandbox_mediapipe_analyzer_thread_id=${sandboxMetrics?.lastAnalyzeThreadId ?: 0L}")
+            appendLine("sandbox_mediapipe_delegate_thread_matches_analyzer=${sandboxMetrics?.delegateThreadMatchesAnalyzer ?: false}")
+            appendLine("sandbox_average_inference_ms=${sandboxMetrics?.averageInferenceMs ?: 0f}")
+            appendLine("sandbox_average_result_processing_ms=${sandboxMetrics?.averageResultProcessingMs ?: 0f}")
             append("sandbox_last_preprocessing_ms=").append(sandboxMetrics?.lastPreprocessingMs ?: 0L).append('\n')
             append("sandbox_last_frame_received_age_ms=").append(
                 if (latestHandFrameReceivedAtMs > 0L) {
@@ -522,7 +589,53 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         val cameraInput = EndXrHandInputEncoder.encode(handFrame)
         endXrRuntime.setControllerInput(left, right)
         EndXrInputSnapshotStore.publish(left, right)
-        EndXrInputSnapshotStore.publishHandPoses(cameraInput.leftPose, cameraInput.rightPose)
+        EndXrInputSnapshotStore.publishHandPoses(
+            cameraInput.leftPose, cameraInput.rightPose,
+            cameraInput.leftJoints, cameraInput.rightJoints
+        )
+    }
+
+    private fun launchExternalOpenXrProbe() {
+        val probePackage = "com.noyclic.xrclientprobe"
+        val launchIntent = packageManager.getLaunchIntentForPackage(probePackage)
+        if (launchIntent != null) {
+            runCatching { startActivity(launchIntent) }
+                .onFailure { error ->
+                    Toast.makeText(
+                        this,
+                        "Не удалось открыть внешний тест: ${error.message ?: "ошибка запуска"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Внешний OpenXR тест не установлен")
+            .setMessage(
+                "Для независимой проверки нужен отдельный APK EndXR External Client Probe. " +
+                    "Скачай QuestPhoneXR-debug-apk и QuestPhoneXR-external-client-probe-apk " +
+                    "из одного и того же запуска GitHub Actions и установи оба. " +
+                    "Одинаковая подпись нужна диагностическому клиенту для проверки защищённого IPC."
+            )
+            .setPositiveButton("Открыть GitHub Actions") { _, _ ->
+                runCatching {
+                    startActivity(
+                        Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse("https://github.com/Noyclic/QuestPhoneXr/actions")
+                        )
+                    )
+                }.onFailure { error ->
+                    Toast.makeText(
+                        this,
+                        "Не удалось открыть GitHub Actions: ${error.message ?: "ошибка"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            .setNegativeButton("Закрыть", null)
+            .show()
     }
 
     private fun showRuntimeBrokerDiagnostic() {
@@ -697,14 +810,30 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private fun buildScreen() {
         val root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
-            addView(
-                glView,
+        }
+
+        // Keep the real WebView attached to the Activity, underneath the GLES
+        // SurfaceView. Its view tree is captured into the in-world stereo texture.
+        browserPanel = SandboxBrowserPanelView(this) {
+            if (sandboxBrowserVisible) toggleSandboxBrowser()
+        }
+        // The WebView host remains attached and focusable below the full-screen
+        // GLSurfaceView; only its captured bitmap is shown in the VR scene.
+        root.addView(
+            browserPanel,
+            FrameLayout.LayoutParams(
+                SandboxBrowserInteraction.TEXTURE_WIDTH,
+                SandboxBrowserInteraction.TEXTURE_HEIGHT,
+                Gravity.CENTER
+            )
+        )
+        root.addView(
+            glView,
                 FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.MATCH_PARENT
                 )
             )
-        }
 
         statusView = TextView(this).apply {
             text = statusText()
@@ -718,6 +847,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(0xE60C111B.toInt())
         }
+        browserSettingsPanel = topPanel
 
         val scrollContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -739,6 +869,12 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             )
             buttons.addView(
+                controlButton("Бинды") {
+                    startActivity(Intent(this@SandboxActivity, ControllerBindingsActivity::class.java))
+                },
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            )
+            buttons.addView(
                 controlButton("Перецентрировать") {
                     glView.queueEvent { renderer.recenterHead() }
                 },
@@ -750,8 +886,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             )
             addView(buttons)
             addView(
-                controlButton("Настроить бинды геймпада") {
-                    startActivity(Intent(this@SandboxActivity, ControllerBindingsActivity::class.java))
+                controlButton("Открыть 3D-браузер + клавиатуру") {
+                    toggleSandboxBrowser()
                 },
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -810,6 +946,13 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             )
             addView(
                 controlButton("Профиль MediaPipe") { showHandTrackingPresetDialog() },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+            addView(
+                controlButton("Движок MediaPipe: GPU / CPU") { showHandTrackingDelegateDialog() },
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
@@ -898,9 +1041,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             copyEndXrOpenXrDiagnostic()
         }.apply {
             textSize = 13f
-            setTextColor(Color.WHITE)
             contentDescription = "Скопировать диагностику EndXR"
-            backgroundTintList = android.content.res.ColorStateList.valueOf(0xFF176B4A.toInt())
             setPadding(dp(12), dp(5), dp(12), dp(5))
             minHeight = dp(42)
             elevation = dp(6).toFloat()
@@ -934,6 +1075,27 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             ).apply {
                 bottomMargin = dp(62)
                 marginStart = dp(12)
+            }
+        )
+
+        val externalProbeButton = controlButton("Внешний OpenXR тест") {
+            launchExternalOpenXrProbe()
+        }.apply {
+            textSize = 13f
+            contentDescription = "Запустить отдельное приложение для проверки OpenXR Loader и EndXR"
+            setPadding(dp(12), dp(5), dp(12), dp(5))
+            minHeight = dp(40)
+            elevation = dp(6).toFloat()
+        }
+        root.addView(
+            externalProbeButton,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.END
+            ).apply {
+                bottomMargin = dp(158)
+                marginEnd = dp(12)
             }
         )
 
@@ -1030,25 +1192,30 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 val useFrontCamera = cameraSelection.isFrontCamera
                 val selector = cameraSelection.selector
 
-                val tracker = HandLandmarkerController(
-                    context = applicationContext,
-                    mirrorFrontCamera = useFrontCamera,
-                    onFrame = ::onHandFrame,
-                    onError = { message ->
-                        runOnUiThread {
-                            cameraStatusMessage = "MediaPipe: " + message
-                            updateStatus()
-                        }
-                    },
-                    maxHands = handTrackingPreset.maxTrackedHands,
-                    minimumInferenceIntervalMs = adaptivePerformanceState.minimumInferenceIntervalMs,
-                    // Keep the camera source at 640×480, but feed a bounded 480×360
-                    // bitmap to the CPU model. This avoids paying full camera-resolution
-                    // inference cost while retaining enough detail for hand landmarks.
-                    outputWidthPx = minOf(effectiveCameraWidthPx(), MODEL_INPUT_WIDTH_PX),
-                    outputHeightPx = minOf(effectiveCameraHeightPx(), MODEL_INPUT_HEIGHT_PX),
-                    onMetrics = { snapshot -> latestSandboxTrackingMetrics = snapshot }
-                )
+                // The GPU delegate is thread-affine: create it on the same single-thread
+                // executor that CameraX uses for analyze()/detectAsync().
+                val tracker = cameraExecutor.submit<HandLandmarkerController> {
+                    HandLandmarkerController(
+                        context = applicationContext,
+                        mirrorFrontCamera = useFrontCamera,
+                        onFrame = ::onHandFrame,
+                        onError = { message ->
+                            runOnUiThread {
+                                cameraStatusMessage = "MediaPipe: " + message
+                                updateStatus()
+                            }
+                        },
+                        maxHands = handTrackingPreset.maxTrackedHands,
+                        minimumInferenceIntervalMs = adaptivePerformanceState.minimumInferenceIntervalMs,
+                        // The selected preset can use a smaller model bitmap than the
+                        // CameraX source to trade landmark detail for inference workload.
+                        outputWidthPx = minOf(effectiveCameraWidthPx(), handTrackingPreset.modelInputWidthPx),
+                        outputHeightPx = minOf(effectiveCameraHeightPx(), handTrackingPreset.modelInputHeightPx),
+                        onMetrics = { snapshot -> latestSandboxTrackingMetrics = snapshot },
+                        preferredDelegate = handTrackingDelegatePreference.delegate,
+                        ownerExecutor = cameraExecutor
+                    )
+                }.get()
                 handTracker = tracker
                 val analysis = ImageAnalysis.Builder()
                     .setTargetResolution(
@@ -1108,6 +1275,30 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             return
         }
 
+        // Android 13+ requires a runtime grant before the ongoing tracking notification
+        // can be shown in the notification drawer. Older versions can still have
+        // app/channel notifications disabled manually, so check that as well.
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) {
+            cameraStatusMessage =
+                "Уведомления EndXR отключены · включи их в настройках Android"
+            updateStatus()
+            showNotificationPermissionSettingsDialog()
+            return
+        }
+
+        startPersistentHandTrackingService()
+    }
+
+    private fun startPersistentHandTrackingService() {
+        if (EndXrHandTrackingService.isRunning()) return
+
         // Transfer CameraX ownership while the Activity is still visible.
         cameraProvider?.unbindAll()
         handTracker?.close()
@@ -1120,12 +1311,15 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             effectiveCameraWidthPx(),
             effectiveCameraHeightPx(),
             handTrackingPreset.maxTrackedHands,
-            adaptivePerformanceState.minimumInferenceIntervalMs
+            adaptivePerformanceState.minimumInferenceIntervalMs,
+            minOf(effectiveCameraWidthPx(), handTrackingPreset.modelInputWidthPx),
+            minOf(effectiveCameraHeightPx(), handTrackingPreset.modelInputHeightPx),
+            preferGpuDelegate = handTrackingDelegatePreference.delegate == Delegate.GPU
         )
         runCatching {
             ContextCompat.startForegroundService(this, serviceIntent)
             cameraStatusMessage =
-                "EndXR: запускаем фоновую камеру рук. Оставь уведомление активным перед запуском игры."
+                "EndXR: фоновая камера рук запущена · уведомление должно оставаться активным"
         }.onFailure { error ->
             EndXrHandTrackingService.markStartFailed(
                 error.message ?: error.javaClass.simpleName
@@ -1135,6 +1329,31 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             startHandTracking()
         }
         updateStatus()
+    }
+
+    private fun showNotificationPermissionSettingsDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Разреши уведомления EndXR")
+            .setMessage(
+                "Android скрывает уведомление фонового отслеживания, пока уведомления " +
+                    "для QuestPhoneXR запрещены. Открой настройки приложения и включи " +
+                    "«Разрешить уведомления», затем снова запусти фоновую камеру рук."
+            )
+            .setPositiveButton("Открыть настройки") { _, _ ->
+                val settingsIntent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                    putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                }
+                runCatching { startActivity(settingsIntent) }.onFailure {
+                    startActivity(
+                        Intent(
+                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            android.net.Uri.parse("package:$packageName")
+                        )
+                    )
+                }
+            }
+            .setNegativeButton("Позже", null)
+            .show()
     }
 
     // Keep enough source detail for reliable palm/landmark detection. The phone
@@ -1362,6 +1581,39 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             .show()
     }
 
+    private fun showHandTrackingDelegateDialog() {
+        val preferences = HandTrackingDelegatePreference.entries.toTypedArray()
+        var selectedIndex = preferences.indexOf(handTrackingDelegatePreference).coerceAtLeast(0)
+        val labels = preferences.map { it.label }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("Движок MediaPipe")
+            .setMessage(
+                "GPU может ускорить обработку, но результат зависит от драйвера Adreno. " +
+                    "Режим GPU автоматически использует CPU, если GPU-делегат не запускается. " +
+                    "Режим CPU позволяет сравнить производительность на том же телефоне."
+            )
+            .setSingleChoiceItems(labels, selectedIndex) { _, which ->
+                selectedIndex = which
+            }
+            .setPositiveButton("Применить") { _, _ ->
+                val selected = preferences[selectedIndex]
+                if (selected != handTrackingDelegatePreference) {
+                    handTrackingDelegatePreference = selected
+                    handTrackingPresetStore.saveDelegatePreference(selected)
+                    val wasTracking = handTracker != null ||
+                        handTrackingStartPending || EndXrHandTrackingService.isRunning()
+                    if (wasTracking) {
+                        restartHandTracking()
+                    } else {
+                        updateStatus()
+                    }
+                }
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
     private fun showHandCalibrationDialog() {
         val current = handCalibration.normalized()
         val content = LinearLayout(this).apply {
@@ -1550,7 +1802,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 effectiveCameraWidthPx(),
                 effectiveCameraHeightPx(),
                 handTrackingPreset.maxTrackedHands,
-                adaptivePerformanceState.minimumInferenceIntervalMs
+                adaptivePerformanceState.minimumInferenceIntervalMs,
+                minOf(effectiveCameraWidthPx(), handTrackingPreset.modelInputWidthPx),
+                minOf(effectiveCameraHeightPx(), handTrackingPreset.modelInputHeightPx),
+                preferGpuDelegate = handTrackingDelegatePreference.delegate == Delegate.GPU
             )
             runCatching {
                 ContextCompat.startForegroundService(this, intent)
@@ -1766,6 +2021,33 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             .show()
     }
 
+    private fun toggleSandboxBrowser() {
+        sandboxBrowserVisible = !sandboxBrowserVisible
+        renderer.setBrowserVisible(sandboxBrowserVisible)
+        simulation.setBrowserInteractionMode(sandboxBrowserVisible)
+        if (sandboxBrowserVisible) {
+            restoreSettingsAfterBrowser = browserSettingsPanel?.visibility == View.VISIBLE
+            browserSettingsPanel?.visibility = View.GONE
+            browserPanel.onResumeBrowser()
+            browserPanel.focusAddressBar()
+            lastBrowserTextureUpdateMs = 0L
+            runCatching { browserPanel.captureTextureBitmap() }
+                .onSuccess { renderer.submitBrowserBitmap(it) }
+                .onFailure { Log.w(TAG, "Initial Sandbox browser texture capture failed", it) }
+            Toast.makeText(
+                this,
+                "Браузер открыт в 3D. Наведи палец и сведи большой с указательным для нажатия; удерживай pinch и двигай рукой для прокрутки. Крестик в правом верхнем углу подсветится, когда рука приблизится к панели.",
+                Toast.LENGTH_LONG
+            ).show()
+        } else {
+            browserPanel.releaseHandPointer()
+            if (restoreSettingsAfterBrowser) browserSettingsPanel?.visibility = View.VISIBLE
+            restoreSettingsAfterBrowser = false
+            Toast.makeText(this, "3D-браузер закрыт", Toast.LENGTH_SHORT).show()
+        }
+        glView.requestRender()
+    }
+
     private fun spawnCube() {
         simulation.spawnCube()
         glView.queueEvent { renderer.updateScene(simulation.snapshot()) }
@@ -1782,14 +2064,28 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
 
     private fun statusText(): String {
         val controllers = controllerSnapshots
-        val dualHandControllerConnected = controllers.any { it.mapToBothHands }
-        val leftConnected = dualHandControllerConnected || controllers.any {
-            it.hand == com.noyclic.questphonexr.tracking.HandSide.LEFT
+        val leftConnected = controllers.any {
+            it.hand == com.noyclic.questphonexr.tracking.HandSide.LEFT || it.mapToBothHands
         }
-        val rightConnected = dualHandControllerConnected || controllers.any {
-            it.hand == com.noyclic.questphonexr.tracking.HandSide.RIGHT
+        val rightConnected = controllers.any {
+            it.hand == com.noyclic.questphonexr.tracking.HandSide.RIGHT || it.mapToBothHands
         }
         val scene = simulation.snapshot()
+        val serviceRunning = EndXrHandTrackingService.isRunning()
+        val diagnosticHandFrame = if (serviceRunning) {
+            EndXrHandTrackingService.latestFrame()
+        } else {
+            latestHandFrame
+        }
+        val leftTrackedHand = diagnosticHandFrame.hands.firstOrNull {
+            it.side == com.noyclic.questphonexr.tracking.HandSide.LEFT
+        }
+        val rightTrackedHand = diagnosticHandFrame.hands.firstOrNull {
+            it.side == com.noyclic.questphonexr.tracking.HandSide.RIGHT
+        }
+        val unknownTrackedHand = diagnosticHandFrame.hands.firstOrNull {
+            it.side == com.noyclic.questphonexr.tracking.HandSide.UNKNOWN
+        }
         val actualFps = renderer.measuredFps
         val fpsText = if (actualFps > 0f) {
             String.format(Locale.US, "%.1f", actualFps)
@@ -1801,8 +2097,12 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         } else {
             "—"
         }
-        val inferenceFps =
-            1000L / adaptivePerformanceState.minimumInferenceIntervalMs.coerceAtLeast(1L)
+        val inferenceIntervalMs = adaptivePerformanceState.minimumInferenceIntervalMs
+        val inferenceRateLabel = if (inferenceIntervalMs == 0L) {
+            "без искусственного ограничения"
+        } else {
+            "до ${1000L / inferenceIntervalMs} кадров/с"
+        }
 
         return buildString {
             append("QUESTPHONEXR · VR-ПЕСОЧНИЦА · СТЕРЕО 3DoF")
@@ -1816,12 +2116,17 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             append(" · ").append(adaptivePerformanceState.label)
             append(" · камера ").append(effectiveCameraWidthPx())
             append('×').append(effectiveCameraHeightPx())
-            append(" · ").append(handTrackingPreset.maxTrackedHands).append(" рук · MediaPipe до ")
-                .append(inferenceFps).append(" кадр/с")
+            append(" · ").append(handTrackingPreset.maxTrackedHands).append(" рук · MediaPipe ")
+                .append(inferenceRateLabel)
             append('\n')
-            append(cameraStatusMessage).append(" · рук: ").append(latestHandFrame.handCount)
+            append(cameraStatusMessage).append(" · рук: ").append(diagnosticHandFrame.handCount)
             append('\n')
-            val serviceRunning = EndXrHandTrackingService.isRunning()
+            append("Pinch L: ").append(pinchDiagnostic(leftTrackedHand))
+            append(" · R: ").append(pinchDiagnostic(rightTrackedHand))
+            if (unknownTrackedHand != null) {
+                append(" · ?: ").append(pinchDiagnostic(unknownTrackedHand))
+            }
+            append('\n')
             val serviceState = EndXrHandTrackingService.diagnosticState()
             append("Фоновая камера EndXR: ")
             append(
@@ -1833,7 +2138,14 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 }
             )
             append('\n')
-            val trackerMetrics = handTracker?.metricsSnapshot()
+            val trackerMetrics = if (serviceRunning) {
+                EndXrHandTrackingService.diagnosticMetrics()
+            } else {
+                handTracker?.metricsSnapshot() ?: latestSandboxTrackingMetrics
+            }
+            append("MediaPipe delegate: ").append(trackerMetrics?.delegateName ?: "ожидание")
+            append(" · выбор: ").append(handTrackingDelegatePreference.label)
+            append('\n')
             append("MediaPipe: ").append(handFpsText)
             append(" FPS · подготовка ").append(latestPreprocessingLatencyMs)
             append(" мс · pipeline ").append(latestHandPipelineLatencyMs)
@@ -1858,16 +2170,25 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     .append(" ms")
             }
             append('\n').append(endXrOpenXrTestLabel).append('\n')
-            append("Контроллеры · L: ").append(if (leftConnected) "подключён" else "нет")
+            append("Joy-Con L: ").append(if (leftConnected) "подключён" else "нет")
             append(" · R: ").append(if (rightConnected) "подключён" else "нет")
-            if (dualHandControllerConnected) append(" · один геймпад назначен обеим рукам")
             append('\n')
             append("Объектов: ").append(scene.objects.size)
             append(" · захвачено: ").append(scene.grabbedObjectCount)
             append(" · очки: ").append(scene.score)
             append('\n')
-            append("Щипок пальцами или кнопки Joy-Con захватывают предметы")
+            append("Обхват ладонью / щипок или кнопки Joy-Con захватывают предметы · касание пальцем нажимает браузер")
         }
+    }
+
+    private fun pinchDiagnostic(hand: com.noyclic.questphonexr.tracking.TrackedHand?): String {
+        if (hand == null) return "—"
+        val percent = (hand.pinchStrength * 100f).toInt().coerceIn(0, 100)
+        val ratio = hand.pinchDistanceRatio.takeIf { it.isFinite() }
+            ?.let { String.format(Locale.US, "%.2f", it) } ?: "—"
+        val source = if (hand.pinchUsesWorldLandmarks) "3D" else "2D"
+        return "$percent% · разрыв $ratio× · $source · " +
+            if (hand.isPinching) "ON" else "off"
     }
 
     private fun updateStatus() {
@@ -1881,7 +2202,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             else -> "Включить фоновую камеру рук для Quest-игр"
         }
         persistentHandTrackingButton?.let { button ->
-            if (button.text.toString() != label) button.text = label
+            if (button.text.toString() != label) {
+                button.text = label
+                button.applyNextVreraStyle(nextVreraToneFor(label))
+            }
             button.contentDescription = label
         }
     }
@@ -1889,13 +2213,13 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private fun controlButton(label: String, action: () -> Unit): Button =
         Button(this).apply {
             text = label
-            isAllCaps = false
+            applyNextVreraStyle(nextVreraToneFor(label))
             setOnClickListener { action() }
         }
 
     override fun onResume() {
         super.onResume()
-        controllerBindingProfile = ControllerBindingStore.load(this)
+        if (::browserPanel.isInitialized) browserPanel.onResumeBrowser()
         if (::glView.isInitialized) {
             glView.onResume()
             val retryOpenXrProbe = retryOpenXrProbeOnResume
@@ -1914,6 +2238,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
             }
         }
+        controllerBindingProfile = ControllerBindingStore.load(this)
         inputManager.registerInputDeviceListener(this, Handler(Looper.getMainLooper()))
         controllerSnapshots = gamepadInput.refreshConnectedDevices()
         if (EndXrHandTrackingService.isRunning()) {
@@ -1928,6 +2253,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     }
 
     override fun onPause() {
+        if (::browserPanel.isInitialized) browserPanel.onPauseBrowser()
         Choreographer.getInstance().removeFrameCallback(frameCallback)
         if (::sensorManager.isInitialized) sensorManager.unregisterListener(this)
         inputManager.unregisterInputDeviceListener(this)
@@ -2039,6 +2365,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     }
 
     override fun onDestroy() {
+        if (::browserPanel.isInitialized) browserPanel.destroyBrowser()
         trackingSender?.close()
         trackingSender = null
         if (!EndXrHandTrackingService.isRunning()) {
@@ -2050,10 +2377,12 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     }
 
     companion object {
+        private const val TAG = "QuestPhoneXR.Sandbox"
         private const val MIN_HAND_TRACKING_CAMERA_WIDTH_PX = 640
         private const val MIN_HAND_TRACKING_CAMERA_HEIGHT_PX = 480
         const val EXTRA_OPEN_PC_BRIDGE = "com.noyclic.questphonexr.OPEN_PC_BRIDGE"
         private const val NANOS_PER_SECOND = 1_000_000_000L
+        private const val BROWSER_TEXTURE_REFRESH_MS = 350L
         private const val MAX_PHYSICS_STEP_SECONDS = 0.05f
         private const val MODEL_INPUT_WIDTH_PX = 480
         private const val MODEL_INPUT_HEIGHT_PX = 360

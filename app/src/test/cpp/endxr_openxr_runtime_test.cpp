@@ -1,5 +1,6 @@
 #include "endxr_openxr_runtime.hpp"
 #include <cstdint>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -28,7 +29,8 @@ void setup(XrNegotiateLoaderInfo& loader, XrNegotiateRuntimeRequest& runtime) {
     runtime.structVersion = XR_RUNTIME_INFO_STRUCT_VERSION;
     runtime.structSize = sizeof(runtime);
 }
-XrInstance createInstance(PFN_xrGetInstanceProcAddr gipa, bool enableAndroid, bool enableGles) {
+XrInstance createInstance(PFN_xrGetInstanceProcAddr gipa, bool enableAndroid, bool enableGles,
+                          bool enableHandTracking = false) {
     XrInstanceCreateInfoAndroidKHR androidInfo{};
     androidInfo.type = XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR;
     androidInfo.applicationVM = reinterpret_cast<void*>(0x1000);
@@ -37,10 +39,11 @@ XrInstance createInstance(PFN_xrGetInstanceProcAddr gipa, bool enableAndroid, bo
     info.type = XR_TYPE_INSTANCE_CREATE_INFO;
     info.next = enableAndroid ? &androidInfo : nullptr;
     info.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
-    const char* enabled[2]{};
+    const char* enabled[3]{};
     std::uint32_t count = 0;
     if (enableAndroid) enabled[count++] = ENDXR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME;
     if (enableGles) enabled[count++] = ENDXR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME;
+    if (enableHandTracking) enabled[count++] = XR_EXT_HAND_TRACKING_EXTENSION_NAME;
     info.enabledExtensionCount = count;
     info.enabledExtensionNames = enabled;
     PFN_xrVoidFunction raw = nullptr;
@@ -128,13 +131,14 @@ void testExtensionEnumerationAndInstance() {
                                      "xrEnumerateInstanceExtensionProperties");
     auto enumerate = reinterpret_cast<PFN_xrEnumerateInstanceExtensionProperties>(raw);
     std::uint32_t count = 0;
-    expect(enumerate(nullptr, 0, &count, nullptr) == XR_SUCCESS && count == 2,
-           "report Android-create and GLES extensions");
-    XrExtensionProperties extensions[2]{};
+    expect(enumerate(nullptr, 0, &count, nullptr) == XR_SUCCESS && count == 3,
+           "report Android-create, GLES and hand-tracking extensions");
+    XrExtensionProperties extensions[3]{};
     extensions[0].type = XR_TYPE_EXTENSION_PROPERTIES;
     extensions[1].type = XR_TYPE_EXTENSION_PROPERTIES;
-    expect(enumerate(nullptr, 2, &count, extensions) == XR_SUCCESS,
-           "fill both extension properties");
+    extensions[2].type = XR_TYPE_EXTENSION_PROPERTIES;
+    expect(enumerate(nullptr, 3, &count, extensions) == XR_SUCCESS,
+           "fill all extension properties");
     expect(std::strcmp(extensions[0].extensionName,
                        ENDXR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME) == 0,
            "publish android-create extension");
@@ -142,10 +146,14 @@ void testExtensionEnumerationAndInstance() {
                        ENDXR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME) == 0 &&
                extensions[1].extensionVersion == ENDXR_KHR_OPENGL_ES_ENABLE_SPEC_VERSION,
            "publish GLES enable extension version 10");
-    expect(enumerate(nullptr, 1, &count, extensions) == XR_ERROR_SIZE_INSUFFICIENT,
+    expect(std::strcmp(extensions[2].extensionName,
+                       XR_EXT_HAND_TRACKING_EXTENSION_NAME) == 0 &&
+               extensions[2].extensionVersion == XR_EXT_hand_tracking_SPEC_VERSION,
+           "publish XR_EXT_hand_tracking extension version 4");
+    expect(enumerate(nullptr, 2, &count, extensions) == XR_ERROR_SIZE_INSUFFICIENT,
            "report insufficient extension enumeration capacity");
 
-    XrInstance instance = createInstance(request.getInstanceProcAddr, true, true);
+    XrInstance instance = createInstance(request.getInstanceProcAddr, true, true, true);
     raw = resolve(request.getInstanceProcAddr, instance, "xrDestroyInstance");
     auto destroy = reinterpret_cast<PFN_xrDestroyInstance>(raw);
     expect(destroy(instance) == XR_SUCCESS, "destroy OpenXR instance");
@@ -172,7 +180,7 @@ void testSystemDiscoveryAndGraphicsRequirements() {
     setup(loader, request);
     expect(xrNegotiateLoaderRuntimeInterface(&loader, &request) == XR_SUCCESS,
            "negotiate before system queries");
-    XrInstance instance = createInstance(request.getInstanceProcAddr, false, true);
+    XrInstance instance = createInstance(request.getInstanceProcAddr, false, true, true);
     auto getSystem = reinterpret_cast<PFN_xrGetSystem>(
         resolve(request.getInstanceProcAddr, instance, "xrGetSystem"));
     XrSystemGetInfo systemInfo{};
@@ -183,10 +191,15 @@ void testSystemDiscoveryAndGraphicsRequirements() {
            "select phone HMD system");
     auto getProperties = reinterpret_cast<PFN_xrGetSystemProperties>(
         resolve(request.getInstanceProcAddr, instance, "xrGetSystemProperties"));
+    XrSystemHandTrackingPropertiesEXT handProperties{};
+    handProperties.type = XR_TYPE_SYSTEM_HAND_TRACKING_PROPERTIES_EXT;
     XrSystemProperties properties{};
     properties.type = XR_TYPE_SYSTEM_PROPERTIES;
+    properties.next = &handProperties;
     expect(getProperties(instance, systemId, &properties) == XR_SUCCESS,
            "query phone system capabilities");
+    expect(handProperties.supportsHandTracking == XR_TRUE,
+           "advertise XR_EXT_hand_tracking support when enabled");
     expect(properties.trackingProperties.orientationTracking == XR_TRUE &&
                properties.trackingProperties.positionTracking == XR_FALSE,
            "advertise orientation-only tracking");
@@ -225,7 +238,7 @@ void testGlesSessionSwapchainAndFrameLifecycle() {
     setup(loader, request);
     expect(xrNegotiateLoaderRuntimeInterface(&loader, &request) == XR_SUCCESS,
            "negotiate before session tests");
-    XrInstance instance = createInstance(request.getInstanceProcAddr, true, true);
+    XrInstance instance = createInstance(request.getInstanceProcAddr, true, true, true);
     auto getSystem = reinterpret_cast<PFN_xrGetSystem>(
         resolve(request.getInstanceProcAddr, instance, "xrGetSystem"));
     XrSystemGetInfo systemInfo{};
@@ -256,6 +269,30 @@ void testGlesSessionSwapchainAndFrameLifecycle() {
     expect(createSession(instance, &createInfo, &session) == XR_SUCCESS &&
                session != XR_NULL_HANDLE,
            "create GLES-backed XR session");
+
+    auto getBounds = reinterpret_cast<PFN_xrGetReferenceSpaceBoundsRect>(
+        resolve(request.getInstanceProcAddr, instance, "xrGetReferenceSpaceBoundsRect"));
+    XrExtent2Df bounds{9.0f, 7.0f};
+    expect(getBounds(session, XR_REFERENCE_SPACE_TYPE_LOCAL, &bounds) ==
+               XR_SPACE_BOUNDS_UNAVAILABLE &&
+               bounds.width == 0.0f && bounds.height == 0.0f,
+           "report unavailable physical bounds for the supported LOCAL space");
+    bounds = {9.0f, 7.0f};
+    expect(getBounds(session, XR_REFERENCE_SPACE_TYPE_VIEW, &bounds) ==
+               XR_SPACE_BOUNDS_UNAVAILABLE &&
+               bounds.width == 0.0f && bounds.height == 0.0f,
+           "report unavailable physical bounds for the supported VIEW space");
+    bounds = {9.0f, 7.0f};
+    expect(getBounds(session, XR_REFERENCE_SPACE_TYPE_STAGE, &bounds) ==
+               XR_ERROR_REFERENCE_SPACE_UNSUPPORTED &&
+               bounds.width == 0.0f && bounds.height == 0.0f,
+           "reject STAGE because EndXR does not expose room-scale tracking");
+    expect(getBounds(reinterpret_cast<XrSession>(static_cast<std::uintptr_t>(1)),
+                     XR_REFERENCE_SPACE_TYPE_LOCAL, &bounds) == XR_ERROR_HANDLE_INVALID,
+           "reject a stale session handle in the reference-space bounds query");
+    expect(getBounds(session, XR_REFERENCE_SPACE_TYPE_LOCAL, nullptr) ==
+               XR_ERROR_VALIDATION_FAILURE,
+           "reject a null reference-space bounds output");
 
     auto pollEvent = reinterpret_cast<PFN_xrPollEvent>(
         resolve(request.getInstanceProcAddr, instance, "xrPollEvent"));
@@ -353,6 +390,75 @@ void testGlesSessionSwapchainAndFrameLifecycle() {
     XrSpace localSpace = XR_NULL_HANDLE;
     expect(createReferenceSpace(session, &referenceInfo, &localSpace) == XR_SUCCESS,
            "create a local space for external head orientation tests");
+
+    auto createHandTracker = reinterpret_cast<PFN_xrCreateHandTrackerEXT>(
+        resolve(request.getInstanceProcAddr, instance, "xrCreateHandTrackerEXT"));
+    auto destroyHandTracker = reinterpret_cast<PFN_xrDestroyHandTrackerEXT>(
+        resolve(request.getInstanceProcAddr, instance, "xrDestroyHandTrackerEXT"));
+    auto locateHandJoints = reinterpret_cast<PFN_xrLocateHandJointsEXT>(
+        resolve(request.getInstanceProcAddr, instance, "xrLocateHandJointsEXT"));
+    XrHandTrackerCreateInfoEXT trackerInfo{};
+    trackerInfo.type = XR_TYPE_HAND_TRACKER_CREATE_INFO_EXT;
+    trackerInfo.hand = XR_HAND_LEFT_EXT;
+    trackerInfo.handJointSet = XR_HAND_JOINT_SET_DEFAULT_EXT;
+    XrHandTrackerEXT leftHandTracker = XR_NULL_HANDLE;
+    expect(createHandTracker(session, &trackerInfo, &leftHandTracker) == XR_SUCCESS &&
+               leftHandTracker != XR_NULL_HANDLE,
+           "create left OpenXR hand tracker");
+    trackerInfo.hand = XR_HAND_RIGHT_EXT;
+    XrHandTrackerEXT rightHandTracker = XR_NULL_HANDLE;
+    expect(createHandTracker(session, &trackerInfo, &rightHandTracker) == XR_SUCCESS &&
+               rightHandTracker != XR_NULL_HANDLE,
+           "create right OpenXR hand tracker");
+
+    std::array<float, XR_HAND_JOINT_COUNT_EXT * 8> nativeJointSamples{};
+    for (std::uint32_t joint = 0; joint < XR_HAND_JOINT_COUNT_EXT; ++joint) {
+        const std::size_t offset = static_cast<std::size_t>(joint) * 8u;
+        nativeJointSamples[offset] = 0.001f * static_cast<float>(joint);
+        nativeJointSamples[offset + 1] = 0.01f;
+        nativeJointSamples[offset + 2] = -0.005f;
+        nativeJointSamples[offset + 3] = 0.009f;
+        nativeJointSamples[offset + 7] = 1.0f;
+    }
+    endxrSetHandPose(0, 1, 0.25f, 0.1f, -1.5f, 0.0f, 0.0f, 0.0f, 1.0f);
+    endxrSetHandJointData(0, 1, nativeJointSamples.data(),
+        static_cast<std::uint32_t>(nativeJointSamples.size()));
+    XrHandJointLocationEXT jointLocations[XR_HAND_JOINT_COUNT_EXT]{};
+    XrHandJointVelocityEXT jointVelocities[XR_HAND_JOINT_COUNT_EXT]{};
+    XrHandJointVelocitiesEXT velocityOutput{};
+    velocityOutput.type = XR_TYPE_HAND_JOINT_VELOCITIES_EXT;
+    velocityOutput.jointCount = XR_HAND_JOINT_COUNT_EXT;
+    velocityOutput.jointVelocities = jointVelocities;
+    XrHandJointLocationsEXT jointOutput{};
+    jointOutput.type = XR_TYPE_HAND_JOINT_LOCATIONS_EXT;
+    jointOutput.next = &velocityOutput;
+    jointOutput.jointCount = XR_HAND_JOINT_COUNT_EXT;
+    jointOutput.jointLocations = jointLocations;
+    XrHandJointsLocateInfoEXT jointLocateInfo{};
+    jointLocateInfo.type = XR_TYPE_HAND_JOINTS_LOCATE_INFO_EXT;
+    jointLocateInfo.baseSpace = localSpace;
+    jointLocateInfo.time = 1;
+    endxrSetHeadOrientation(0.0f, 0.0f, 0.0f, 1.0f);
+    expect(locateHandJoints(leftHandTracker, &jointLocateInfo, &jointOutput) == XR_SUCCESS &&
+               jointOutput.isActive == XR_TRUE,
+           "locate the current left hand joint set");
+    expect((jointLocations[0].locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0 &&
+               (jointLocations[0].locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0 &&
+               (jointLocations[0].locationFlags & XR_SPACE_LOCATION_POSITION_TRACKED_BIT) == 0 &&
+               std::abs(jointLocations[0].pose.position.x - 0.25f) < 0.001f &&
+               std::abs(jointLocations[25].pose.position.x - 0.275f) < 0.001f &&
+               jointVelocities[0].velocityFlags == 0 &&
+               jointVelocities[0].linearVelocity.x == 0.0f &&
+               jointVelocities[25].angularVelocity.z == 0.0f,
+           "compose estimated joint poses and mark unsupported velocity estimates invalid");
+    endxrClearHandPoses();
+    expect(locateHandJoints(leftHandTracker, &jointLocateInfo, &jointOutput) == XR_SUCCESS &&
+               jointOutput.isActive == XR_FALSE &&
+               jointLocations[0].locationFlags == 0,
+           "report inactive hand joints after camera tracking is cleared");
+    expect(destroyHandTracker(leftHandTracker) == XR_SUCCESS &&
+               destroyHandTracker(rightHandTracker) == XR_SUCCESS,
+           "destroy both hand trackers before destroying the session");
     auto locateViews = reinterpret_cast<PFN_xrLocateViews>(
         resolve(request.getInstanceProcAddr, instance, "xrLocateViews"));
     XrViewLocateInfo locateInfo{};
@@ -1066,10 +1172,26 @@ void testGetInstanceProcAddrConformance() {
                noGlesInstance, "xrGetOpenGLESGraphicsRequirementsKHR", &function) ==
                XR_ERROR_FUNCTION_UNSUPPORTED && function == nullptr,
            "hide GLES extension entry point when the extension is not enabled");
+    expect(request.getInstanceProcAddr(
+               noGlesInstance, "xrCreateHandTrackerEXT", &function) ==
+               XR_ERROR_FUNCTION_UNSUPPORTED && function == nullptr,
+           "hide hand-tracking extension entry points when the extension is not enabled");
     auto destroyNoGles = reinterpret_cast<PFN_xrDestroyInstance>(
         resolve(request.getInstanceProcAddr, noGlesInstance, "xrDestroyInstance"));
     expect(destroyNoGles(noGlesInstance) == XR_SUCCESS,
            "destroy instance used for disabled-extension GIPA check");
+
+    XrInstance handTrackingInstance =
+        createInstance(request.getInstanceProcAddr, false, true, true);
+    function = nullptr;
+    expect(request.getInstanceProcAddr(
+               handTrackingInstance, "xrCreateHandTrackerEXT", &function) ==
+               XR_SUCCESS && function != nullptr,
+           "resolve hand-tracking extension entry point after enabling it");
+    auto destroyHandTrackingInstance = reinterpret_cast<PFN_xrDestroyInstance>(
+        resolve(request.getInstanceProcAddr, handTrackingInstance, "xrDestroyInstance"));
+    expect(destroyHandTrackingInstance(handTrackingInstance) == XR_SUCCESS,
+           "destroy hand-tracking-enabled GIPA test instance");
 
     XrInstance glesInstance = createInstance(request.getInstanceProcAddr, false, true);
     function = nullptr;

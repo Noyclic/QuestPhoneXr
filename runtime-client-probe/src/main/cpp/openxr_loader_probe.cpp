@@ -325,6 +325,7 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
 
     bool androidCreateInstanceExtensionFound = false;
     bool openGlesExtensionFound = false;
+    bool handTrackingExtensionFound = false;
     if (XR_SUCCEEDED(extensionCountResult) && extensionCount > 0) {
         std::vector<XrExtensionProperties> extensions(extensionCount);
         for (auto& extension : extensions) {
@@ -355,6 +356,11 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                                XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME
                            ) == 0) {
                     openGlesExtensionFound = true;
+                } else if (std::strcmp(
+                               extension.extensionName,
+                               XR_EXT_HAND_TRACKING_EXTENSION_NAME
+                           ) == 0) {
+                    handTrackingExtensionFound = true;
                 }
             }
         }
@@ -366,6 +372,9 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
            << "\n";
     report << "runtime_advertises_XR_KHR_opengl_es_enable="
            << (openGlesExtensionFound ? "YES" : "NO_OR_UNAVAILABLE")
+           << "\n";
+    report << "runtime_advertises_XR_EXT_hand_tracking="
+           << (handTrackingExtensionFound ? "YES" : "NO_OR_UNAVAILABLE")
            << "\n";
 
     XrInstanceCreateInfoAndroidKHR androidCreateInfo{};
@@ -391,12 +400,18 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
     instanceCreateInfo.applicationInfo.engineVersion = 1;
     instanceCreateInfo.applicationInfo.apiVersion = kProbeRequestedApiVersion;
 
-    const char* enabledExtensions[] = {
-        XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME,
-        XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME
+    std::vector<const char*> enabledExtensions{
+        XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME
     };
-    instanceCreateInfo.enabledExtensionCount = openGlesExtensionFound ? 2u : 1u;
-    instanceCreateInfo.enabledExtensionNames = enabledExtensions;
+    if (openGlesExtensionFound) {
+        enabledExtensions.push_back(XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME);
+    }
+    if (handTrackingExtensionFound) {
+        enabledExtensions.push_back(XR_EXT_HAND_TRACKING_EXTENSION_NAME);
+    }
+    instanceCreateInfo.enabledExtensionCount =
+        static_cast<std::uint32_t>(enabledExtensions.size());
+    instanceCreateInfo.enabledExtensionNames = enabledExtensions.data();
 
     XrInstance instance = XR_NULL_HANDLE;
     const XrResult createInstanceResult = xrCreateInstance(
@@ -418,6 +433,43 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
 
     report << "runtime_loaded=YES\n";
     report << "runtime_instance_created=YES\n";
+
+    PFN_xrCreateHandTrackerEXT createHandTracker = nullptr;
+    PFN_xrDestroyHandTrackerEXT destroyHandTracker = nullptr;
+    PFN_xrLocateHandJointsEXT locateHandJoints = nullptr;
+    if (handTrackingExtensionFound) {
+        PFN_xrVoidFunction raw = nullptr;
+        XrResult lookupResult = xrGetInstanceProcAddr(
+            instance, "xrCreateHandTrackerEXT", &raw
+        );
+        report << "external_xrCreateHandTrackerEXT_lookup="
+               << resultText(lookupResult) << "\n";
+        if (XR_SUCCEEDED(lookupResult)) {
+            createHandTracker = reinterpret_cast<PFN_xrCreateHandTrackerEXT>(raw);
+        }
+
+        raw = nullptr;
+        lookupResult = xrGetInstanceProcAddr(
+            instance, "xrDestroyHandTrackerEXT", &raw
+        );
+        report << "external_xrDestroyHandTrackerEXT_lookup="
+               << resultText(lookupResult) << "\n";
+        if (XR_SUCCEEDED(lookupResult)) {
+            destroyHandTracker = reinterpret_cast<PFN_xrDestroyHandTrackerEXT>(raw);
+        }
+
+        raw = nullptr;
+        lookupResult = xrGetInstanceProcAddr(
+            instance, "xrLocateHandJointsEXT", &raw
+        );
+        report << "external_xrLocateHandJointsEXT_lookup="
+               << resultText(lookupResult) << "\n";
+        if (XR_SUCCEEDED(lookupResult)) {
+            locateHandJoints = reinterpret_cast<PFN_xrLocateHandJointsEXT>(raw);
+        }
+    } else {
+        report << "external_hand_tracking_proc_lookup=SKIPPED (runtime did not advertise XR_EXT_hand_tracking)\n";
+    }
 
     XrInstanceProperties instanceProperties{};
     instanceProperties.type = XR_TYPE_INSTANCE_PROPERTIES;
@@ -644,6 +696,29 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                 report << "external_xrCreateSession=" << resultText(sessionResult) << "\n";
 
                 if (XR_SUCCEEDED(sessionResult) && session != XR_NULL_HANDLE) {
+                    XrHandTrackerEXT leftHandTracker = XR_NULL_HANDLE;
+                    XrHandTrackerEXT rightHandTracker = XR_NULL_HANDLE;
+                    if (createHandTracker != nullptr && destroyHandTracker != nullptr) {
+                        XrHandTrackerCreateInfoEXT handCreateInfo{};
+                        handCreateInfo.type = XR_TYPE_HAND_TRACKER_CREATE_INFO_EXT;
+                        handCreateInfo.next = nullptr;
+                        handCreateInfo.handJointSet = XR_HAND_JOINT_SET_DEFAULT_EXT;
+                        handCreateInfo.hand = XR_HAND_LEFT_EXT;
+                        XrResult handCreateResult = createHandTracker(
+                            session, &handCreateInfo, &leftHandTracker
+                        );
+                        report << "external_xrCreateHandTrackerEXT_left="
+                               << resultText(handCreateResult) << "\n";
+                        handCreateInfo.hand = XR_HAND_RIGHT_EXT;
+                        handCreateResult = createHandTracker(
+                            session, &handCreateInfo, &rightHandTracker
+                        );
+                        report << "external_xrCreateHandTrackerEXT_right="
+                               << resultText(handCreateResult) << "\n";
+                    } else {
+                        report << "external_hand_tracker_creation=SKIPPED (extension functions unavailable)\n";
+                    }
+
                     const bool readyEventObserved = waitForSessionState(
                         instance,
                         session,
@@ -840,6 +915,66 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                                    << resultText(waitFrameResult)
                                    << " should_render=" << (frameState.shouldRender == XR_TRUE ? "YES" : "NO")
                                    << "\n";
+
+                            if (XR_SUCCEEDED(waitFrameResult) &&
+                                XR_SUCCEEDED(spaceResult) &&
+                                locateHandJoints != nullptr) {
+                                const auto locateForHand = [&](XrHandTrackerEXT tracker,
+                                                               const char* handName) {
+                                    if (tracker == XR_NULL_HANDLE) {
+                                        report << "external_xrLocateHandJointsEXT_" << handName
+                                               << "=SKIPPED (tracker creation failed)\n";
+                                        return;
+                                    }
+                                    XrHandJointsLocateInfoEXT locateInfo{};
+                                    locateInfo.type = XR_TYPE_HAND_JOINTS_LOCATE_INFO_EXT;
+                                    locateInfo.next = nullptr;
+                                    locateInfo.baseSpace = localSpace;
+                                    locateInfo.time = frameState.predictedDisplayTime;
+
+                                    std::array<XrHandJointLocationEXT, XR_HAND_JOINT_COUNT_EXT>
+                                        jointLocations{};
+                                    XrHandJointLocationsEXT locations{};
+                                    locations.type = XR_TYPE_HAND_JOINT_LOCATIONS_EXT;
+                                    locations.next = nullptr;
+                                    locations.isActive = XR_FALSE;
+                                    locations.jointCount = XR_HAND_JOINT_COUNT_EXT;
+                                    locations.jointLocations = jointLocations.data();
+                                    const XrResult locateResult = locateHandJoints(
+                                        tracker, &locateInfo, &locations
+                                    );
+                                    std::uint32_t positionValidCount = 0;
+                                    std::uint32_t orientationValidCount = 0;
+                                    std::uint32_t trackedCount = 0;
+                                    if (XR_SUCCEEDED(locateResult)) {
+                                        for (const auto& joint : jointLocations) {
+                                            if ((joint.locationFlags &
+                                                XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0) {
+                                                ++positionValidCount;
+                                            }
+                                            if ((joint.locationFlags &
+                                                XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0) {
+                                                ++orientationValidCount;
+                                            }
+                                            if ((joint.locationFlags &
+                                                (XR_SPACE_LOCATION_POSITION_TRACKED_BIT |
+                                                 XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT)) != 0) {
+                                                ++trackedCount;
+                                            }
+                                        }
+                                    }
+                                    report << "external_xrLocateHandJointsEXT_" << handName
+                                           << "=" << resultText(locateResult)
+                                           << " active=" << (locations.isActive == XR_TRUE ? "YES" : "NO")
+                                           << " position_valid=" << positionValidCount
+                                           << " orientation_valid=" << orientationValidCount
+                                           << " tracked=" << trackedCount << "\n";
+                                };
+                                locateForHand(leftHandTracker, "left");
+                                locateForHand(rightHandTracker, "right");
+                            } else if (locateHandJoints != nullptr) {
+                                report << "external_xrLocateHandJointsEXT=SKIPPED (no valid frame time or local space)\n";
+                            }
 
                             if (XR_SUCCEEDED(waitFrameResult)) {
                                 XrFrameBeginInfo frameBeginInfo{};
@@ -1046,6 +1181,14 @@ Java_com_noyclic_xrclientprobe_OpenXrLoaderProbe_nativeRun(
                                 report << "external_xrEndSession=SKIPPED (STOPPING event not observed)\n";
                             }
                         }
+                    }
+                    if (rightHandTracker != XR_NULL_HANDLE && destroyHandTracker != nullptr) {
+                        report << "external_xrDestroyHandTrackerEXT_right="
+                               << resultText(destroyHandTracker(rightHandTracker)) << "\n";
+                    }
+                    if (leftHandTracker != XR_NULL_HANDLE && destroyHandTracker != nullptr) {
+                        report << "external_xrDestroyHandTrackerEXT_left="
+                               << resultText(destroyHandTracker(leftHandTracker)) << "\n";
                     }
                     report << "external_xrDestroySession="
                            << resultText(xrDestroySession(session)) << "\n";

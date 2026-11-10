@@ -19,6 +19,7 @@ import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.ExecutorService
 
 /**
  * Phone-camera MediaPipe implementation with bounded LIVE_STREAM inference.
@@ -36,15 +37,23 @@ class HandLandmarkerController(
     minimumInferenceIntervalMs: Long = 0L,
     private val outputWidthPx: Int = DEFAULT_OUTPUT_WIDTH_PX,
     private val outputHeightPx: Int = DEFAULT_OUTPUT_HEIGHT_PX,
-    private val onMetrics: ((HandTrackingMetricsSnapshot) -> Unit)? = null
+    private val onMetrics: ((HandTrackingMetricsSnapshot) -> Unit)? = null,
+    private val preferredDelegate: Delegate = Delegate.CPU,
+    /** The same single-thread executor used by CameraX analyzer; GPU delegates are thread-affine. */
+    private val ownerExecutor: ExecutorService
 ) : AutoCloseable {
 
     private val closed = AtomicBoolean(false)
+    private val taskCreationThreadId = Thread.currentThread().id
+    private val lastAnalyzeThreadId = AtomicLong(0L)
     private val processing = AtomicBoolean(false)
     private val lastAcceptedFrameMs = AtomicLong(0L)
     private val lastSubmittedTimestampMs = AtomicLong(0L)
     private val minimumInferenceIntervalMs = AtomicLong(minimumInferenceIntervalMs)
-    private val inFlightImage = AtomicReference<MPImage?>(null)
+    private val requestGate = InFlightFrameGate<MPImage>()
+    // A MediaPipe task error may be followed by a delayed callback for the failed frame.
+    // Fail closed until the controller is recreated instead of reusing a possibly poisoned task.
+    private val taskFailed = AtomicBoolean(false)
     private val inFlightTransform = AtomicReference<HandFrameTransform?>(null)
     private val inFlightStartedAtNanos = AtomicLong(0L)
     private val inFlightSourceWidth = AtomicLong(0L)
@@ -54,11 +63,25 @@ class HandLandmarkerController(
     private val receivedFrames = AtomicLong(0L)
     private val submittedFrames = AtomicLong(0L)
     private val completedFrames = AtomicLong(0L)
+    private val callbackCount = AtomicLong(0L)
+    private val matchedCallbackCount = AtomicLong(0L)
+    private val unmatchedCallbackCount = AtomicLong(0L)
+    private val lastCallbackTimestampMs = AtomicLong(0L)
+    private val lastCallbackImageWasSeparateWrapper = AtomicBoolean(false)
     private val droppedBusyFrames = AtomicLong(0L)
     private val droppedIntervalFrames = AtomicLong(0L)
     private val preprocessingSamples = AtomicLong(0L)
     private val totalPreprocessingNanos = AtomicLong(0L)
     private val lastPreprocessingMs = AtomicLong(0L)
+    private val lastInferenceMs = AtomicLong(0L)
+    private val inferenceSamples = AtomicLong(0L)
+    private val totalInferenceNanos = AtomicLong(0L)
+    private val lastResultProcessingMs = AtomicLong(0L)
+    private val resultProcessingSamples = AtomicLong(0L)
+    private val totalResultProcessingNanos = AtomicLong(0L)
+    private val lastMetricsPublishedAtMs = AtomicLong(0L)
+    // Analyzer-thread confined: this signal is diagnostic only, not part of the tracking path.
+    private var lastFrameSignalSampleAtMs = 0L
     @Volatile private var lastFrameWidthPx = 0
     @Volatile private var lastFrameHeightPx = 0
     @Volatile private var lastFrameFormat = 0
@@ -77,8 +100,9 @@ class HandLandmarkerController(
     private var modelBitmap: Bitmap? = null
     private var modelCanvas: Canvas? = null
     private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG)
-    private val pinchTracker = HandPinchTracker()
+    private val handTrackManager = HandTrackManager(maxHands)
     private val landmarker: HandLandmarker
+    @Volatile private var selectedDelegateName: String = Delegate.CPU.name
 
     init {
         require(maxHands in 1..MAX_HANDS) { "maxHands must be between 1 and $MAX_HANDS." }
@@ -87,21 +111,39 @@ class HandLandmarkerController(
             "Output dimensions are outside the supported range."
         }
 
-        val baseOptions = BaseOptions.builder()
-            .setModelAssetPath(MODEL_ASSET)
-            .setDelegate(Delegate.CPU)
-            .build()
-        val options = HandLandmarker.HandLandmarkerOptions.builder()
-            .setBaseOptions(baseOptions)
-            .setRunningMode(RunningMode.LIVE_STREAM)
-            .setNumHands(maxHands)
-            .setMinHandDetectionConfidence(DETECTION_CONFIDENCE)
-            .setMinHandPresenceConfidence(PRESENCE_CONFIDENCE)
-            .setMinTrackingConfidence(TRACKING_CONFIDENCE)
-            .setResultListener(::onResult)
-            .setErrorListener(::onTaskError)
-            .build()
-        landmarker = HandLandmarker.createFromOptions(context, options)
+        fun optionsFor(delegate: Delegate): HandLandmarker.HandLandmarkerOptions {
+            val baseOptions = BaseOptions.builder()
+                .setModelAssetPath(MODEL_ASSET)
+                .setDelegate(delegate)
+                .build()
+            return HandLandmarker.HandLandmarkerOptions.builder()
+                .setBaseOptions(baseOptions)
+                .setRunningMode(RunningMode.LIVE_STREAM)
+                .setNumHands(maxHands)
+                .setMinHandDetectionConfidence(DETECTION_CONFIDENCE)
+                .setMinHandPresenceConfidence(PRESENCE_CONFIDENCE)
+                .setMinTrackingConfidence(TRACKING_CONFIDENCE)
+                .setResultListener(::onResult)
+                .setErrorListener(::onTaskError)
+                .build()
+        }
+
+        // GPU is an optimization attempt, never a hard device requirement. If the
+        // driver or MediaPipe delegate cannot initialize, retain the known CPU path.
+        val requested = runCatching {
+            HandLandmarker.createFromOptions(context, optionsFor(preferredDelegate))
+        }
+        if (requested.isSuccess) {
+            selectedDelegateName = preferredDelegate.name
+            landmarker = checkNotNull(requested.getOrNull())
+        } else if (preferredDelegate != Delegate.CPU) {
+            Log.w(TAG, "MediaPipe ${preferredDelegate.name} delegate unavailable; falling back to CPU",
+                requested.exceptionOrNull())
+            selectedDelegateName = Delegate.CPU.name
+            landmarker = HandLandmarker.createFromOptions(context, optionsFor(Delegate.CPU))
+        } else {
+            throw requested.exceptionOrNull() ?: IllegalStateException("Could not create MediaPipe HandLandmarker.")
+        }
     }
 
     /** Can be adjusted safely while CameraX is active; no model recreation is needed. */
@@ -125,6 +167,19 @@ class HandLandmarkerController(
             droppedIntervalFrames = droppedIntervalFrames.get(),
             lastPreprocessingMs = lastPreprocessingMs.get(),
             averagePreprocessingMs = averagePreprocessingMs,
+            delegateName = selectedDelegateName,
+            delegateInitThreadId = taskCreationThreadId,
+            lastAnalyzeThreadId = lastAnalyzeThreadId.get(),
+            delegateThreadMatchesAnalyzer = lastAnalyzeThreadId.get() > 0L &&
+                lastAnalyzeThreadId.get() == taskCreationThreadId,
+            lastInferenceMs = lastInferenceMs.get(),
+            averageInferenceMs = if (inferenceSamples.get() == 0L) 0f else
+                totalInferenceNanos.get().toFloat() / inferenceSamples.get().toFloat() /
+                    NANOS_PER_MILLISECOND,
+            lastResultProcessingMs = lastResultProcessingMs.get(),
+            averageResultProcessingMs = if (resultProcessingSamples.get() == 0L) 0f else
+                totalResultProcessingNanos.get().toFloat() /
+                    resultProcessingSamples.get().toFloat() / NANOS_PER_MILLISECOND,
             lastFrameWidthPx = lastFrameWidthPx,
             lastFrameHeightPx = lastFrameHeightPx,
             lastFrameFormat = lastFrameFormat,
@@ -132,17 +187,32 @@ class HandLandmarkerController(
             lastFrameRowStride = lastFrameRowStride,
             lastFramePixelStride = lastFramePixelStride,
             lastFrameLumaMean = lastFrameLumaMean,
-            lastFrameLumaStdDev = lastFrameLumaStdDev
+            lastFrameLumaStdDev = lastFrameLumaStdDev,
+            callbackCount = callbackCount.get(),
+            matchedCallbackCount = matchedCallbackCount.get(),
+            unmatchedCallbackCount = unmatchedCallbackCount.get(),
+            lastSubmittedTimestampMs = lastSubmittedTimestampMs.get(),
+            lastCallbackTimestampMs = lastCallbackTimestampMs.get(),
+            lastCallbackImageWasSeparateWrapper = lastCallbackImageWasSeparateWrapper.get()
         )
     }
 
-    private fun publishMetrics() {
+    private fun publishMetrics(force: Boolean = false) {
         val callback = onMetrics ?: return
+        val nowMs = SystemClock.uptimeMillis()
+        while (true) {
+            val previous = lastMetricsPublishedAtMs.get()
+            if (!force && previous > 0L &&
+                nowMs - previous < METRICS_PUBLISH_INTERVAL_MS
+            ) return
+            if (lastMetricsPublishedAtMs.compareAndSet(previous, nowMs)) break
+        }
         runCatching { callback(metricsSnapshot()) }
     }
 
     fun analyze(imageProxy: ImageProxy) {
         receivedFrames.incrementAndGet()
+        lastAnalyzeThreadId.set(Thread.currentThread().id)
         lastFrameWidthPx = imageProxy.width
         lastFrameHeightPx = imageProxy.height
         lastFrameFormat = imageProxy.format
@@ -152,7 +222,7 @@ class HandLandmarkerController(
             lastFramePixelStride = plane.pixelStride
         }
         publishMetrics()
-        if (closed.get()) {
+        if (closed.get() || taskFailed.get()) {
             imageProxy.close()
             return
         }
@@ -181,7 +251,7 @@ class HandLandmarkerController(
         inFlightSourceWidth.set(imageProxy.width.toLong())
         inFlightSourceHeight.set(imageProxy.height.toLong())
 
-        var mpImage: MPImage? = null
+        var requestTicket: InFlightFrameGate.Ticket<MPImage>? = null
         try {
             val source = copyRgbaFrame(imageProxy)
             val transform = drawModelInput(
@@ -191,8 +261,13 @@ class HandLandmarkerController(
             )
             inFlightTransform.set(transform)
 
-            mpImage = BitmapImageBuilder(checkNotNull(modelBitmap)).build()
-            inFlightImage.set(mpImage)
+            // This MPImage is a wrapper over the controller-owned, reusable modelBitmap.
+            // MPImage.close() recycles its BitmapImageContainer's Bitmap, so the wrapper must
+            // remain borrowed: closing it here would recycle the bitmap reused by later frames.
+            val requestImage = BitmapImageBuilder(checkNotNull(modelBitmap)).build()
+            val timestampMs = nextMonotonicTimestamp()
+            requestTicket = requestGate.begin(requestImage, timestampMs)
+            check(requestTicket != null) { "A previous MediaPipe frame is still active." }
 
             val preprocessingNanos =
                 (SystemClock.elapsedRealtimeNanos() - startedAtNanos).coerceAtLeast(0L)
@@ -202,17 +277,30 @@ class HandLandmarkerController(
             totalPreprocessingNanos.addAndGet(preprocessingNanos)
             preprocessingSamples.incrementAndGet()
 
-            val timestampMs = nextMonotonicTimestamp()
             submittedFrames.incrementAndGet()
             publishMetrics()
-            landmarker.detectAsync(mpImage, timestampMs)
+            landmarker.detectAsync(requestImage, timestampMs)
         } catch (error: Exception) {
-            mpImage?.let {
-                inFlightImage.compareAndSet(it, null)
-                runCatching { it.close() }
+            val ticket = requestTicket
+            if (ticket != null) {
+                // A callback may already have completed the request while detectAsync returns.
+                // Only its owner is allowed to release the shared processing state.
+                if (requestGate.finish(ticket)) {
+                    // The callback owns normal completion; this branch owns a synchronous
+                    // detectAsync() failure before a callback took responsibility. Do not
+                    // close the MPImage wrapper: it borrows the reusable modelBitmap.
+                    resetInFlightState()
+                }
+            } else {
+                // Preprocessing failed before this frame acquired a request ticket.
+                // An unexpected occupied gate means the task cannot be safely reused.
+                val unexpected = requestGate.cancel()
+                // These tickets hold borrowed MPImage wrappers over modelBitmap. Never close
+                // them individually; closing one recycles the bitmap shared by future frames.
+                if (unexpected != null) taskFailed.set(true)
+                resetInFlightState()
             }
-            resetInFlightState()
-            publishMetrics()
+            publishMetrics(force = true)
             Log.e(TAG, "Could not process camera frame", error)
             onError(error.message ?: "MediaPipe could not process the camera frame.")
         } finally {
@@ -241,27 +329,36 @@ class HandLandmarkerController(
             sourceBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             sourceWidth = width
             sourceHeight = height
-            packedPixels = ByteBuffer.allocateDirect(requiredBytes)
-            rowScratch = ByteArray(rowBytes)
-        } else if (packedPixels == null || packedPixels?.capacity() != requiredBytes) {
-            packedPixels = ByteBuffer.allocateDirect(requiredBytes)
-            rowScratch = ByteArray(rowBytes)
+            packedPixels = null
+            rowScratch = null
         }
-
-        val packed = checkNotNull(packedPixels)
-        val scratch = checkNotNull(rowScratch)
-        val input = plane.buffer.duplicate()
-        val initialPosition = input.position()
-        packed.clear()
-        for (row in 0 until height) {
-            input.position(initialPosition + row * plane.rowStride)
-            input.get(scratch, 0, rowBytes)
-            packed.put(scratch, 0, rowBytes)
-        }
-        packed.flip()
 
         val bitmap = checkNotNull(sourceBitmap)
-        bitmap.copyPixelsFromBuffer(packed)
+        val input = plane.buffer.duplicate()
+        val initialPosition = input.position()
+        if (plane.rowStride == rowBytes && input.remaining() >= requiredBytes) {
+            // CameraX's common tightly packed RGBA path needs no intermediate row
+            // buffer or direct-buffer repack. The duplicate keeps ImageProxy's buffer
+            // position untouched while Bitmap copies the exact pixel payload.
+            input.limit(initialPosition + requiredBytes)
+            bitmap.copyPixelsFromBuffer(input)
+        } else {
+            // Preserve support for padded camera rows on devices with unusual strides.
+            if (packedPixels == null || packedPixels?.capacity() != requiredBytes) {
+                packedPixels = ByteBuffer.allocateDirect(requiredBytes)
+                rowScratch = ByteArray(rowBytes)
+            }
+            val packed = checkNotNull(packedPixels)
+            val scratch = checkNotNull(rowScratch)
+            packed.clear()
+            for (row in 0 until height) {
+                input.position(initialPosition + row * plane.rowStride)
+                input.get(scratch, 0, rowBytes)
+                packed.put(scratch, 0, rowBytes)
+            }
+            packed.flip()
+            bitmap.copyPixelsFromBuffer(packed)
+        }
         updateFrameSignalMetrics(bitmap)
         return bitmap
     }
@@ -272,6 +369,12 @@ class HandLandmarkerController(
      * This is diagnostic-only and avoids allocating a second full-resolution image.
      */
     private fun updateFrameSignalMetrics(bitmap: Bitmap) {
+        val nowMs = SystemClock.uptimeMillis()
+        if (lastFrameSignalSampleAtMs > 0L &&
+            nowMs - lastFrameSignalSampleAtMs < FRAME_SIGNAL_SAMPLE_INTERVAL_MS
+        ) return
+        lastFrameSignalSampleAtMs = nowMs
+
         val columns = 8
         val rows = 6
         var sum = 0.0
@@ -378,18 +481,30 @@ class HandLandmarkerController(
     }
 
     private fun onResult(result: HandLandmarkerResult, input: MPImage) {
+        callbackCount.incrementAndGet()
+        val callbackTimestampMs = result.timestampMs()
+        lastCallbackTimestampMs.set(callbackTimestampMs)
+        val ticket = requestGate.currentForTimestamp(callbackTimestampMs) ?: run {
+            // A cancelled/late callback must never touch metadata or the processing gate
+            // belonging to a newer frame. The callback MPImage is a borrowed wrapper produced
+            // from MediaPipe's IMAGE:image_out packet; do not close it because that packet can
+            // wrap the same reusable Bitmap owned by this controller.
+            unmatchedCallbackCount.incrementAndGet()
+            publishMetrics(force = true)
+            Log.w(TAG, "Ignoring unmatched MediaPipe callback timestamp=$callbackTimestampMs")
+            return
+        }
+        matchedCallbackCount.incrementAndGet()
+        lastCallbackImageWasSeparateWrapper.set(ticket.frame !== input)
+        val callbackStartedNanos = SystemClock.elapsedRealtimeNanos()
         try {
-            if (closed.get()) return
+            if (closed.get() || taskFailed.get() || !requestGate.isCurrent(ticket)) return
             val landmarkLists = result.landmarks()
             val handednessLists = result.handedness()
             val worldLandmarkLists = result.worldLandmarks()
             val transform = inFlightTransform.get()
-            val timestampMs = result.timestampMs()
 
-            // MediaPipe does not guarantee a stable list order for detections. Build the
-            // complete frame first, then update pinch history by handedness rather than
-            // by the current result index.
-            val convertedHands = landmarkLists.mapIndexed { index, landmarks ->
+            val observations = landmarkLists.mapIndexed { index, landmarks ->
                 val points = landmarks.map { landmark ->
                     val mapped = transform?.toRotatedFrameNormalized(landmark.x(), landmark.y())
                     if (mapped == null) {
@@ -398,31 +513,36 @@ class HandLandmarkerController(
                         HandPoint(mapped.first, mapped.second, landmark.z())
                     }
                 }
-                val label = handednessLists.getOrNull(index)
-                    ?.firstOrNull()
-                    ?.categoryName()
-                    ?.lowercase()
+                val category = handednessLists.getOrNull(index)?.firstOrNull()
+                val label = category?.categoryName()?.lowercase()
                 val detectedSide = when (label) {
                     "left" -> HandSide.LEFT
                     "right" -> HandSide.RIGHT
                     else -> HandSide.UNKNOWN
                 }
+                // Preserve the current front-camera convention after mirroring the input image.
+                val side = if (mirrorFrontCamera) detectedSide.opposite() else detectedSide
                 val worldPoints = worldLandmarkLists.getOrNull(index).orEmpty().map {
                     HandPoint(if (mirrorFrontCamera) -it.x() else it.x(), it.y(), it.z())
                 }
-                Triple(points, detectedSide, worldPoints)
+                HandObservation(
+                    points = points,
+                    worldPoints = worldPoints,
+                    observedSide = side,
+                    handednessConfidence = category?.score() ?: 0f
+                )
             }
-            val pinchSignals = pinchTracker.updateFrame(
-                convertedHands.map { HandPinchSample(side = it.second, points = it.first) },
-                timestampMs
-            )
-            val hands = convertedHands.mapIndexed { index, converted ->
-                val (points, detectedSide, worldPoints) = converted
-                val pinch = pinchSignals[index]
-                // Preserve the current front-camera convention after mirroring the input image.
-                val side = if (mirrorFrontCamera) detectedSide.opposite() else detectedSide
-                TrackedHand(points, pinch.strength, pinch.isPinching, side, worldPoints)
+            // Association happens before filtering, so result-list reordering cannot exchange
+            // the two hands' filter history, stable IDs or pinch state.
+            val hands = synchronized(handTrackManager) {
+                handTrackManager.update(observations, callbackTimestampMs)
             }
+            val resultProcessingNanos =
+                (SystemClock.elapsedRealtimeNanos() - callbackStartedNanos).coerceAtLeast(0L)
+            val resultProcessingMs = resultProcessingNanos / NANOS_PER_MILLISECOND
+            lastResultProcessingMs.set(resultProcessingMs)
+            totalResultProcessingNanos.addAndGet(resultProcessingNanos)
+            resultProcessingSamples.incrementAndGet()
 
             val startedAtNanos = inFlightStartedAtNanos.getAndSet(0L)
             val latencyMs = if (startedAtNanos > 0L) {
@@ -431,15 +551,24 @@ class HandLandmarkerController(
             } else {
                 0L
             }
+            val preprocessingNanos = inFlightPreprocessingMs.getAndSet(0L) *
+                NANOS_PER_MILLISECOND
+            val inferenceNanos = (callbackStartedNanos - startedAtNanos - preprocessingNanos)
+                .coerceAtLeast(0L)
+            val inferenceMs = inferenceNanos / NANOS_PER_MILLISECOND
+            lastInferenceMs.set(inferenceMs)
+            totalInferenceNanos.addAndGet(inferenceNanos)
+            inferenceSamples.incrementAndGet()
             val sourceWidth = inFlightSourceWidth.getAndSet(0L).toInt()
             val sourceHeight = inFlightSourceHeight.getAndSet(0L).toInt()
-            val preprocessingMs = inFlightPreprocessingMs.getAndSet(0L)
+            val preprocessingMs = preprocessingNanos / NANOS_PER_MILLISECOND
 
+            if (closed.get() || taskFailed.get() || !requestGate.isCurrent(ticket)) return
             completedFrames.incrementAndGet()
             publishMetrics()
             onFrame(
                 HandTrackingFrame(
-                    timestampMs = result.timestampMs(),
+                    timestampMs = callbackTimestampMs,
                     hands = hands,
                     pipelineLatencyMs = latencyMs,
                     sourceWidthPx = sourceWidth,
@@ -451,21 +580,27 @@ class HandLandmarkerController(
             )
         } catch (error: Exception) {
             Log.e(TAG, "Could not convert MediaPipe landmarks", error)
-            pinchTracker.reset()
             onError(error.message ?: "Could not read hand landmarks.")
         } finally {
-            runCatching { input.close() }
-            inFlightImage.compareAndSet(input, null)
-            inFlightTransform.set(null)
-            processing.set(false)
+            // Both `ticket.frame` and `input` are borrowed MPImage wrappers. MediaPipe's
+            // HandLandmarker adapter creates `input` with BitmapImageBuilder around the
+            // IMAGE:image_out packet bitmap; it may be the same Bitmap as modelBitmap.
+            // MPImage.close() calls Bitmap.recycle(), so neither wrapper may be closed here.
+            if (requestGate.finish(ticket)) {
+                resetInFlightState()
+                publishMetrics(force = true)
+            }
         }
     }
 
     private fun onTaskError(error: RuntimeException) {
-        inFlightImage.getAndSet(null)?.close()
-        pinchTracker.reset()
+        if (!taskFailed.compareAndSet(false, true)) return
+        // Retire the in-flight ticket without closing its borrowed MPImage wrapper. The
+        // backing bitmap is controller-owned and remains reusable until the task is closed.
+        requestGate.cancel()
+        synchronized(handTrackManager) { handTrackManager.reset() }
         resetInFlightState()
-        publishMetrics()
+        publishMetrics(force = true)
         if (!closed.get()) {
             Log.e(TAG, "MediaPipe task error", error)
             onError(error.message ?: "MediaPipe reported an unknown error.")
@@ -482,18 +617,40 @@ class HandLandmarkerController(
     }
 
     override fun close() {
-        if (closed.compareAndSet(false, true)) {
-            inFlightImage.getAndSet(null)?.close()
-            resetInFlightState()
-            pinchTracker.reset()
-            landmarker.close()
+        if (!closed.compareAndSet(false, true)) return
 
-            // Do not recycle bitmaps while a native callback could still hold a reference.
+        val releaseResources = Runnable {
+            // Cancel bookkeeping only. The ticket's MPImage wraps our reusable modelBitmap;
+            // MPImage.close() would recycle it before all MediaPipe graph work has drained.
+            requestGate.cancel()
+            resetInFlightState()
+            handTrackManager.reset()
+            runCatching { landmarker.close() }
+                .onFailure { Log.e(TAG, "Could not close MediaPipe task on its owner thread", it) }
+            // Drop our references only after the graph has been closed on its owner thread.
+            // Do not call MPImage.close(): its BitmapImageContainer recycles the shared bitmap.
             sourceBitmap = null
             modelBitmap = null
             modelCanvas = null
             packedPixels = null
             rowScratch = null
+        }
+
+        val executor = ownerExecutor
+        if (Thread.currentThread().id == taskCreationThreadId) {
+            releaseResources.run()
+            return
+        }
+
+        // GPU delegates keep EGL resources bound to their creation thread. Close them
+        // on the same CameraX executor as construction and detectAsync.
+        val future = runCatching { executor.submit(releaseResources) }.getOrNull()
+        if (future == null) {
+            Log.w(TAG, "MediaPipe owner executor is unavailable; closing task on caller thread")
+            releaseResources.run()
+        } else {
+            runCatching { future.get() }
+                .onFailure { Log.e(TAG, "MediaPipe owner-thread cleanup failed", it) }
         }
     }
 
@@ -512,5 +669,7 @@ class HandLandmarkerController(
         const val TRACKING_CONFIDENCE = 0.45f
         const val BYTES_PER_PIXEL = 4
         const val NANOS_PER_MILLISECOND = 1_000_000L
+        const val METRICS_PUBLISH_INTERVAL_MS = 250L
+        const val FRAME_SIGNAL_SAMPLE_INTERVAL_MS = 1_000L
     }
 }
