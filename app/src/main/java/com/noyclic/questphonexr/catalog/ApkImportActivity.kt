@@ -51,6 +51,8 @@ class ApkImportActivity : ComponentActivity() {
     private var pendingLaunchTitle: String = "Диагностика запуска Quest APK"
     private var awaitingBrokerReturnForEndXrId: String? = null
     private var pendingCameraLaunch: PendingEndXrLaunch? = null
+    private var pendingRuntimeTelemetryPackage: String? = null
+    private var pendingRuntimeTelemetryBaselineSequence: Long = 0L
     private val mainHandler = Handler(Looper.getMainLooper())
     private var endXrPrepDialog: AlertDialog? = null
     private val endXrPrepRows = mutableMapOf<String, TextView>()
@@ -61,6 +63,22 @@ class ApkImportActivity : ComponentActivity() {
         val brokerReport: String,
         val inputIpcGranted: Boolean,
         val cameraPermissionGranted: Boolean? = null
+    )
+
+    private data class RuntimeTelemetrySnapshot(
+        val sequence: Long,
+        val eventName: String,
+        val callerPackage: String,
+        val runtimePid: Int,
+        val instanceId: String,
+        val sessionId: String,
+        val instanceCreated: Boolean,
+        val sessionCreated: Boolean,
+        val sessionRunning: Boolean,
+        val instanceSeen: Boolean,
+        val sessionSeen: Boolean,
+        val sessionEverRunning: Boolean,
+        val frameCount: Long
     )
 
     private val endXrCameraPermission = registerForActivityResult(
@@ -97,7 +115,25 @@ class ApkImportActivity : ComponentActivity() {
         val report = pendingLaunchReport
         if (report != null) {
             pendingLaunchReport = null
-            showLaunchDiagnostic(pendingLaunchTitle, report)
+            val expectedPackage = pendingRuntimeTelemetryPackage
+            val baselineSequence = pendingRuntimeTelemetryBaselineSequence
+            val telemetry = readLatestRuntimeTelemetry()
+            val telemetryMatchesLaunch = telemetry != null &&
+                telemetry.sequence > baselineSequence &&
+                telemetry.callerPackage == expectedPackage
+            val telemetryReport = buildRuntimeTelemetryReturnReport(
+                expectedPackage,
+                baselineSequence,
+                telemetry,
+                telemetryMatchesLaunch
+            )
+            showLaunchDiagnostic(
+                pendingLaunchTitle,
+                report + telemetryReport,
+                runtimeCaptureConfirmed = telemetryMatchesLaunch && telemetry?.instanceSeen == true
+            )
+            pendingRuntimeTelemetryPackage = null
+            pendingRuntimeTelemetryBaselineSequence = 0L
         }
 
         val pendingId = awaitingBrokerReturnForEndXrId
@@ -1039,6 +1075,9 @@ class ApkImportActivity : ComponentActivity() {
         }
         runCatching {
             pendingLaunchTitle = "NextVRera / EndXR · ${info.displayName}"
+            pendingRuntimeTelemetryPackage = info.packageName
+            pendingRuntimeTelemetryBaselineSequence =
+                readLatestRuntimeTelemetry()?.sequence ?: 0L
             pendingLaunchReport = buildLaunchReport(
                 info,
                 assessment,
@@ -1134,15 +1173,110 @@ class ApkImportActivity : ComponentActivity() {
         appendLine("Run the separate external OpenXR client probe. Definitive game capture needs a runtime-to-host event channel for xrCreateInstance, xrCreateSession and xrEndFrame.")
     }
 
-    private fun showLaunchDiagnostic(title: String, report: String) {
+    private fun readLatestRuntimeTelemetry(): RuntimeTelemetrySnapshot? {
+        val uri = Uri.parse(EndXrRuntimeEventContentProvider.CONTENT_URI)
+        return runCatching {
+            contentResolver.query(
+                uri,
+                arrayOf(
+                    "sequence",
+                    "event_name",
+                    "caller_package",
+                    "runtime_pid",
+                    "instance_id",
+                    "session_id",
+                    "instance_created",
+                    "session_created",
+                    "session_running",
+                    "instance_seen",
+                    "session_seen",
+                    "session_ever_running",
+                    "frame_count"
+                ),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (!cursor.moveToFirst()) return@use null
+                RuntimeTelemetrySnapshot(
+                    sequence = cursor.getLong(0),
+                    eventName = cursor.getString(1).orEmpty(),
+                    callerPackage = cursor.getString(2).orEmpty(),
+                    runtimePid = cursor.getInt(3),
+                    instanceId = cursor.getString(4).orEmpty(),
+                    sessionId = cursor.getString(5).orEmpty(),
+                    instanceCreated = cursor.getInt(6) != 0,
+                    sessionCreated = cursor.getInt(7) != 0,
+                    sessionRunning = cursor.getInt(8) != 0,
+                    instanceSeen = cursor.getInt(9) != 0,
+                    sessionSeen = cursor.getInt(10) != 0,
+                    sessionEverRunning = cursor.getInt(11) != 0,
+                    frameCount = cursor.getLong(12)
+                )
+            }
+        }.getOrNull()
+    }
+
+    private fun buildRuntimeTelemetryReturnReport(
+        expectedPackage: String?,
+        baselineSequence: Long,
+        telemetry: RuntimeTelemetrySnapshot?,
+        matchesLaunch: Boolean
+    ): String = buildString {
+        appendLine()
+        appendLine("[ENDXR RUNTIME TELEMETRY]")
+        appendLine("Expected game package: ${expectedPackage ?: "unknown"}")
+        appendLine("Baseline sequence before launch: $baselineSequence")
+        if (!matchesLaunch || telemetry == null) {
+            appendLine("Status: NO NEW AUTHORIZED RUNTIME EVENT RECEIVED")
+            appendLine("The game may not have loaded EndXR, may not have reached xrCreateInstance, or may not have runtime-event permission.")
+            return@buildString
+        }
+        appendLine("Caller package: ${telemetry.callerPackage}")
+        appendLine("Runtime process PID: ${telemetry.runtimePid}")
+        appendLine("Last event: ${telemetry.eventName}")
+        appendLine("Instance created during this launch: ${telemetry.instanceSeen}")
+        appendLine("Session created during this launch: ${telemetry.sessionSeen}")
+        appendLine("Session began during this launch: ${telemetry.sessionEverRunning}")
+        appendLine("Session currently active: ${telemetry.sessionRunning}")
+        appendLine("Successfully completed xrEndFrame calls observed: ${telemetry.frameCount}")
+        appendLine("Runtime instance id: ${telemetry.instanceId}")
+        appendLine("Runtime session id: ${telemetry.sessionId.ifBlank { "none" }}")
+        appendLine(
+            "Capture level: " + when {
+                telemetry.instanceSeen && telemetry.sessionSeen && telemetry.frameCount > 0L ->
+                    "XR INSTANCE + SESSION + FRAME SUBMISSION CONFIRMED"
+                telemetry.instanceSeen && telemetry.sessionSeen ->
+                    "XR INSTANCE + SESSION CONFIRMED; NO SUCCESSFUL FRAME OBSERVED"
+                telemetry.instanceSeen ->
+                    "XR INSTANCE CONFIRMED; SESSION NOT CREATED"
+                else -> "PARTIAL EVENT ONLY"
+            }
+        )
+    }
+
+    private fun showLaunchDiagnostic(
+        title: String,
+        report: String,
+        runtimeCaptureConfirmed: Boolean = false
+    ) {
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(8), dp(16), dp(8))
         }
-        content.addView(text("OPENXR-ПЕРЕХВАТ: НЕ ПОДТВЕРЖДЁН", 13f, 0xFFFFD28A.toInt(), Typeface.BOLD)
-            .apply { setPadding(0, 0, 0, dp(8)) })
         content.addView(text(
-            "Это не означает, что игра точно не подключилась. Сейчас NextVRera подтверждает запуск Android и проверяет RuntimeBroker, но ещё не получает обратное событие из процесса игры.",
+            if (runtimeCaptureConfirmed) "ENDXR RUNTIME: ПОДКЛЮЧЕНИЕ ПОДТВЕРЖДЕНО"
+            else "OPENXR-ПЕРЕХВАТ: НЕ ПОДТВЕРЖДЁН",
+            13f,
+            if (runtimeCaptureConfirmed) 0xFF8FE0B5.toInt() else 0xFFFFD28A.toInt(),
+            Typeface.BOLD
+        ).apply { setPadding(0, 0, 0, dp(8)) })
+        content.addView(text(
+            if (runtimeCaptureConfirmed) {
+                "NextVRera получила новое событие от процесса выбранной игры. Ниже указано, дошла ли она до XR-сессии и успешной отправки кадров."
+            } else {
+                "Это не означает, что игра точно не подключилась. Сейчас NextVRera не получила новое подтверждённое событие xrCreateInstance от процесса выбранной игры."
+            },
             12f, 0xFFD0D7E2.toInt()
         ).apply { setPadding(0, 0, 0, dp(10)) })
         content.addView(text(report, 10f, 0xFFB8C2D0.toInt()))
