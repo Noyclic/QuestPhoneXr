@@ -89,10 +89,12 @@ class EndXrInputAccessManager(context: Context) {
      */
     internal fun isPackageAuthorized(
         packageName: String,
+        callingUid: Int,
         requireRuntimeTelemetry: Boolean
     ): Boolean {
         if (!EndXrInputGrantCodec.isValidPackageName(packageName)) return false
-        val cacheKey = packageName + if (requireRuntimeTelemetry) "|telemetry" else "|input"
+        val cacheKey = "$packageName|$callingUid|" +
+            if (requireRuntimeTelemetry) "telemetry" else "input"
         val now = SystemClock.elapsedRealtime()
         val cached = CALLER_ACCESS_CACHE[cacheKey]
         if (cached != null) {
@@ -100,12 +102,21 @@ class EndXrInputAccessManager(context: Context) {
             if (now - cached.checkedAtElapsedMs in 0L..maxAgeMs) return cached.allowed
         }
 
-        val client = installedLaunchableClient(packageName)
-        val allowed = client != null && if (requireRuntimeTelemetry) {
-            isRuntimeTelemetryAuthorized(client)
+        val packageUid = runCatching {
+            packageManager.getApplicationInfo(packageName, 0).uid
+        }.getOrNull()
+        val client = if (packageUid == callingUid) {
+            installedLaunchableClient(packageName)
         } else {
-            isAuthorized(client)
+            null
         }
+        val allowed = client != null && (
+            if (requireRuntimeTelemetry) {
+                isRuntimeTelemetryAuthorized(client)
+            } else {
+                isAuthorized(client)
+            }
+        )
         CALLER_ACCESS_CACHE[cacheKey] = CachedCallerAuthorization(allowed, now)
         return allowed
     }
