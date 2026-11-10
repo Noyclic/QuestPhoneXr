@@ -9,6 +9,58 @@ import android.os.Process
 import android.os.Bundle
 import java.io.File
 
+internal data class BrokerRuntimeCandidate(
+    val packageName: String?,
+    val libraryPath: String?,
+    val soFilename: String?,
+    val libraryExists: Boolean,
+    val hasFunctions: Boolean?,
+    val functionMappingsAvailable: Boolean,
+) {
+    // This is a conservative filesystem/metadata prediction, not proof that dlopen succeeds.
+    val canAttemptLoad: Boolean
+        get() = libraryExists && (hasFunctions != true || functionMappingsAvailable)
+}
+
+internal data class BrokerQuerySnapshot(
+    val providerFound: Boolean,
+    val queryCompleted: Boolean,
+    val hasRows: Boolean,
+    val candidates: List<BrokerRuntimeCandidate>,
+    val status: String,
+)
+
+internal data class LoaderBrokerSelection(
+    val authority: String?,
+    val candidate: BrokerRuntimeCandidate?,
+)
+
+/**
+ * Mirrors Khronos Android loader precedence:
+ * use the installable broker when its active-runtime query has rows; consult the
+ * system broker only when the installable broker is unavailable or empty.
+ */
+internal fun selectLoaderBrokerRuntime(
+    installable: BrokerQuerySnapshot,
+    system: BrokerQuerySnapshot,
+): LoaderBrokerSelection {
+    val selected = if (installable.queryCompleted && installable.hasRows) {
+        INSTALLABLE_AUTHORITY_FOR_SELECTION
+    } else {
+        SYSTEM_AUTHORITY_FOR_SELECTION
+    }
+    val snapshot = if (selected == INSTALLABLE_AUTHORITY_FOR_SELECTION) installable else system
+    val candidate = if (snapshot.queryCompleted && snapshot.hasRows) {
+        snapshot.candidates.firstOrNull { it.canAttemptLoad }
+    } else {
+        null
+    }
+    return LoaderBrokerSelection(selected, candidate)
+}
+
+private const val INSTALLABLE_AUTHORITY_FOR_SELECTION = "org.khronos.openxr.runtime_broker"
+private const val SYSTEM_AUTHORITY_FOR_SELECTION = "org.khronos.openxr.system_runtime_broker"
+
 data class RuntimeBrokerProbeReport(
     val serviceCount: Int,
     val ownRuntimeServiceFound: Boolean,
@@ -23,7 +75,13 @@ data class RuntimeBrokerProbeReport(
     val nativeLibraryExists: Boolean,
     val installableBrokerStatus: String,
     val systemBrokerStatus: String,
-    val discoveryError: String?
+    val discoveryError: String?,
+    val loaderAbi: String?,
+    val loaderSelectedBroker: String?,
+    val loaderSelectedRuntimePackage: String?,
+    val loaderSelectedRuntimeLibrary: String?,
+    val loaderSelectedRuntimeLibraryExists: Boolean,
+    val endXrIsLikelySelected: Boolean,
 ) {
     fun toDisplayText(): String = buildString {
         appendLine("OpenXR runtime service action: $ACTION_NAME")
@@ -40,10 +98,16 @@ data class RuntimeBrokerProbeReport(
         appendLine("Runtime library exists: ${if (nativeLibraryExists) "YES" else "NO"}")
         appendLine("Installable RuntimeBroker: $installableBrokerStatus")
         appendLine("System RuntimeBroker: $systemBrokerStatus")
+        appendLine("Loader ABI checked: ${loaderAbi ?: "unknown"}")
+        appendLine("Loader-selected Broker: ${loaderSelectedBroker ?: "none"}")
+        appendLine("Loader's first existing runtime candidate: ${loaderSelectedRuntimePackage ?: "none"}")
+        loaderSelectedRuntimeLibrary?.let { appendLine("Loader candidate library: $it") }
+        appendLine("Loader candidate library exists: ${if (loaderSelectedRuntimeLibraryExists) "YES" else "NO"}")
+        appendLine("EndXR is the likely loader candidate: ${if (endXrIsLikelySelected) "YES" else "NO"}")
         discoveryError?.let { appendLine("Service discovery error: $it") }
         appendLine()
-        appendLine("IMPORTANT: this checks PackageManager service discovery and broker provider responses.")
-        append("It does not prove that a separate game process can load the runtime or render a frame.")
+        appendLine("The broker choice above follows Khronos installable-first, system-fallback precedence.")
+        append("A file/metadata check is not proof of dlopen, xrCreateInstance, or game rendering; use the separate client probe for that.")
     }
 
     companion object {
@@ -52,9 +116,9 @@ data class RuntimeBrokerProbeReport(
 }
 
 /**
- * Checks Android's public OpenXR runtime service and the Khronos RuntimeBroker
- * content-provider endpoints. This is diagnostic only: it never changes the
- * selected runtime and never dlopens a third-party library.
+ * Checks the exported runtime marker and simulates the official loader's Broker
+ * precedence for the current process ABI. It never changes selection or dlopens
+ * a runtime; the separate Khronos-loader client is the authoritative load test.
  */
 object AndroidRuntimeBrokerProbe {
     private const val KEY_SO_FILENAME = "org.khronos.openxr.OpenXRRuntime.SoFilename"
@@ -84,6 +148,32 @@ object AndroidRuntimeBrokerProbe {
             null
         }
         val libraryExists = nativeLibraryPath?.let { File(it).isFile } == true
+        val abi = runtimeProcessAbi()
+
+        val installable = queryBroker(
+            context = context,
+            authority = INSTALLABLE_AUTHORITY,
+            label = "installable RuntimeBroker",
+            expectedPackage = context.packageName,
+            expectedSoFilename = soFilename,
+            abi = abi
+        )
+        val system = queryBroker(
+            context = context,
+            authority = SYSTEM_AUTHORITY,
+            label = "system RuntimeBroker",
+            expectedPackage = context.packageName,
+            expectedSoFilename = soFilename,
+            abi = abi
+        )
+        val loaderSelection = selectLoaderBrokerRuntime(installable, system)
+        val selectedCandidate = loaderSelection.candidate
+        val endXrLikelySelected = ownService != null &&
+            majorVersion == OPENXR_MAJOR_VERSION &&
+            !soFilename.isNullOrBlank() &&
+            selectedCandidate?.packageName == context.packageName &&
+            selectedCandidate.soFilename == soFilename &&
+            selectedCandidate.libraryExists
 
         return RuntimeBrokerProbeReport(
             serviceCount = matches.size,
@@ -99,19 +189,17 @@ object AndroidRuntimeBrokerProbe {
             soFilename = soFilename,
             nativeLibraryPath = nativeLibraryPath,
             nativeLibraryExists = libraryExists,
-            installableBrokerStatus = queryBroker(
-                context,
-                INSTALLABLE_AUTHORITY,
-                "installable RuntimeBroker"
-            ),
-            systemBrokerStatus = queryBroker(
-                context,
-                SYSTEM_AUTHORITY,
-                "system RuntimeBroker"
-            ),
+            installableBrokerStatus = installable.status,
+            systemBrokerStatus = system.status,
             discoveryError = query.exceptionOrNull()?.let {
                 it.message ?: it.javaClass.simpleName
-            }
+            },
+            loaderAbi = abi,
+            loaderSelectedBroker = loaderSelection.authority,
+            loaderSelectedRuntimePackage = selectedCandidate?.packageName,
+            loaderSelectedRuntimeLibrary = selectedCandidate?.libraryPath,
+            loaderSelectedRuntimeLibraryExists = selectedCandidate?.libraryExists == true,
+            endXrIsLikelySelected = endXrLikelySelected
         )
     }
 
@@ -133,13 +221,32 @@ object AndroidRuntimeBrokerProbe {
         return processAbis.firstOrNull() ?: Build.SUPPORTED_ABIS.firstOrNull()
     }
 
-    private fun queryBroker(context: Context, authority: String, label: String): String {
+    private fun queryBroker(
+        context: Context,
+        authority: String,
+        label: String,
+        expectedPackage: String,
+        expectedSoFilename: String?,
+        abi: String?
+    ): BrokerQuerySnapshot {
         val provider = runCatching {
             context.packageManager.resolveContentProvider(authority, 0)
-        }.getOrNull() ?: return "provider not found or not visible"
+        }.getOrNull() ?: return BrokerQuerySnapshot(
+            providerFound = false,
+            queryCompleted = false,
+            hasRows = false,
+            candidates = emptyList(),
+            status = "provider not found or not visible"
+        )
 
-        val abi = runtimeProcessAbi()
-            ?: return "provider found (${provider.packageName}), but process ABI is unknown"
+        if (abi.isNullOrBlank()) return BrokerQuerySnapshot(
+            providerFound = true,
+            queryCompleted = false,
+            hasRows = false,
+            candidates = emptyList(),
+            status = "provider found (${provider.packageName}), but process ABI is unknown"
+        )
+
         val activeUri = Uri.parse(
             AndroidRuntimeBrokerContract.activeRuntimeUri(
                 authority = authority,
@@ -156,45 +263,79 @@ object AndroidRuntimeBrokerProbe {
                 "has_functions"
             )
             val cursor = context.contentResolver.query(activeUri, columns, null, null, null)
-                ?: return@runCatching "provider found (${provider.packageName}); active-runtime query returned null"
-            cursor.use {
-                if (!it.moveToFirst()) {
-                    return@use "provider found (${provider.packageName}); no active runtime selected for $abi"
-                }
+                ?: return@runCatching BrokerQuerySnapshot(
+                    true, false, false, emptyList(),
+                    "provider found (${provider.packageName}); active-runtime query returned null"
+                )
 
-                val candidates = mutableListOf<String>()
+            cursor.use {
+                if (!it.moveToFirst()) return@use BrokerQuerySnapshot(
+                    true, true, false, emptyList(),
+                    "provider found (${provider.packageName}); no active runtime selected for $abi"
+                )
+
+                val candidates = mutableListOf<BrokerRuntimeCandidate>()
                 do {
                     val runtimePackage = it.stringOrNull("package_name")
                     val libraryDirectory = it.stringOrNull("native_lib_dir")
                     val libraryName = it.stringOrNull("so_filename")
                     val hasFunctionsColumn = it.getColumnIndex("has_functions")
-                    val hasFunctions = hasFunctionsColumn >= 0 &&
-                        !it.isNull(hasFunctionsColumn) && it.getInt(hasFunctionsColumn) != 0
-
+                    val hasFunctions = if (hasFunctionsColumn < 0 || it.isNull(hasFunctionsColumn)) {
+                        null
+                    } else {
+                        it.getInt(hasFunctionsColumn) != 0
+                    }
                     val libraryFile = if (!libraryDirectory.isNullOrBlank() && !libraryName.isNullOrBlank()) {
                         File(libraryDirectory, libraryName)
                     } else {
                         null
                     }
-                    val functionStatus = when {
-                        hasFunctionsColumn < 0 -> "has_functions column missing"
-                        !hasFunctions -> "function remapping not required"
-                        runtimePackage.isNullOrBlank() -> "cannot query mappings: package_name missing"
+                    val functionResult = when {
+                        hasFunctions == null -> "has_functions column missing" to false
+                        !hasFunctions -> "function remapping not required" to true
+                        runtimePackage.isNullOrBlank() ->
+                            "cannot query mappings: package_name missing" to false
                         else -> queryFunctionMappings(context, authority, abi, runtimePackage)
                     }
-
-                    candidates += "package=${runtimePackage ?: "missing"}; " +
-                        "library=${libraryFile?.absolutePath ?: "missing"}; " +
-                        "exists=${libraryFile?.isFile == true}; " +
-                        "has_functions=${if (hasFunctionsColumn < 0) "unknown" else hasFunctions}; " +
-                        "function_mappings=$functionStatus"
+                    candidates += BrokerRuntimeCandidate(
+                        packageName = runtimePackage,
+                        libraryPath = libraryFile?.absolutePath,
+                        soFilename = libraryName,
+                        libraryExists = libraryFile?.isFile == true,
+                        hasFunctions = hasFunctions,
+                        functionMappingsAvailable = functionResult.second
+                    )
                 } while (it.moveToNext())
 
-                "$label active runtime query=$activeUri; ABI=$abi; " +
-                    candidates.joinToString(separator = " || ")
+                val candidateText = candidates.map { candidate ->
+                    "package=${candidate.packageName ?: "missing"}; " +
+                        "library=${candidate.libraryPath ?: "missing"}; " +
+                        "exists=${candidate.libraryExists}; " +
+                        "has_functions=${candidate.hasFunctions ?: "unknown"}; " +
+                        "function_mappings=${when {
+                            candidate.hasFunctions == null -> "unknown"
+                            !candidate.hasFunctions -> "not required"
+                            candidate.functionMappingsAvailable -> "available"
+                            else -> "missing or unavailable"
+                        }}"
+                }
+                BrokerQuerySnapshot(
+                    providerFound = true,
+                    queryCompleted = true,
+                    hasRows = candidates.isNotEmpty(),
+                    candidates = candidates,
+                    status = "$label active runtime query=$activeUri; ABI=$abi; " +
+                        candidateText.joinToString(separator = " || ")
+                )
             }
         }.getOrElse {
-            "provider found (${provider.packageName}); query failed: ${it.message ?: it.javaClass.simpleName}"
+            BrokerQuerySnapshot(
+                providerFound = true,
+                queryCompleted = false,
+                hasRows = false,
+                candidates = emptyList(),
+                status = "provider found (${provider.packageName}); query failed: ${it.message ?: it.javaClass.simpleName}"
+            )
         }
     }
 
@@ -203,7 +344,7 @@ object AndroidRuntimeBrokerProbe {
         authority: String,
         abi: String,
         runtimePackage: String
-    ): String {
+    ): Pair<String, Boolean> {
         val uri = Uri.parse(
             AndroidRuntimeBrokerContract.functionMappingsUri(
                 authority = authority,
@@ -218,10 +359,10 @@ object AndroidRuntimeBrokerProbe {
             null,
             null,
             null
-        ) ?: return "query returned null"
+        ) ?: return "query returned null" to false
 
         return cursor.use {
-            if (!it.moveToFirst()) return@use "query succeeded but returned no mappings"
+            if (!it.moveToFirst()) return@use "query succeeded but returned no mappings" to false
             var count = 0
             val examples = mutableListOf<String>()
             do {
@@ -235,8 +376,8 @@ object AndroidRuntimeBrokerProbe {
                     }
                 }
             } while (it.moveToNext())
-            "$count mapping(s)" + examples.takeIf { names -> names.isNotEmpty() }
-                ?.joinToString(prefix = " [", postfix = "]").orEmpty()
+            ("$count mapping(s)" + examples.takeIf { names -> names.isNotEmpty() }
+                ?.joinToString(prefix = " [", postfix = "]").orEmpty()) to true
         }
     }
 
