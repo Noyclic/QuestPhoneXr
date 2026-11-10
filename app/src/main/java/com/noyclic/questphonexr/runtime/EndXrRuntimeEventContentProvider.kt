@@ -52,6 +52,9 @@ class EndXrRuntimeEventContentProvider : ContentProvider() {
                 prefs.getInt(KEY_INSTANCE_CREATED, 0),
                 prefs.getInt(KEY_SESSION_CREATED, 0),
                 prefs.getInt(KEY_SESSION_RUNNING, 0),
+                prefs.getInt(KEY_INSTANCE_SEEN, 0),
+                prefs.getInt(KEY_SESSION_SEEN, 0),
+                prefs.getInt(KEY_SESSION_EVER_RUNNING, 0),
                 prefs.getLong(KEY_FRAME_COUNT, 0L)
             )
             if (projection.isNullOrEmpty()) {
@@ -135,16 +138,26 @@ class EndXrRuntimeEventContentProvider : ContentProvider() {
                     editor.putInt(KEY_INSTANCE_CREATED, 1)
                     editor.putInt(KEY_SESSION_CREATED, 0)
                     editor.putInt(KEY_SESSION_RUNNING, 0)
+                    editor.putInt(KEY_INSTANCE_SEEN, 1)
+                    editor.putInt(KEY_SESSION_SEEN, 0)
+                    editor.putInt(KEY_SESSION_EVER_RUNNING, 0)
                 }
                 EVENT_CREATE_SESSION -> {
                     editor.putInt(KEY_INSTANCE_CREATED, 1)
                     editor.putInt(KEY_SESSION_CREATED, 1)
+                    editor.putInt(KEY_INSTANCE_SEEN, 1)
+                    editor.putInt(KEY_SESSION_SEEN, 1)
                     editor.putInt(KEY_SESSION_RUNNING, 0)
+                    editor.putInt(KEY_INSTANCE_SEEN, 1)
+                    editor.putInt(KEY_SESSION_SEEN, 1)
                 }
                 EVENT_BEGIN_SESSION -> {
                     editor.putInt(KEY_INSTANCE_CREATED, 1)
                     editor.putInt(KEY_SESSION_CREATED, 1)
                     editor.putInt(KEY_SESSION_RUNNING, 1)
+                    editor.putInt(KEY_INSTANCE_SEEN, 1)
+                    editor.putInt(KEY_SESSION_SEEN, 1)
+                    editor.putInt(KEY_SESSION_EVER_RUNNING, 1)
                 }
                 EVENT_END_FRAME -> {
                     editor.putInt(KEY_INSTANCE_CREATED, 1)
@@ -223,6 +236,9 @@ class EndXrRuntimeEventContentProvider : ContentProvider() {
             "instance_created",
             "session_created",
             "session_running",
+            "instance_seen",
+            "session_seen",
+            "session_ever_running",
             "frame_count"
         )
 
@@ -237,6 +253,9 @@ class EndXrRuntimeEventContentProvider : ContentProvider() {
         private const val KEY_INSTANCE_CREATED = "instance_created"
         private const val KEY_SESSION_CREATED = "session_created"
         private const val KEY_SESSION_RUNNING = "session_running"
+        private const val KEY_INSTANCE_SEEN = "instance_seen"
+        private const val KEY_SESSION_SEEN = "session_seen"
+        private const val KEY_SESSION_EVER_RUNNING = "session_ever_running"
         private const val KEY_FRAME_COUNT = "frame_count"
         private val LOCK = Any()
     }
