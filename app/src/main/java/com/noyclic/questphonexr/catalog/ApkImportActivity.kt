@@ -517,7 +517,6 @@ class ApkImportActivity : ComponentActivity() {
         info: ImportedApkInfo,
         broker: com.noyclic.questphonexr.runtime.RuntimeBrokerProbeReport
     ) {
-        awaitingBrokerReturnForEndXrId = info.id
         val details = buildString {
             appendLine("ABI проверки: ${broker.loaderAbi ?: "неизвестно"}")
             appendLine("Broker, который Loader будет опрашивать: ${broker.loaderSelectedBroker ?: "не найден"}")
@@ -535,9 +534,11 @@ class ApkImportActivity : ComponentActivity() {
                 awaitingBrokerReturnForEndXrId = null
             }
             .setPositiveButton("Открыть Runtime Broker") { _, _ ->
+                awaitingBrokerReturnForEndXrId = info.id
                 openInstallableRuntimeBroker()
             }
             .setNeutralButton("Открыть страницу Broker") { _, _ ->
+                awaitingBrokerReturnForEndXrId = info.id
                 runCatching {
                     startActivity(Intent(
                         Intent.ACTION_VIEW,
