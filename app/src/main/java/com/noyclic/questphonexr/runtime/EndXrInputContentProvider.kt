@@ -130,20 +130,19 @@ class EndXrInputContentProvider : ContentProvider() {
             throw SecurityException("The calling app has no EndXR input read grant.")
         }
 
-        val packages = appContext.packageManager.getPackagesForUid(callingUid).orEmpty()
-        val attributedPackage = getCallingPackage()
-        val callerPackage = when {
-            attributedPackage != null && attributedPackage in packages -> attributedPackage
-            attributedPackage != null -> throw SecurityException(
-                "The attributed input client does not belong to the calling UID."
-            )
-            packages.size == 1 -> packages.single()
-            else -> throw SecurityException(
+        val callerPackage = getCallingPackage() ?: run {
+            val packages = appContext.packageManager.getPackagesForUid(callingUid).orEmpty()
+            packages.singleOrNull() ?: throw SecurityException(
                 "Cannot securely attribute input access from a shared or unknown UID."
             )
         }
         val manager = EndXrInputAccessManager(appContext)
-        if (!manager.isPackageAuthorized(callerPackage, requireRuntimeTelemetry = false)) {
+        if (!manager.isPackageAuthorized(
+                callerPackage,
+                callingUid,
+                requireRuntimeTelemetry = false
+            )
+        ) {
             throw SecurityException(
                 "The calling package and signing certificate have no EndXR input consent."
             )
