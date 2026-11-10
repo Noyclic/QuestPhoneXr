@@ -54,6 +54,7 @@ class ApkImportActivity : ComponentActivity() {
     private var pendingCameraLaunch: PendingEndXrLaunch? = null
     private var pendingRuntimeTelemetryPackage: String? = null
     private var pendingRuntimeTelemetryBaselineSequence: Long = 0L
+    private var runtimeTelemetryCheckGeneration: Long = 0L
     private val mainHandler = Handler(Looper.getMainLooper())
     private var endXrPrepDialog: AlertDialog? = null
     private val endXrPrepRows = mutableMapOf<String, TextView>()
@@ -116,31 +117,14 @@ class ApkImportActivity : ComponentActivity() {
         val report = pendingLaunchReport
         if (report != null) {
             pendingLaunchReport = null
-            val expectedPackage = pendingRuntimeTelemetryPackage
-            val baselineSequence = pendingRuntimeTelemetryBaselineSequence
-            val telemetry = readLatestRuntimeTelemetry()
-            val telemetryMatchesLaunch = telemetry != null &&
-                telemetry.sequence > baselineSequence &&
-                telemetry.callerPackage == expectedPackage
-            val telemetryReport = buildRuntimeTelemetryReturnReport(
-                expectedPackage,
-                baselineSequence,
-                telemetry,
-                telemetryMatchesLaunch
+            pollRuntimeTelemetryAfterReturn(
+                title = pendingLaunchTitle,
+                report = report,
+                expectedPackage = pendingRuntimeTelemetryPackage,
+                baselineSequence = pendingRuntimeTelemetryBaselineSequence,
+                generation = runtimeTelemetryCheckGeneration,
+                attempt = 0
             )
-            val captureLevel = when {
-                !telemetryMatchesLaunch || telemetry == null || !telemetry.instanceSeen -> 0
-                telemetry.sessionSeen && telemetry.frameCount > 0L -> 3
-                telemetry.sessionSeen -> 2
-                else -> 1
-            }
-            showLaunchDiagnostic(
-                pendingLaunchTitle,
-                report + telemetryReport,
-                runtimeCaptureLevel = captureLevel
-            )
-            pendingRuntimeTelemetryPackage = null
-            pendingRuntimeTelemetryBaselineSequence = 0L
         }
 
         val pendingId = awaitingBrokerReturnForEndXrId
@@ -1089,6 +1073,7 @@ class ApkImportActivity : ComponentActivity() {
         }
         runCatching {
             pendingLaunchTitle = "NextVRera / EndXR · ${info.displayName}"
+            runtimeTelemetryCheckGeneration += 1L
             pendingRuntimeTelemetryPackage = info.packageName
             pendingRuntimeTelemetryBaselineSequence =
                 readLatestRuntimeTelemetry()?.sequence ?: 0L
@@ -1128,6 +1113,7 @@ class ApkImportActivity : ComponentActivity() {
                 0xFFFFD28A.toInt()
             )
             pendingLaunchReport = null
+            runtimeTelemetryCheckGeneration += 1L
             pendingRuntimeTelemetryPackage = null
             pendingRuntimeTelemetryBaselineSequence = 0L
             val report = buildLaunchReport(
@@ -1187,6 +1173,58 @@ class ApkImportActivity : ComponentActivity() {
         appendLine()
         appendLine("[NEXT STEP]")
         appendLine("Run the separate external OpenXR client probe. Definitive game capture needs a runtime-to-host event channel for xrCreateInstance, xrCreateSession and xrEndFrame.")
+    }
+
+    private fun pollRuntimeTelemetryAfterReturn(
+        title: String,
+        report: String,
+        expectedPackage: String?,
+        baselineSequence: Long,
+        generation: Long,
+        attempt: Int
+    ) {
+        if (isFinishing || isDestroyed || generation != runtimeTelemetryCheckGeneration) return
+
+        val telemetry = readLatestRuntimeTelemetry()
+        val telemetryMatchesLaunch = telemetry != null &&
+            telemetry.sequence > baselineSequence &&
+            telemetry.callerPackage == expectedPackage &&
+            telemetry.instanceSeen
+        if (!telemetryMatchesLaunch && attempt < 8) {
+            statusView.text =
+                "Игра закрылась. Ожидаем финальные события EndXR… ${(attempt + 1) * 250} мс"
+            mainHandler.postDelayed({
+                pollRuntimeTelemetryAfterReturn(
+                    title,
+                    report,
+                    expectedPackage,
+                    baselineSequence,
+                    generation,
+                    attempt + 1
+                )
+            }, 250L)
+            return
+        }
+
+        val telemetryReport = buildRuntimeTelemetryReturnReport(
+            expectedPackage,
+            baselineSequence,
+            telemetry,
+            telemetryMatchesLaunch
+        )
+        val captureLevel = when {
+            !telemetryMatchesLaunch || telemetry == null -> 0
+            telemetry.sessionSeen && telemetry.frameCount > 0L -> 3
+            telemetry.sessionSeen -> 2
+            else -> 1
+        }
+        showLaunchDiagnostic(
+            title,
+            report + telemetryReport,
+            runtimeCaptureLevel = captureLevel
+        )
+        pendingRuntimeTelemetryPackage = null
+        pendingRuntimeTelemetryBaselineSequence = 0L
     }
 
     private fun readLatestRuntimeTelemetry(): RuntimeTelemetrySnapshot? {
