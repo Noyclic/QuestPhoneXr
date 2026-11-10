@@ -52,6 +52,9 @@ class ApkImportActivity : ComponentActivity() {
     private var awaitingBrokerReturnForEndXrId: String? = null
     private var pendingCameraLaunch: PendingEndXrLaunch? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var endXrPrepDialog: AlertDialog? = null
+    private val endXrPrepRows = mutableMapOf<String, TextView>()
+    private var endXrPrepActionButton: Button? = null
 
     private data class PendingEndXrLaunch(
         val infoId: String,
@@ -501,14 +504,148 @@ class ApkImportActivity : ComponentActivity() {
             return
         }
 
-        val broker = runCatching { AndroidRuntimeBrokerProbe.inspect(this, runtimeAbiFor(info)) }
-            .getOrElse {
-                Toast.makeText(this, "RuntimeBroker probe error: ${it.message ?: it.javaClass.simpleName}", Toast.LENGTH_LONG).show()
-                return
+        showEndXrLaunchPreparation(info, assessment)
+    }
+
+    private fun showEndXrLaunchPreparation(
+        info: ImportedApkInfo,
+        assessment: ApkRuntimeAssessment
+    ) {
+        endXrPrepDialog?.dismiss()
+        endXrPrepRows.clear()
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(20), dp(22), dp(18))
+            setBackgroundResource(com.noyclic.questphonexr.R.drawable.bg_nextvrera_atmosphere)
+        }
+        root.addView(text("NEXTVRERA  /  ENDXR", 12f, 0xFF9BC7F5.toInt(), Typeface.BOLD))
+        root.addView(text("Подготовка XR-сеанса", 25f, Color.WHITE, Typeface.BOLD)
+            .apply { setPadding(0, dp(6), 0, dp(5)) })
+        root.addView(text(
+            info.displayName + "\n" + info.packageName,
+            13f, 0xFFD0D7E2.toInt()
+        ).apply { setPadding(0, 0, 0, dp(12)) })
+
+        val steps = listOf(
+            "apk" to ("1 · APK и ABI" to "Статическая проверка завершена."),
+            "broker" to ("2 · RuntimeBroker" to "Ожидает проверки активного OpenXR runtime."),
+            "input" to ("3 · Ввод EndXR" to "Ожидает проверки разрешения controller_state."),
+            "camera" to ("4 · Камера и MediaPipe" to "Ожидает разрешения и свежего кадра."),
+            "launch" to ("5 · Запуск игры" to "Запрос запуска ещё не отправлен."),
+            "capture" to ("6 · Связь игры с EndXR" to "Не подтверждена; нужен сигнал из процесса игры.")
+        )
+        for ((key, pair) in steps) {
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = rounded(0xFF202630.toInt(), dp(10).toFloat())
+                setPadding(dp(12), dp(9), dp(12), dp(9))
             }
+            card.addView(text(pair.first, 13f, Color.WHITE, Typeface.BOLD))
+            val status = text(pair.second, 12f, 0xFF9CA9BC.toInt())
+                .apply { setPadding(0, dp(3), 0, 0) }
+            card.addView(status)
+            endXrPrepRows[key] = status
+            root.addView(card, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(7) })
+        }
+
+        root.addView(text(
+            "RuntimeBroker показывает вероятного кандидата Loader, но не доказывает загрузку EndXR игрой. Реальное подключение можно подтвердить только событиями xrCreateInstance / xrCreateSession / xrEndFrame.",
+            11f, 0xFFFFD28A.toInt()
+        ).apply {
+            background = rounded(0xFF29251D.toInt(), dp(9).toFloat())
+            setPadding(dp(11), dp(9), dp(11), dp(9))
+        })
+
+        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val start = button("Проверить и подготовить").apply {
+            setOnClickListener {
+                isEnabled = false
+                text = "Проверяем RuntimeBroker…"
+                runEndXrLaunchPreflight(info)
+            }
+        }
+        endXrPrepActionButton = start
+        actions.addView(start, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        actions.addView(button("Назад").apply {
+            setOnClickListener { endXrPrepDialog?.dismiss() }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            .apply { leftMargin = dp(8) })
+        root.addView(actions)
+
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            addView(root)
+        }
+        val dialog = AlertDialog.Builder(this).setView(scroll).create()
+        endXrPrepDialog = dialog
+        dialog.setOnDismissListener {
+            if (endXrPrepDialog === dialog) {
+                endXrPrepDialog = null
+                endXrPrepActionButton = null
+                endXrPrepRows.clear()
+            }
+        }
+        dialog.show()
+        dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        updateEndXrPrepStep(
+            "apk",
+            "Готово · " + assessment.route.label + " · ABI: " + assessment.audit.abiSummary,
+            0xFF8FE0B5.toInt()
+        )
+    }
+
+    private fun updateEndXrPrepStep(
+        key: String,
+        value: String,
+        color: Int = 0xFF9CA9BC.toInt()
+    ) {
+        endXrPrepRows[key]?.apply {
+            text = value
+            setTextColor(color)
+        }
+    }
+
+    private fun runEndXrLaunchPreflight(info: ImportedApkInfo) {
+        updateEndXrPrepStep("broker", "Читаем RuntimeBroker и ABI-кандидата…")
+        val broker = runCatching {
+            AndroidRuntimeBrokerProbe.inspect(this, runtimeAbiFor(info))
+        }.getOrElse { error ->
+            updateEndXrPrepStep(
+                "broker",
+                "Ошибка чтения RuntimeBroker: " + (error.message ?: error.javaClass.simpleName),
+                0xFFFFD28A.toInt()
+            )
+            endXrPrepActionButton?.apply {
+                isEnabled = true
+                text = "Повторить проверку"
+            }
+            return
+        }
         if (!broker.endXrIsLikelySelected) {
+            updateEndXrPrepStep(
+                "broker",
+                "EndXR не выбран как вероятный кандидат Loader. Выбери его в Khronos RuntimeBroker.",
+                0xFFFFD28A.toInt()
+            )
+            endXrPrepActionButton?.apply {
+                isEnabled = true
+                text = "Проверить снова после выбора"
+            }
             showEndXrBrokerSelectionRequired(info, broker)
             return
+        }
+        updateEndXrPrepStep(
+            "broker",
+            "EndXR найден как вероятный кандидат Loader · ABI " + (broker.loaderAbi ?: "unknown") + ".",
+            0xFF8FE0B5.toInt()
+        )
+        endXrPrepActionButton?.apply {
+            isEnabled = false
+            text = "Подготовка ввода и камеры…"
         }
         continueEndXrManagedLaunch(info, broker.toDisplayText())
     }
