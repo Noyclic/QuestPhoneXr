@@ -251,4 +251,24 @@ class ApkRuntimeCompatibilityTest {
 
         assertEquals(ApkLaunchRoute.DEVICE_REQUIREMENTS_BLOCKED, result.route)
     }
+    @Test
+    fun routesMetaMarkedAppsThroughEndXrWhenTheyAlsoBundleOpenXrLoader() {
+        val result = ApkRuntimeCompatibility.assess(
+            info = sample(),
+            archiveEntries = listOf(
+                "lib/arm64-v8a/libunity.so",
+                "lib/arm64-v8a/libOVRPlugin.so",
+                "lib/arm64-v8a/libopenxr_loader.so"
+            ),
+            deviceApiLevel = 35,
+            supportedAbis = listOf("arm64-v8a"),
+            missingRequiredFeatures = emptySet()
+        )
+
+        assertEquals(ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE, result.route)
+        assertTrue(result.xrTechnologies.contains("OpenXR"))
+        assertTrue(result.xrTechnologies.contains("Meta/Oculus XR"))
+        assertTrue(result.details.any { it.contains("отдельные Meta Runtime API") })
+    }
+
 }
