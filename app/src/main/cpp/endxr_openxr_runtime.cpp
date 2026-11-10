@@ -1396,28 +1396,52 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrLocateViews(
     if (locateInfo->viewConfigurationType != XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO) {
         return XR_ERROR_VIEW_CONFIGURATION_TYPE_UNSUPPORTED;
     }
-    if (getSpace(locateInfo->space) == nullptr) return XR_ERROR_HANDLE_INVALID;
+    XrSpace_T* base = getSpace(locateInfo->space);
+    if (base == nullptr || base->owner != owner->owner || base->isActionSpace) {
+        return XR_ERROR_HANDLE_INVALID;
+    }
+    if (base->type != XR_REFERENCE_SPACE_TYPE_LOCAL &&
+        base->type != XR_REFERENCE_SPACE_TYPE_VIEW) {
+        return XR_ERROR_REFERENCE_SPACE_UNSUPPORTED;
+    }
     if (locateInfo->displayTime <= 0) return XR_ERROR_TIME_INVALID;
     *count = 2;
     if (capacity == 0) return XR_SUCCESS;
     if (views == nullptr) return XR_ERROR_VALIDATION_FAILURE;
     if (capacity < 2) return XR_ERROR_SIZE_INSUFFICIENT;
-
-    // Head orientation is updated independently by the runtime's input
-    // worker, so locating views never blocks on Android Binder IPC.
-    XrQuaternionf orientation{};
-    const bool tracked = readFreshHeadOrientation(&orientation);
-    viewState->viewStateFlags = tracked
-        ? XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_ORIENTATION_TRACKED_BIT
-        : 0;
     for (std::uint32_t eye = 0; eye < 2; ++eye) {
         if (views[eye].type != XR_TYPE_VIEW) return XR_ERROR_VALIDATION_FAILURE;
-        views[eye].pose.orientation = orientation;
-        views[eye].pose.position = {
-            eye == 0 ? -kHalfIpdMeters : kHalfIpdMeters,
-            0.0f,
-            0.0f
-        };
+    }
+
+    const XrPosef identity{{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f}};
+    XrPosef headInBase = identity;
+    if (base->type == XR_REFERENCE_SPACE_TYPE_LOCAL) {
+        XrQuaternionf headOrientation{};
+        if (readFreshHeadOrientation(&headOrientation)) {
+            XrPosef headInLocal = identity;
+            headInLocal.orientation = headOrientation;
+            headInBase = composePose(inversePose(base->poseInReferenceSpace), headInLocal);
+            viewState->viewStateFlags =
+                XR_VIEW_STATE_ORIENTATION_VALID_BIT |
+                XR_VIEW_STATE_ORIENTATION_TRACKED_BIT;
+        } else {
+            // The stereo eye separation is still known, but the camera-relative
+            // orientation in LOCAL space is not. Do not invent a tracked pose.
+            viewState->viewStateFlags = 0;
+        }
+    } else {
+        // The VIEW frame follows the head, so head orientation cancels when
+        // reporting the eyes relative to that same frame.
+        headInBase = inversePose(base->poseInReferenceSpace);
+        viewState->viewStateFlags =
+            XR_VIEW_STATE_POSITION_VALID_BIT |
+            XR_VIEW_STATE_ORIENTATION_VALID_BIT;
+    }
+
+    for (std::uint32_t eye = 0; eye < 2; ++eye) {
+        XrPosef eyeInView = identity;
+        eyeInView.position.x = eye == 0 ? -kHalfIpdMeters : kHalfIpdMeters;
+        views[eye].pose = composePose(headInBase, eyeInView);
         views[eye].fov = {-0.785398163f, 0.785398163f, 0.785398163f, -0.785398163f};
     }
     return XR_SUCCESS;
