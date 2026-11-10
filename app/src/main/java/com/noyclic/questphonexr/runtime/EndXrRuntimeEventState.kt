@@ -15,7 +15,8 @@ internal data class EndXrRuntimeEventState(
     val instanceSeen: Boolean = false,
     val sessionSeen: Boolean = false,
     val sessionEverRunning: Boolean = false,
-    val frameCount: Long = 0L
+    val frameCount: Long = 0L,
+    val sessionFrameCount: Long = 0L
 ) {
     data class Reduction(
         val state: EndXrRuntimeEventState,
@@ -65,7 +66,7 @@ internal data class EndXrRuntimeEventState(
                             sessionCreated = true,
                             sessionRunning = false,
                             sessionSeen = true,
-                            frameCount = 0L
+                            sessionFrameCount = 0L
                         ),
                         changed = true
                     )
@@ -109,9 +110,18 @@ internal data class EndXrRuntimeEventState(
                     nextFrameCount == 0L
                 ) return null
                 when {
-                    nextFrameCount == frameCount -> Reduction(this, changed = false)
-                    nextFrameCount < frameCount -> null
-                    else -> Reduction(copy(frameCount = nextFrameCount), changed = true)
+                    nextFrameCount == sessionFrameCount -> Reduction(this, changed = false)
+                    nextFrameCount < sessionFrameCount -> null
+                    else -> {
+                        val sessionDelta = nextFrameCount - sessionFrameCount
+                        Reduction(
+                            copy(
+                                frameCount = frameCount + sessionDelta,
+                                sessionFrameCount = nextFrameCount
+                            ),
+                            changed = true
+                        )
+                    }
                 }
             }
 
