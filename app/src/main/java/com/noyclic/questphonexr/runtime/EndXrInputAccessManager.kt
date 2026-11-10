@@ -29,6 +29,22 @@ class EndXrInputAccessManager(context: Context) {
     private val packageManager = appContext.packageManager
     private val preferences = appContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
+    fun installedLaunchableClient(packageName: String): EndXrInputClient? {
+        if (!EndXrInputGrantCodec.isValidPackageName(packageName)) return null
+        val resolveInfo = queryLauncherActivities(packageName).firstOrNull() ?: return null
+        val activity = resolveInfo.activityInfo ?: return null
+        if (activity.packageName != packageName ||
+            (activity.applicationInfo.flags and
+                android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
+        ) return null
+        val fingerprint = signingCertificateFingerprint(packageName) ?: return null
+        val label = runCatching { resolveInfo.loadLabel(packageManager).toString() }
+            .getOrNull()
+            ?.takeIf(String::isNotBlank)
+            ?: packageName
+        return EndXrInputClient(packageName, label, fingerprint)
+    }
+
     fun installedLaunchableClients(): List<EndXrInputClient> =
         queryLauncherActivities()
             .asSequence()
@@ -205,8 +221,10 @@ class EndXrInputAccessManager(context: Context) {
         }
     }
 
-    private fun queryLauncherActivities(): List<ResolveInfo> {
-        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+    private fun queryLauncherActivities(packageName: String? = null): List<ResolveInfo> {
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).apply {
+            if (!packageName.isNullOrBlank()) setPackage(packageName)
+        }
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             packageManager.queryIntentActivities(
                 intent,
