@@ -52,6 +52,8 @@ class ApkImportActivity : ComponentActivity() {
     private var pendingLaunchTitle: String = "Диагностика запуска Quest APK"
     private var awaitingBrokerReturnForEndXrId: String? = null
     private var pendingCameraLaunch: PendingEndXrLaunch? = null
+    private var awaitingInstallPermissionForInfoId: String? = null
+    private var pendingInstallResultInfoId: String? = null
     private var pendingRuntimeTelemetryPackage: String? = null
     private var pendingRuntimeTelemetryBaselineSequence: Long = 0L
     private var runtimeTelemetryCheckGeneration: Long = 0L
@@ -106,6 +108,28 @@ class ApkImportActivity : ComponentActivity() {
         if (uri != null) importApk(uri)
     }
 
+    private val packageInstallResult = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val infoId = pendingInstallResultInfoId ?: return@registerForActivityResult
+        pendingInstallResultInfoId = null
+        val info = store.getAll().firstOrNull { it.id == infoId }
+            ?: return@registerForActivityResult
+        val installedVersionCode = installedPackageVersionCode(info.packageName)
+        val installMatch = classifyImportedApkInstall(info.versionCode, installedVersionCode)
+        val message = when (installMatch) {
+            ImportedApkInstallMatch.MATCHES_IMPORTED_VERSION ->
+                "Установка подтверждена: ${info.displayName} · версия ${info.versionName.ifBlank { info.versionCode.toString() }}. Теперь доступен запуск."
+            ImportedApkInstallMatch.DIFFERENT_VERSION ->
+                "В Android установлена версия $installedVersionCode, а импортирована ${info.versionCode}. NextVRera не запустит её под видом проверенной версии; попробуй переустановить импортированный APK."
+            ImportedApkInstallMatch.NOT_INSTALLED ->
+                "Android не подтвердил установку ${info.displayName} (resultCode=${result.resultCode}). Установщик мог быть отменён или отклонить APK."
+        }
+        statusView.text = message
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        renderEntries()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         buildScreen()
@@ -115,6 +139,14 @@ class ApkImportActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (::entriesContainer.isInitialized) renderEntries()
+        val installPermissionInfoId = awaitingInstallPermissionForInfoId
+        if (installPermissionInfoId != null && packageManager.canRequestPackageInstalls()) {
+            awaitingInstallPermissionForInfoId = null
+            mainHandler.post {
+                val info = store.getAll().firstOrNull { it.id == installPermissionInfoId }
+                if (info != null && !isFinishing && !isDestroyed) installOnAndroid(info)
+            }
+        }
         val report = pendingLaunchReport
         if (report != null) {
             pendingLaunchReport = null
@@ -330,6 +362,25 @@ class ApkImportActivity : ComponentActivity() {
             "Версия: ${info.versionName.ifBlank { "без номера" }} (${info.versionCode}) · ${formatSize(info.sizeBytes)}",
             12f, 0xFFD0D7E2.toInt()
         ).apply { setPadding(0, dp(4), 0, 0) })
+        val installedVersionCode = installedPackageVersionCode(info.packageName)
+        val installMatch = classifyImportedApkInstall(info.versionCode, installedVersionCode)
+        val installStatus = when (installMatch) {
+            ImportedApkInstallMatch.NOT_INSTALLED ->
+                "Android: не установлено · APK пока только импортирован в NextVRera"
+            ImportedApkInstallMatch.MATCHES_IMPORTED_VERSION ->
+                "Android: установлена та же версия · можно запускать"
+            ImportedApkInstallMatch.DIFFERENT_VERSION ->
+                "Android: установлена версия $installedVersionCode, импортирована ${info.versionCode}"
+        }
+        card.addView(text(
+            installStatus,
+            12f,
+            if (installMatch == ImportedApkInstallMatch.MATCHES_IMPORTED_VERSION) 0xFF8FE0B5.toInt() else 0xFFFFD28A.toInt(),
+            Typeface.BOLD
+        ).apply { setPadding(0, dp(7), 0, dp(3)) })
+        val hasLauncherActivity = packageManager.getLaunchIntentForPackage(info.packageName) != null
+        val canLaunchImportedVersion =
+            installMatch == ImportedApkInstallMatch.MATCHES_IMPORTED_VERSION && hasLauncherActivity
         card.addView(text(
             "Android API: минимум ${info.minSdk}, target ${info.targetSdk}",
             12f, 0xFFB8C7DB.toInt()
@@ -407,11 +458,25 @@ class ApkImportActivity : ComponentActivity() {
                 .format(Date(info.importedAtEpochMs)),
             11f, 0xFF8994A5.toInt()
         ).apply { setPadding(0, dp(7), 0, dp(5)) })
-        card.addView(button("Открыть установленное приложение").apply {
+        card.addView(button(
+            if (canLaunchImportedVersion) {
+                "Открыть установленное приложение"
+            } else {
+                "Сначала установи импортированную версию APK"
+            }
+        ).apply {
+            isEnabled = canLaunchImportedVersion
             setOnClickListener { launchInstalled(info) }
         })
         if (runtimeAssessment.route == ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE) {
-            card.addView(button("Запустить через NextVRera + EndXR").apply {
+            card.addView(button(
+                if (canLaunchImportedVersion) {
+                    "Запустить через NextVRera + EndXR"
+                } else {
+                    "EndXR запуск: сначала установи APK"
+                }
+            ).apply {
+                isEnabled = canLaunchImportedVersion
                 setOnClickListener { launchThroughNextVreraEndXr(info) }
             })
         }
@@ -442,6 +507,7 @@ class ApkImportActivity : ComponentActivity() {
 
 
     private fun launchInstalled(info: ImportedApkInfo) {
+        if (!ensureImportedVersionInstalled(info)) return
         val launchIntent = packageManager.getLaunchIntentForPackage(info.packageName)
         val archive = File(filesDir, "imported-apks/${info.fileName}")
         val missing = info.requiredFeatures.filterNot { packageManager.hasSystemFeature(it) }.toSet()
@@ -536,6 +602,7 @@ class ApkImportActivity : ComponentActivity() {
      * launch the installed APK. It does not claim that the game called xrCreateInstance.
      */
     private fun launchThroughNextVreraEndXr(info: ImportedApkInfo) {
+        if (!ensureImportedVersionInstalled(info)) return
         val launchIntent = packageManager.getLaunchIntentForPackage(info.packageName)
         if (launchIntent == null) {
             statusView.text = "Не найден launcher Activity для ${info.packageName}. Установи полный APK-набор (включая split APK), затем повтори."
@@ -761,6 +828,7 @@ class ApkImportActivity : ComponentActivity() {
         info: ImportedApkInfo,
         brokerReport: String
     ) {
+        if (!ensureImportedVersionInstalled(info)) return
         val launchIntent = packageManager.getLaunchIntentForPackage(info.packageName)
         if (launchIntent == null) {
             statusView.text = "Приложение больше не предоставляет launcher Activity."
@@ -927,6 +995,7 @@ class ApkImportActivity : ComponentActivity() {
         info: ImportedApkInfo,
         pending: PendingEndXrLaunch
     ) {
+        if (!ensureImportedVersionInstalled(info)) return
         val launchIntent = packageManager.getLaunchIntentForPackage(info.packageName)
         if (launchIntent == null) {
             statusView.text = "Не найден launcher Activity для ${info.packageName}."
@@ -1057,6 +1126,7 @@ class ApkImportActivity : ComponentActivity() {
             statusView.text = "APK удалён из NextVRera; запуск отменён."
             return
         }
+        if (!ensureImportedVersionInstalled(info)) return
         val broker = runCatching { AndroidRuntimeBrokerProbe.inspect(this, runtimeAbiFor(info)) }.getOrNull()
         if (broker?.endXrIsLikelySelected != true) {
             statusView.text = "RuntimeBroker больше не подтверждает EndXR. Игра не запущена; повтори preflight."
@@ -1378,6 +1448,47 @@ class ApkImportActivity : ComponentActivity() {
         dialog.show()
     }
 
+    private fun installedPackageVersionCode(packageName: String): Long? {
+        val installed = runCatching {
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                packageManager.getPackageInfo(
+                    packageName,
+                    PackageManager.PackageInfoFlags.of(0L)
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, 0)
+            }
+        }.getOrNull() ?: return null
+        return if (android.os.Build.VERSION.SDK_INT >= 28) {
+            installed.longVersionCode
+        } else {
+            @Suppress("DEPRECATION")
+            installed.versionCode.toLong()
+        }
+    }
+
+    private fun ensureImportedVersionInstalled(info: ImportedApkInfo): Boolean {
+        val installedVersionCode = installedPackageVersionCode(info.packageName)
+        if (classifyImportedApkInstall(info.versionCode, installedVersionCode) ==
+            ImportedApkInstallMatch.MATCHES_IMPORTED_VERSION
+        ) return true
+
+        val message = when {
+            installedVersionCode == null ->
+                "Файл «${info.originalName}» пока только импортирован в библиотеку NextVRera. Это ещё не установка игры. Сначала передай APK системному установщику Android и заверши установку."
+            else ->
+                "В Android установлена версия $installedVersionCode, а импортирована версия ${info.versionCode}. Кнопка запуска относится к установленному приложению, поэтому NextVRera остановит запуск, пока версии не совпадут."
+        }
+        AlertDialog.Builder(this)
+            .setTitle(if (installedVersionCode == null) "Игра ещё не установлена" else "Версии APK не совпадают")
+            .setMessage(message)
+            .setNegativeButton("Закрыть", null)
+            .setPositiveButton("Установить импортированный APK") { _, _ -> installOnAndroid(info) }
+            .show()
+        return false
+    }
+
     private fun installOnAndroid(info: ImportedApkInfo) {
         val archive = File(filesDir, "imported-apks/${info.fileName}")
         if (!archive.isFile || archive.length() == 0L) {
@@ -1385,6 +1496,7 @@ class ApkImportActivity : ComponentActivity() {
             return
         }
         if (!packageManager.canRequestPackageInstalls()) {
+            awaitingInstallPermissionForInfoId = info.id
             runCatching {
                 startActivity(
                     Intent(
@@ -1393,6 +1505,7 @@ class ApkImportActivity : ComponentActivity() {
                     )
                 )
             }.onFailure {
+                awaitingInstallPermissionForInfoId = null
                 statusView.text = "Открой настройки Android и разреши установку приложений для QuestPhoneXR."
             }
             Toast.makeText(
@@ -1414,9 +1527,11 @@ class ApkImportActivity : ComponentActivity() {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 putExtra(Intent.EXTRA_RETURN_RESULT, true)
             }
-            startActivity(installIntent)
-            statusView.text = "Передано системному установщику Android: ${info.displayName}"
+            pendingInstallResultInfoId = info.id
+            packageInstallResult.launch(installIntent)
+            statusView.text = "Системный установщик открыт: ${info.displayName}. После завершения NextVRera проверит установленную версию."
         }.onFailure { error ->
+            pendingInstallResultInfoId = null
             statusView.text = "Не удалось открыть системный установщик: ${error.message ?: "ошибка"}"
         }
     }

@@ -6,6 +6,21 @@ import com.noyclic.questphonexr.gvr.EndGvrClassification
 import com.noyclic.questphonexr.gvr.EndGvrCompatibility
 import com.noyclic.questphonexr.runtime.EndXrRuntimeReadiness
 
+internal enum class ImportedApkInstallMatch {
+    NOT_INSTALLED,
+    MATCHES_IMPORTED_VERSION,
+    DIFFERENT_VERSION
+}
+
+internal fun classifyImportedApkInstall(
+    importedVersionCode: Long,
+    installedVersionCode: Long?
+): ImportedApkInstallMatch = when {
+    installedVersionCode == null -> ImportedApkInstallMatch.NOT_INSTALLED
+    installedVersionCode == importedVersionCode -> ImportedApkInstallMatch.MATCHES_IMPORTED_VERSION
+    else -> ImportedApkInstallMatch.DIFFERENT_VERSION
+}
+
 enum class ApkLaunchRoute(val label: String) {
     DEVICE_REQUIREMENTS_BLOCKED("Телефон не соответствует требованиям APK"),
     QUEST_RUNTIME_REQUIRED("Требуется Meta Quest Runtime — напрямую не запускается"),

@@ -240,6 +240,30 @@ class ApkRuntimeCompatibilityTest {
     }
 
     @Test
+    fun importedApkInstallStateDistinguishesNotInstalledFromImportedOnly() {
+        assertEquals(
+            ImportedApkInstallMatch.NOT_INSTALLED,
+            classifyImportedApkInstall(importedVersionCode = 12L, installedVersionCode = null)
+        )
+    }
+
+    @Test
+    fun importedApkInstallStateAcceptsOnlyTheExactInstalledVersion() {
+        assertEquals(
+            ImportedApkInstallMatch.MATCHES_IMPORTED_VERSION,
+            classifyImportedApkInstall(importedVersionCode = 12L, installedVersionCode = 12L)
+        )
+        assertEquals(
+            ImportedApkInstallMatch.DIFFERENT_VERSION,
+            classifyImportedApkInstall(importedVersionCode = 12L, installedVersionCode = 11L)
+        )
+        assertEquals(
+            ImportedApkInstallMatch.DIFFERENT_VERSION,
+            classifyImportedApkInstall(importedVersionCode = 12L, installedVersionCode = 13L)
+        )
+    }
+
+    @Test
     fun blocksApkWhenNativeAbiDoesNotMatch() {
         val result = ApkRuntimeCompatibility.assess(
             info = sample(nativeAbis = listOf("x86_64")),
