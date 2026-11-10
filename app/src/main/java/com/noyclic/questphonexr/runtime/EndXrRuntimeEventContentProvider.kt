@@ -203,6 +203,7 @@ class EndXrRuntimeEventContentProvider : ContentProvider() {
         const val EVENT_CREATE_INSTANCE = "xr_create_instance"
         const val EVENT_CREATE_SESSION = "xr_create_session"
         const val EVENT_BEGIN_SESSION = "xr_begin_session"
+        const val EVENT_END_SESSION = "xr_end_session"
         const val EVENT_END_FRAME = "xr_end_frame"
         const val EVENT_DESTROY_SESSION = "xr_destroy_session"
         const val EVENT_DESTROY_INSTANCE = "xr_destroy_instance"
@@ -211,6 +212,7 @@ class EndXrRuntimeEventContentProvider : ContentProvider() {
             EVENT_CREATE_INSTANCE,
             EVENT_CREATE_SESSION,
             EVENT_BEGIN_SESSION,
+            EVENT_END_SESSION,
             EVENT_END_FRAME,
             EVENT_DESTROY_SESSION,
             EVENT_DESTROY_INSTANCE
