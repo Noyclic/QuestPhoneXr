@@ -129,6 +129,7 @@ struct XrInstance_T {
     std::thread externalInputPollThread;
     std::mutex runtimeTelemetryMutex;
     std::deque<PendingRuntimeTelemetry> pendingRuntimeTelemetry;
+    std::chrono::steady_clock::time_point runtimeTelemetryRetryAt{};
     std::atomic<bool> runtimeTelemetryUnavailableLogged{false};
 #else
     void* applicationVm = nullptr;
@@ -2466,9 +2467,27 @@ bool flushRuntimeTelemetryImpl(XrInstance_T* instance) {
     std::deque<PendingRuntimeTelemetry> pending;
     {
         std::lock_guard<std::mutex> lock(instance->runtimeTelemetryMutex);
+        if (instance->pendingRuntimeTelemetry.empty()) return true;
+        const auto now = std::chrono::steady_clock::now();
+        if (instance->runtimeTelemetryRetryAt.time_since_epoch().count() != 0 &&
+            now < instance->runtimeTelemetryRetryAt) {
+            return false;
+        }
         pending.swap(instance->pendingRuntimeTelemetry);
     }
-    if (pending.empty()) return true;
+    auto restorePending = [&]() {
+        std::lock_guard<std::mutex> lock(instance->runtimeTelemetryMutex);
+        for (auto it = pending.rbegin(); it != pending.rend(); ++it) {
+            instance->pendingRuntimeTelemetry.push_front(*it);
+        }
+        // Keep the queue bounded if the provider remains unavailable for a
+        // long time. Control/lifecycle events are enqueued before frame events.
+        while (instance->pendingRuntimeTelemetry.size() > 64) {
+            instance->pendingRuntimeTelemetry.pop_back();
+        }
+        instance->runtimeTelemetryRetryAt =
+            std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    };
 
     JNIEnv* env = nullptr;
     bool attachedHere = false;
@@ -2476,10 +2495,12 @@ bool flushRuntimeTelemetryImpl(XrInstance_T* instance) {
         reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
     if (envStatus == JNI_EDETACHED) {
         if (instance->applicationVm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
+            restorePending();
             return false;
         }
         attachedHere = true;
     } else if (envStatus != JNI_OK || env == nullptr) {
+        restorePending();
         return false;
     }
 
@@ -2608,6 +2629,13 @@ bool flushRuntimeTelemetryImpl(XrInstance_T* instance) {
     }
     if (attachedHere) instance->applicationVm->DetachCurrentThread();
 
+    if (!success) {
+        restorePending();
+    } else {
+        std::lock_guard<std::mutex> lock(instance->runtimeTelemetryMutex);
+        instance->runtimeTelemetryRetryAt = {};
+    }
+
     if (!success &&
         !instance->runtimeTelemetryUnavailableLogged.exchange(true, std::memory_order_acq_rel)) {
         __android_log_print(
@@ -2670,6 +2698,10 @@ bool startExternalControllerInputPolling(XrInstance_T* instance) {
 
 void stopExternalControllerInputPolling(XrInstance_T* instance) {
     if (instance == nullptr) return;
+    {
+        std::lock_guard<std::mutex> lock(instance->runtimeTelemetryMutex);
+        instance->runtimeTelemetryRetryAt = {};
+    }
     instance->stopExternalInputPollingRequested.store(true, std::memory_order_release);
     instance->externalInputWake.notify_all();
     if (instance->externalInputPollThread.joinable()) {
