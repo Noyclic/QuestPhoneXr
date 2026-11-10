@@ -477,6 +477,387 @@ class ApkImportActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Managed NextVRera path: verify the Loader's likely active Broker candidate,
+     * obtain explicit package-scoped input approval, start camera tracking, then
+     * launch the installed APK. It does not claim that the game called xrCreateInstance.
+     */
+    private fun launchThroughNextVreraEndXr(info: ImportedApkInfo) {
+        val launchIntent = packageManager.getLaunchIntentForPackage(info.packageName)
+        if (launchIntent == null) {
+            statusView.text = "Не найден launcher Activity для ${info.packageName}. Установи полный APK-набор (включая split APK), затем повтори."
+            return
+        }
+        val assessment = assessImportedApk(info)
+        if (assessment.route != ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE) {
+            AlertDialog.Builder(this)
+                .setTitle("EndXR preflight недоступен")
+                .setMessage(assessment.details.joinToString("\n").ifBlank {
+                    "APK не распознан как OpenXR-кандидат."
+                })
+                .setPositiveButton("Закрыть", null)
+                .show()
+            return
+        }
+
+        val broker = runCatching { AndroidRuntimeBrokerProbe.inspect(this) }
+            .getOrElse {
+                Toast.makeText(this, "RuntimeBroker probe error: ${it.message ?: it.javaClass.simpleName}", Toast.LENGTH_LONG).show()
+                return
+            }
+        if (!broker.endXrIsLikelySelected) {
+            showEndXrBrokerSelectionRequired(info, broker)
+            return
+        }
+        continueEndXrManagedLaunch(info, broker.toDisplayText())
+    }
+
+    private fun showEndXrBrokerSelectionRequired(
+        info: ImportedApkInfo,
+        broker: com.noyclic.questphonexr.runtime.RuntimeBrokerProbeReport
+    ) {
+        awaitingBrokerReturnForEndXrId = info.id
+        val details = buildString {
+            appendLine("ABI проверки: ${broker.loaderAbi ?: "неизвестно"}")
+            appendLine("Broker, который предпочитает Loader: ${broker.loaderSelectedBroker ?: "не найден"}")
+            appendLine("Кандидат runtime: ${broker.loaderSelectedRuntimePackage ?: "не выбран"}")
+            appendLine("Библиотека кандидата существует: ${broker.loaderSelectedRuntimeLibraryExists}")
+            appendLine("EndXR выбран как кандидат: ${if (broker.endXrIsLikelySelected) "ДА" else "НЕТ"}")
+            appendLine()
+            appendLine("Открой Khronos Runtime Broker и выбери «EndXR Phone Runtime» (может отображаться как EndXR OpenXR Runtime).")
+            appendLine("После возврата NextVRera автоматически перепроверит активный runtime. Игра не будет запущена до этого шага.")
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Сначала выбери EndXR")
+            .setMessage(details)
+            .setNegativeButton("Отмена") { _, _ ->
+                awaitingBrokerReturnForEndXrId = null
+            }
+            .setPositiveButton("Открыть Runtime Broker") { _, _ ->
+                openInstallableRuntimeBroker()
+            }
+            .setNeutralButton("Открыть страницу Broker") { _, _ ->
+                runCatching {
+                    startActivity(Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse(AndroidRuntimeBrokerContract.INSTALLABLE_BROKER_PLAY_STORE_URL)
+                    ))
+                }.onFailure { error ->
+                    awaitingBrokerReturnForEndXrId = null
+                    Toast.makeText(this, "Не удалось открыть страницу Broker: ${error.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+            .show()
+    }
+
+    private fun openInstallableRuntimeBroker() {
+        val brokerIntent = Intent().setClassName(
+            AndroidRuntimeBrokerContract.INSTALLABLE_BROKER_PACKAGE,
+            AndroidRuntimeBrokerContract.INSTALLABLE_BROKER_MAIN_ACTIVITY
+        )
+        runCatching { startActivity(brokerIntent) }
+            .onFailure {
+                runCatching {
+                    startActivity(Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse(AndroidRuntimeBrokerContract.INSTALLABLE_BROKER_PLAY_STORE_URL)
+                    ))
+                }.onFailure { error ->
+                    awaitingBrokerReturnForEndXrId = null
+                    Toast.makeText(this, "Не удалось открыть Runtime Broker: ${error.message ?: "приложение недоступно"}", Toast.LENGTH_LONG).show()
+                }
+            }
+    }
+
+    private fun continueEndXrManagedLaunch(
+        info: ImportedApkInfo,
+        brokerReport: String
+    ) {
+        val launchIntent = packageManager.getLaunchIntentForPackage(info.packageName)
+        if (launchIntent == null) {
+            statusView.text = "Приложение больше не предоставляет launcher Activity."
+            return
+        }
+        val assessment = assessImportedApk(info)
+        if (assessment.route != ApkLaunchRoute.OPENXR_RUNTIME_CANDIDATE) {
+            statusView.text = "Статический APK-аудит больше не считает пакет OpenXR-кандидатом. Запуск остановлен."
+            return
+        }
+
+        val manager = EndXrInputAccessManager(this)
+        val client = manager.installedLaunchableClients()
+            .firstOrNull { it.packageName == info.packageName }
+        if (client == null) {
+            AlertDialog.Builder(this)
+                .setTitle("Нет безопасного IPC-доступа")
+                .setMessage(
+                    "NextVRera не смог подтвердить подпись установленного приложения «${info.packageName}». " +
+                        "Продолжить без передачи ввода EndXR? Сам запуск всё ещё не гарантирует совместимость."
+                )
+                .setNegativeButton("Отмена", null)
+                .setPositiveButton("Запустить без ввода") { _, _ ->
+                    requestCameraThenLaunch(
+                        PendingEndXrLaunch(info.id, brokerReport, inputIpcGranted = false),
+                        launchIntent,
+                        assessment
+                    )
+                }
+                .show()
+            return
+        }
+
+        if (manager.isAuthorized(client)) {
+            val activeGrants = manager.reconcileGrants()
+            val grantRestored = activeGrants.any { it.packageName == client.packageName }
+            if (grantRestored) {
+                requestCameraThenLaunch(
+                    PendingEndXrLaunch(info.id, brokerReport, inputIpcGranted = true),
+                    launchIntent,
+                    assessment
+                )
+                return
+            }
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Разрешить ввод EndXR для игры?")
+            .setMessage(
+                "Приложение: ${client.label}\nПакет: ${client.packageName}\n\n" +
+                    "NextVRera выдаст read-only доступ только к URI controller_state. " +
+                    "Разрешение связано с подписью этого APK и может быть отозвано. " +
+                    "Это не внедряет Android-кнопки в игру: игре нужно поддерживать OpenXR input или контракт EndXR."
+            )
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Разрешить и продолжить") { _, _ ->
+                runCatching { manager.authorize(client.packageName) }
+                    .onSuccess {
+                        requestCameraThenLaunch(
+                            PendingEndXrLaunch(info.id, brokerReport, inputIpcGranted = true),
+                            launchIntent,
+                            assessment
+                        )
+                    }
+                    .onFailure { error ->
+                        AlertDialog.Builder(this)
+                            .setTitle("Не удалось разрешить ввод")
+                            .setMessage("${error.message ?: "Android отклонил URI grant."}\n\nЗапустить игру без ввода EndXR?")
+                            .setNegativeButton("Отмена", null)
+                            .setPositiveButton("Запустить без ввода") { _, _ ->
+                                requestCameraThenLaunch(
+                                    PendingEndXrLaunch(info.id, brokerReport, inputIpcGranted = false),
+                                    launchIntent,
+                                    assessment
+                                )
+                            }
+                            .show()
+                    }
+            }
+            .show()
+    }
+
+    private fun assessImportedApk(info: ImportedApkInfo): ApkRuntimeAssessment {
+        val archive = File(filesDir, "imported-apks/${info.fileName}")
+        val missing = info.requiredFeatures
+            .filterNot { packageManager.hasSystemFeature(it) }
+            .toSet()
+        return ApkRuntimeCompatibility.inspect(
+            info = info,
+            archive = archive,
+            deviceApiLevel = android.os.Build.VERSION.SDK_INT,
+            supportedAbis = android.os.Build.SUPPORTED_ABIS.toList(),
+            missingRequiredFeatures = missing
+        )
+    }
+
+    private fun requestCameraThenLaunch(
+        pending: PendingEndXrLaunch,
+        launchIntent: Intent,
+        assessment: ApkRuntimeAssessment
+    ) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            startEndXrManagedLaunch(
+                pending.copy(cameraPermissionGranted = true),
+                launchIntent,
+                assessment
+            )
+        } else {
+            pendingCameraLaunch = pending
+            endXrCameraPermission.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    private fun startEndXrManagedLaunch(
+        info: ImportedApkInfo,
+        pending: PendingEndXrLaunch
+    ) {
+        val launchIntent = packageManager.getLaunchIntentForPackage(info.packageName)
+        if (launchIntent == null) {
+            statusView.text = "Не найден launcher Activity для ${info.packageName}."
+            return
+        }
+        startEndXrManagedLaunch(
+            pending,
+            launchIntent,
+            assessImportedApk(info)
+        )
+    }
+
+    private fun startEndXrManagedLaunch(
+        pending: PendingEndXrLaunch,
+        launchIntent: Intent,
+        assessment: ApkRuntimeAssessment
+    ) {
+        if (pending.cameraPermissionGranted != true) {
+            launchEndXrManagedPackage(
+                pending,
+                launchIntent,
+                assessment,
+                trackingStarted = false,
+                trackingStatus = "camera permission not granted"
+            )
+            return
+        }
+
+        if (EndXrHandTrackingService.isRunning() &&
+            EndXrHandTrackingService.diagnosticState() == "running"
+        ) {
+            waitForEndXrCameraReady(pending, launchIntent, assessment, attempt = 0)
+            return
+        }
+
+        runCatching {
+            ContextCompat.startForegroundService(
+                this,
+                EndXrHandTrackingService.createResumeIntent(this)
+            )
+        }.onFailure { error ->
+            EndXrHandTrackingService.markStartFailed(
+                error.message ?: error.javaClass.simpleName
+            )
+            launchEndXrManagedPackage(
+                pending,
+                launchIntent,
+                assessment,
+                trackingStarted = false,
+                trackingStatus = "foreground service start failed: ${error.message ?: error.javaClass.simpleName}"
+            )
+            return
+        }
+        waitForEndXrCameraReady(pending, launchIntent, assessment, attempt = 0)
+    }
+
+    private fun waitForEndXrCameraReady(
+        pending: PendingEndXrLaunch,
+        launchIntent: Intent,
+        assessment: ApkRuntimeAssessment,
+        attempt: Int
+    ) {
+        if (isFinishing || isDestroyed) return
+        val state = EndXrHandTrackingService.diagnosticState()
+        val frameAgeMs = if (EndXrHandTrackingService.latestFrameReceivedAtMs() > 0L) {
+            SystemClock.uptimeMillis() - EndXrHandTrackingService.latestFrameReceivedAtMs()
+        } else {
+            Long.MAX_VALUE
+        }
+        val frameReady = EndXrHandTrackingService.latestFrame().timestampMs > 0L &&
+            frameAgeMs in 0L..1_500L
+        if (state == "running" && frameReady) {
+            launchEndXrManagedPackage(
+                pending,
+                launchIntent,
+                assessment,
+                trackingStarted = true,
+                trackingStatus = "running; fresh MediaPipe frame observed"
+            )
+            return
+        }
+        if (state == "error" || state == "stopped" || attempt >= 28) {
+            val reason = EndXrHandTrackingService.diagnosticLastError()
+            launchEndXrManagedPackage(
+                pending,
+                launchIntent,
+                assessment,
+                trackingStarted = false,
+                trackingStatus = "not ready (state=${state}; frame_age_ms=${frameAgeMs}; error=${reason})"
+            )
+            return
+        }
+        mainHandler.postDelayed({
+            waitForEndXrCameraReady(pending, launchIntent, assessment, attempt + 1)
+        }, 250L)
+    }
+
+    private fun launchEndXrManagedPackage(
+        pending: PendingEndXrLaunch,
+        launchIntent: Intent,
+        assessment: ApkRuntimeAssessment,
+        trackingStarted: Boolean,
+        trackingStatus: String
+    ) {
+        val info = store.getAll().firstOrNull { it.id == pending.infoId }
+        if (info == null) {
+            statusView.text = "APK удалён из NextVRera; запуск отменён."
+            return
+        }
+        val broker = runCatching { AndroidRuntimeBrokerProbe.inspect(this) }.getOrNull()
+        if (broker?.endXrIsLikelySelected != true) {
+            statusView.text = "RuntimeBroker больше не подтверждает EndXR. Игра не запущена; повтори preflight."
+            Toast.makeText(this, statusView.text, Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val launchDetails = buildString {
+            appendLine()
+            appendLine("[NEXTVRERA ENDXR MANAGED LAUNCH]")
+            appendLine("loader_predicted_endxr_selected=${broker.endXrIsLikelySelected}")
+            appendLine("loader_selected_broker=${broker.loaderSelectedBroker}")
+            appendLine("loader_selected_package=${broker.loaderSelectedRuntimePackage}")
+            appendLine("loader_abi=${broker.loaderAbi}")
+            appendLine("input_uri_granted=${pending.inputIpcGranted}")
+            appendLine("camera_tracking=${if (trackingStarted) "READY" else "NOT_READY"}")
+            appendLine("camera_tracking_status=$trackingStatus")
+            appendLine("camera_tracking_fps=${EndXrHandTrackingService.diagnosticFps()}")
+            appendLine("camera_tracking_state=${EndXrHandTrackingService.diagnosticState()}")
+            appendLine("game_xr_runtime_connection=NOT_CONFIRMED")
+            appendLine("A real game connection still requires evidence from xrCreateInstance/xrCreateSession in that game process.")
+        }
+        runCatching {
+            pendingLaunchTitle = "NextVRera / EndXR · ${info.displayName}"
+            pendingLaunchReport = buildLaunchReport(
+                info,
+                assessment,
+                pending.brokerReport,
+                launcherActivityFound = true,
+                inputIpcGranted = pending.inputIpcGranted,
+                launchError = null,
+                launchResult = "NextVRera preflight passed; Android accepted startActivity."
+            ) + launchDetails
+            startActivity(launchIntent)
+            val message = if (trackingStarted) {
+                "NextVRera подготовила EndXR: runtime-кандидат подтверждён, IPC разрешён, MediaPipe передал свежий кадр. Запрос запуска отправлен; подключение самой игры ещё нужно подтвердить."
+            } else {
+                "EndXR выбран как кандидат и запуск отправлен, но камера не готова: $trackingStatus"
+            }
+            statusView.text = message
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        }.onFailure { error ->
+            pendingLaunchReport = null
+            val report = buildLaunchReport(
+                info,
+                assessment,
+                pending.brokerReport,
+                launcherActivityFound = true,
+                inputIpcGranted = pending.inputIpcGranted,
+                launchError = error.message ?: error.javaClass.simpleName,
+                launchResult = "NextVRera preflight passed, but Android rejected startActivity."
+            ) + launchDetails
+            statusView.text = "Не удалось запустить ${info.displayName}: ${error.message ?: error.javaClass.simpleName}"
+            showLaunchDiagnostic("Ошибка NextVRera / EndXR запуска", report)
+        }
+    }
+
     private fun buildLaunchReport(
         info: ImportedApkInfo,
         assessment: ApkRuntimeAssessment,
