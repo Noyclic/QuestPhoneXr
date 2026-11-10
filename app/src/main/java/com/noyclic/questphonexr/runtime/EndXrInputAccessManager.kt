@@ -143,11 +143,6 @@ class EndXrInputAccessManager(context: Context) {
                 RUNTIME_EVENT_URI,
                 Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             )
-            appContext.revokeUriPermission(
-                packageName,
-                RUNTIME_EVENT_URI,
-                Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            )
             writeRecords(readRecords().filterNot { it.packageName == packageName })
         }
         return true
@@ -168,6 +163,11 @@ class EndXrInputAccessManager(context: Context) {
                 packageName,
                 INPUT_URI,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+            appContext.revokeUriPermission(
+                packageName,
+                RUNTIME_EVENT_URI,
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             )
         }
     }
