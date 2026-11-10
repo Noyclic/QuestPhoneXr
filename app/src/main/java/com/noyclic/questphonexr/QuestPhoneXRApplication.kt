@@ -7,7 +7,7 @@ import com.noyclic.questphonexr.diagnostics.CrashReportStore
 import com.noyclic.questphonexr.runtime.EndXrInputAccessManager
 import kotlin.system.exitProcess
 
-/** Installs local diagnostics and restores only previously approved EndXR input grants. */
+/** Installs local diagnostics and restores only previously approved EndXR IPC grants. */
 class QuestPhoneXRApplication : Application() {
     override fun onCreate() {
         super.onCreate()
