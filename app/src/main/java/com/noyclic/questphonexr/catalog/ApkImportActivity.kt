@@ -810,11 +810,12 @@ class ApkImportActivity : ComponentActivity() {
 
         if (manager.isAuthorized(client)) {
             val activeGrants = manager.reconcileGrants()
-            val grantRestored = activeGrants.any { it.packageName == client.packageName }
-            if (grantRestored) {
+            val inputGrantRestored = activeGrants.any { it.packageName == client.packageName }
+            val telemetryGrantRestored = manager.isRuntimeTelemetryAuthorized(client)
+            if (inputGrantRestored && telemetryGrantRestored) {
                 updateEndXrPrepStep(
                     "input",
-                    "Read-only доступ к controller_state уже разрешён для этого пакета.",
+                    "Доступы восстановлены: controller_state read-only и runtime_event write-only.",
                     0xFF8FE0B5.toInt()
                 )
                 requestCameraThenLaunch(
@@ -823,12 +824,18 @@ class ApkImportActivity : ComponentActivity() {
                     assessment
                 )
                 return
+            } else if (inputGrantRestored) {
+                updateEndXrPrepStep(
+                    "input",
+                    "Старое согласие покрывает только чтение контроллеров. Для обратной телеметрии нужно отдельное подтверждение.",
+                    0xFFFFD28A.toInt()
+                )
             }
         }
 
         updateEndXrPrepStep(
             "input",
-            "Ожидает явного подтверждения read-only доступа к controller_state.",
+            "Ожидает подтверждения доступа к контроллерам и отдельного write-only разрешения для runtime_event.",
             0xFFFFD28A.toInt()
         )
         AlertDialog.Builder(this)
@@ -847,7 +854,7 @@ class ApkImportActivity : ComponentActivity() {
                     .onSuccess {
                         updateEndXrPrepStep(
                             "input",
-                            "Read-only доступ к controller_state выдан этому приложению.",
+                            "controller_state read-only и runtime_event write-only разрешены этому приложению.",
                             0xFF8FE0B5.toInt()
                         )
                         requestCameraThenLaunch(
