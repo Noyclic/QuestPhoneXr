@@ -1326,10 +1326,12 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrLocateSpace(
         return XR_ERROR_VALIDATION_FAILURE;
     }
     if (time <= 0) return XR_ERROR_TIME_INVALID;
+
+    const XrPosef identity{{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f}};
+    location->pose = identity;
+    location->locationFlags = 0;
+
     if (object->isActionSpace) {
-        location->pose.orientation = {0.0f, 0.0f, 0.0f, 1.0f};
-        location->pose.position = {0.0f, 0.0f, 0.0f};
-        location->locationFlags = 0;
         if (base->isActionSpace) return XR_SUCCESS;
         XrPosef estimatedPose{};
         if (!locateEstimatedHandPose(object, base, &estimatedPose)) return XR_SUCCESS;
@@ -1341,20 +1343,41 @@ XRAPI_ATTR XrResult XRAPI_CALL endxrLocateSpace(
             XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
         return XR_SUCCESS;
     }
-    if (base->isActionSpace) {
-        location->pose.orientation = {0.0f, 0.0f, 0.0f, 1.0f};
-        location->pose.position = {0.0f, 0.0f, 0.0f};
-        location->locationFlags = 0;
+    if (base->isActionSpace) return XR_SUCCESS;
+
+    if ((object->type != XR_REFERENCE_SPACE_TYPE_LOCAL &&
+         object->type != XR_REFERENCE_SPACE_TYPE_VIEW) ||
+        (base->type != XR_REFERENCE_SPACE_TYPE_LOCAL &&
+         base->type != XR_REFERENCE_SPACE_TYPE_VIEW)) {
+        return XR_ERROR_REFERENCE_SPACE_UNSUPPORTED;
+    }
+
+    // Two spaces of the same reference type share the same tracking frame;
+    // their relative transform is known even when the phone sensor is stale.
+    // Crossing VIEW <-> LOCAL requires a fresh phone orientation sample.
+    const bool sameReferenceType = object->type == base->type;
+    XrPosef viewInLocal = identity;
+    if (!sameReferenceType && !readFreshHeadOrientation(&viewInLocal.orientation)) {
         return XR_SUCCESS;
     }
-    XrQuaternionf orientation{};
-    const bool hasOrientation = readFreshHeadOrientation(&orientation);
-    location->pose.orientation = orientation;
-    location->pose.position = {0.0f, 0.0f, 0.0f};
-    location->locationFlags = hasOrientation
-        ? XR_SPACE_LOCATION_ORIENTATION_VALID_BIT |
-          XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT
-        : 0;
+
+    const auto spaceInLocal = [&](const XrSpace_T* value) {
+        const XrPosef& frame = value->type == XR_REFERENCE_SPACE_TYPE_VIEW
+            ? viewInLocal : identity;
+        return composePose(frame, value->poseInReferenceSpace);
+    };
+    const XrPosef objectInLocal = spaceInLocal(object);
+    const XrPosef baseInLocal = spaceInLocal(base);
+    location->pose = composePose(inversePose(baseInLocal), objectInLocal);
+    if (sameReferenceType) {
+        location->locationFlags =
+            XR_SPACE_LOCATION_POSITION_VALID_BIT |
+            XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+    } else {
+        location->locationFlags =
+            XR_SPACE_LOCATION_ORIENTATION_VALID_BIT |
+            XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT;
+    }
     return XR_SUCCESS;
 }
 
