@@ -70,6 +70,7 @@ class ApkImportActivity : ComponentActivity() {
     private data class RuntimeTelemetrySnapshot(
         val sequence: Long,
         val eventName: String,
+        val eventElapsedRealtimeNanos: Long,
         val callerPackage: String,
         val runtimePid: Int,
         val instanceId: String,
@@ -1243,6 +1244,7 @@ class ApkImportActivity : ComponentActivity() {
                 arrayOf(
                     "sequence",
                     "event_name",
+                    "event_elapsed_realtime_nanos",
                     "caller_package",
                     "runtime_pid",
                     "instance_id",
@@ -1263,17 +1265,18 @@ class ApkImportActivity : ComponentActivity() {
                 RuntimeTelemetrySnapshot(
                     sequence = cursor.getLong(0),
                     eventName = cursor.getString(1).orEmpty(),
-                    callerPackage = cursor.getString(2).orEmpty(),
-                    runtimePid = cursor.getInt(3),
-                    instanceId = cursor.getString(4).orEmpty(),
-                    sessionId = cursor.getString(5).orEmpty(),
-                    instanceCreated = cursor.getInt(6) != 0,
-                    sessionCreated = cursor.getInt(7) != 0,
-                    sessionRunning = cursor.getInt(8) != 0,
-                    instanceSeen = cursor.getInt(9) != 0,
-                    sessionSeen = cursor.getInt(10) != 0,
-                    sessionEverRunning = cursor.getInt(11) != 0,
-                    frameCount = cursor.getLong(12)
+                    eventElapsedRealtimeNanos = cursor.getLong(2),
+                    callerPackage = cursor.getString(3).orEmpty(),
+                    runtimePid = cursor.getInt(4),
+                    instanceId = cursor.getString(5).orEmpty(),
+                    sessionId = cursor.getString(6).orEmpty(),
+                    instanceCreated = cursor.getInt(7) != 0,
+                    sessionCreated = cursor.getInt(8) != 0,
+                    sessionRunning = cursor.getInt(9) != 0,
+                    instanceSeen = cursor.getInt(10) != 0,
+                    sessionSeen = cursor.getInt(11) != 0,
+                    sessionEverRunning = cursor.getInt(12) != 0,
+                    frameCount = cursor.getLong(13)
                 )
             }
         }.getOrNull()
@@ -1297,10 +1300,14 @@ class ApkImportActivity : ComponentActivity() {
         appendLine("Caller package: ${telemetry.callerPackage}")
         appendLine("Runtime process PID: ${telemetry.runtimePid}")
         appendLine("Last event: ${telemetry.eventName}")
+        val eventAgeMs = (
+            SystemClock.elapsedRealtimeNanos() - telemetry.eventElapsedRealtimeNanos
+        ).coerceAtLeast(0L) / 1_000_000L
+        appendLine("Age of last runtime event: ${eventAgeMs} ms")
         appendLine("Instance created during this launch: ${telemetry.instanceSeen}")
         appendLine("Session created during this launch: ${telemetry.sessionSeen}")
         appendLine("Session began during this launch: ${telemetry.sessionEverRunning}")
-        appendLine("Session currently active: ${telemetry.sessionRunning}")
+        appendLine("Session state at last event: ${if (telemetry.sessionRunning) "RUNNING" else "NOT RUNNING"}")
         appendLine("Successfully composited game projection frames: ${telemetry.frameCount}")
         appendLine("Runtime instance id: ${telemetry.instanceId}")
         appendLine("Runtime session id: ${telemetry.sessionId.ifBlank { "none" }}")
