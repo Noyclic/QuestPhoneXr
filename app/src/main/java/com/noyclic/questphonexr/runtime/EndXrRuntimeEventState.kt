@@ -90,6 +90,18 @@ internal data class EndXrRuntimeEventState(
                 }
             }
 
+            EndXrRuntimeEventContentProvider.EVENT_END_SESSION -> {
+                val session = nextSessionId ?: return null
+                if (instanceId != nextInstanceId || sessionId != session ||
+                    !sessionCreated
+                ) return null
+                if (!sessionRunning) {
+                    Reduction(this, changed = false)
+                } else {
+                    Reduction(copy(sessionRunning = false), changed = true)
+                }
+            }
+
             EndXrRuntimeEventContentProvider.EVENT_END_FRAME -> {
                 val session = nextSessionId ?: return null
                 if (instanceId != nextInstanceId || !instanceCreated ||
