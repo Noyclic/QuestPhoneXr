@@ -459,6 +459,14 @@ void testGlesSessionSwapchainAndFrameLifecycle() {
     expect(destroyHandTracker(leftHandTracker) == XR_SUCCESS &&
                destroyHandTracker(rightHandTracker) == XR_SUCCESS,
            "destroy both hand trackers before destroying the session");
+    XrReferenceSpaceCreateInfo viewReferenceInfo{};
+    viewReferenceInfo.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
+    viewReferenceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+    viewReferenceInfo.poseInReferenceSpace.orientation.w = 1.0f;
+    XrSpace viewSpace = XR_NULL_HANDLE;
+    expect(createReferenceSpace(session, &viewReferenceInfo, &viewSpace) == XR_SUCCESS,
+           "create a VIEW reference space for stereo view tests");
+
     auto locateViews = reinterpret_cast<PFN_xrLocateViews>(
         resolve(request.getInstanceProcAddr, instance, "xrLocateViews"));
     XrViewLocateInfo locateInfo{};
@@ -505,6 +513,10 @@ void testGlesSessionSwapchainAndFrameLifecycle() {
                     XR_VIEW_STATE_ORIENTATION_TRACKED_BIT)) == 0,
            "drop stale head-orientation flags after the native 500 ms timeout");
     endxrClearHeadOrientation();
+    auto destroyViewSpace = reinterpret_cast<PFN_xrDestroySpace>(
+        resolve(request.getInstanceProcAddr, instance, "xrDestroySpace"));
+    expect(destroyViewSpace(viewSpace) == XR_SUCCESS,
+           "destroy VIEW reference space used by stereo location tests");
 
     auto waitFrame = reinterpret_cast<PFN_xrWaitFrame>(
         resolve(request.getInstanceProcAddr, instance, "xrWaitFrame"));
