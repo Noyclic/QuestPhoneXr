@@ -111,7 +111,17 @@ class EndXrInputContentProvider : ContentProvider() {
     private fun enforceAuthorizedCaller(uri: Uri) {
         val appContext = requireNotNull(context)
         val callingUid = Binder.getCallingUid()
-        if (callingUid == Process.myUid()) return
+        if (callingUid == Process.myUid()) {
+            val attributedPackage = getCallingPackage()
+            if (attributedPackage == null || attributedPackage == appContext.packageName) {
+                val ownPackages = appContext.packageManager.getPackagesForUid(callingUid).orEmpty()
+                if (ownPackages.size <= 1 || ownPackages.all { it == appContext.packageName }) {
+                    return
+                }
+            }
+            if (attributedPackage == appContext.packageName) return
+            throw SecurityException("Input snapshot is private to the NextVRera package.")
+        }
 
         // The paired probe is signed with the app and receives the signature
         // permission. Other packages need both the exact URI grant and the
