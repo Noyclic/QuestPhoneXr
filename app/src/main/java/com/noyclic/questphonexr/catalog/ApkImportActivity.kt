@@ -326,19 +326,19 @@ class ApkImportActivity : ComponentActivity() {
 
     private fun launchInstalled(info: ImportedApkInfo) {
         val launchIntent = packageManager.getLaunchIntentForPackage(info.packageName)
-        val archive = File(filesDir, "imported-apks/\${info.fileName}")
+        val archive = File(filesDir, "imported-apks/${info.fileName}")
         val missing = info.requiredFeatures.filterNot { packageManager.hasSystemFeature(it) }.toSet()
         val assessment = ApkRuntimeCompatibility.inspect(
             info, archive, android.os.Build.VERSION.SDK_INT,
             android.os.Build.SUPPORTED_ABIS.toList(), missing
         )
         val brokerReport = runCatching { AndroidRuntimeBrokerProbe.inspect(this).toDisplayText() }
-            .getOrElse { "RuntimeBroker probe failed: \${it.message ?: it.javaClass.simpleName}" }
+            .getOrElse { "RuntimeBroker probe failed: ${it.message ?: it.javaClass.simpleName}" }
 
         if (launchIntent == null) {
             val report = buildLaunchReport(info, assessment, brokerReport, false, false, null,
                 "Установленный пакет не предоставил Android launcher Activity.")
-            statusView.text = "Не удалось найти экран запуска \${info.displayName}."
+            statusView.text = "Не удалось найти экран запуска ${info.displayName}."
             showLaunchDiagnostic("APK не удалось открыть", report)
             return
         }
@@ -349,7 +349,7 @@ class ApkImportActivity : ComponentActivity() {
             assessment.route == ApkLaunchRoute.LEGACY_OCULUS_MOBILE_CANDIDATE) {
             val report = buildLaunchReport(info, assessment, brokerReport, true, false, null,
                 "Запуск остановлен анализатором совместимости.")
-            statusView.text = assessment.details.joinToString("\\n").ifBlank {
+            statusView.text = assessment.details.joinToString("\n").ifBlank {
                 "Для этого APK пока нет совместимого маршрута запуска."
             }
             showLaunchDiagnostic("APK не запущен", report)
@@ -364,12 +364,12 @@ class ApkImportActivity : ComponentActivity() {
         } else false
 
         runCatching {
-            pendingLaunchTitle = "Отчёт после запуска: \${info.displayName}"
+            pendingLaunchTitle = "Отчёт после запуска: ${info.displayName}"
             pendingLaunchReport = buildLaunchReport(
                 info, assessment, brokerReport, true, inputIpcGranted, null,
                 "Android принял запрос startActivity."
             )
-            statusView.text = "Android принял запуск \${info.displayName}. OpenXR-перехват ожидает подтверждения."
+            statusView.text = "Android принял запуск ${info.displayName}. OpenXR-перехват ожидает подтверждения."
             startActivity(launchIntent)
         }.onFailure { error ->
             pendingLaunchReport = null
@@ -391,25 +391,25 @@ class ApkImportActivity : ComponentActivity() {
         launchResult: String
     ): String = buildString {
         appendLine("NextVRera / EndXR — Quest APK launch diagnostic")
-        appendLine("Time: \${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}")
-        appendLine("Device: \${android.os.Build.MODEL} · Android \${android.os.Build.VERSION.RELEASE} (API \${android.os.Build.VERSION.SDK_INT})")
+        appendLine("Time: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}")
+        appendLine("Device: ${android.os.Build.MODEL} · Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
         appendLine()
         appendLine("[APK]")
-        appendLine("Name: \${info.displayName}")
-        appendLine("Package: \${info.packageName}")
-        appendLine("Version: \${info.versionName} (\${info.versionCode})")
-        appendLine("Route: \${assessment.route.label}")
-        appendLine("Engine: \${assessment.engine}")
-        appendLine("XR markers: \${assessment.xrTechnologies.joinToString().ifBlank { "none detected" }}")
-        appendLine("ABI: \${assessment.audit.abiSummary}")
+        appendLine("Name: ${info.displayName}")
+        appendLine("Package: ${info.packageName}")
+        appendLine("Version: ${info.versionName} (${info.versionCode})")
+        appendLine("Route: ${assessment.route.label}")
+        appendLine("Engine: ${assessment.engine}")
+        appendLine("XR markers: ${assessment.xrTechnologies.joinToString().ifBlank { "none detected" }}")
+        appendLine("ABI: ${assessment.audit.abiSummary}")
         appendLine()
         appendLine("[ANDROID LAUNCH]")
-        appendLine("Launcher Activity: \${if (launcherActivityFound) "FOUND" else "NOT FOUND"}")
+        appendLine("Launcher Activity: ${if (launcherActivityFound) "FOUND" else "NOT FOUND"}")
         appendLine("Result: $launchResult")
-        appendLine("startActivity error: \${launchError ?: "none"}")
+        appendLine("startActivity error: ${launchError ?: "none"}")
         appendLine()
         appendLine("[ENDXR INPUT IPC]")
-        appendLine("Read-only input URI grant: \${if (inputIpcGranted) "GRANTED" else "NOT GRANTED / NOT REQUIRED"}")
+        appendLine("Read-only input URI grant: ${if (inputIpcGranted) "GRANTED" else "NOT GRANTED / NOT REQUIRED"}")
         appendLine("Input IPC permission does not select the OpenXR runtime and does not prove the game reads controller data.")
         appendLine()
         appendLine("[OPENXR CAPTURE]")
