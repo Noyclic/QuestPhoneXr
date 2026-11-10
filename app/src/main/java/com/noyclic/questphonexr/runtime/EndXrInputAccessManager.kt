@@ -15,9 +15,9 @@ import java.util.Locale
  * User-approved, package-scoped access for one app: read-only controller state
  * plus write-only runtime lifecycle telemetry.
  *
- * The provider keeps its signature permission as the default read permission.
- * Android's explicit URI grant is used only for the single controller_state URI.
- * An approval is bound to the target app's signing certificate, not just its
+ * The providers keep signature permissions as their defaults. Explicit URI
+ * grants are limited to controller_state (read) and runtime_event (write).
+ * Consent is bound to the target app's signing certificate, not just its
  * package name, so a different app cannot inherit an old approval.
  */
 data class EndXrInputClient internal constructor(
