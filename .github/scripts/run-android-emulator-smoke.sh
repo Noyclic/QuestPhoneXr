@@ -57,6 +57,26 @@ if [[ -s app/build/outputs/apk/debug/app-debug.apk ]]; then
       client_test_exit=1
     fi
 
+    telemetry_query_output="$(adb shell content query --uri content://com.noyclic.questphonexr.endxrtelemetry/runtime_event 2>&1 || true)"
+    printf '%s\n' "$telemetry_query_output" > ci-results/diagnostics/telemetry-unauthorized-query.txt
+    if grep -Eq 'Permission Denial|SecurityException|READ_INPUT_SNAPSHOT|NextVRera' <<< "$telemetry_query_output"; then
+      echo "PASS: untrusted adb shell cannot read EndXR runtime telemetry." | tee -a ci-results/diagnostics/ipc-access-control.txt
+    else
+      echo "FAIL: untrusted adb shell was not denied runtime telemetry read access."
+      cat ci-results/diagnostics/telemetry-unauthorized-query.txt
+      client_test_exit=1
+    fi
+
+    telemetry_insert_output="$(adb shell content insert --uri content://com.noyclic.questphonexr.endxrtelemetry/runtime_event --bind event:s:xr_create_instance --bind instance_id:s:shell-probe --bind frame_count:l:0 2>&1 || true)"
+    printf '%s\n' "$telemetry_insert_output" > ci-results/diagnostics/telemetry-unauthorized-insert.txt
+    if grep -Eq 'Permission Denial|SecurityException|WRITE_RUNTIME_EVENT|explicit EndXR telemetry write grant' <<< "$telemetry_insert_output"; then
+      echo "PASS: untrusted adb shell cannot write EndXR runtime telemetry." | tee -a ci-results/diagnostics/ipc-access-control.txt
+    else
+      echo "FAIL: untrusted adb shell was not denied runtime telemetry write access."
+      cat ci-results/diagnostics/telemetry-unauthorized-insert.txt
+      client_test_exit=1
+    fi
+
     if [[ "$client_test_exit" -eq 0 ]]; then
       gradle --no-daemon :runtime-client-probe:connectedDebugAndroidTest || client_test_exit=$?
     fi
