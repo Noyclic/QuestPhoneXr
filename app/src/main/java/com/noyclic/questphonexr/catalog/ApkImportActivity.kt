@@ -102,7 +102,7 @@ class ApkImportActivity : ComponentActivity() {
             mainHandler.post {
                 if (isFinishing || isDestroyed) return@post
                 val info = store.getAll().firstOrNull { it.id == pendingId } ?: return@post
-                val broker = runCatching { AndroidRuntimeBrokerProbe.inspect(this) }
+                val broker = runCatching { AndroidRuntimeBrokerProbe.inspect(this, runtimeAbiFor(info)) }
                     .getOrNull()
                 if (broker?.endXrIsLikelySelected == true) {
                     continueEndXrManagedLaunch(info, broker.toDisplayText())
@@ -400,7 +400,7 @@ class ApkImportActivity : ComponentActivity() {
             missing
         )
         val brokerReport = runCatching {
-            AndroidRuntimeBrokerProbe.inspect(this).toDisplayText()
+            AndroidRuntimeBrokerProbe.inspect(this, runtimeAbiFor(info)).toDisplayText()
         }.getOrElse {
             "RuntimeBroker probe failed: ${it.message ?: it.javaClass.simpleName}"
         }
@@ -500,7 +500,7 @@ class ApkImportActivity : ComponentActivity() {
             return
         }
 
-        val broker = runCatching { AndroidRuntimeBrokerProbe.inspect(this) }
+        val broker = runCatching { AndroidRuntimeBrokerProbe.inspect(this, runtimeAbiFor(info)) }
             .getOrElse {
                 Toast.makeText(this, "RuntimeBroker probe error: ${it.message ?: it.javaClass.simpleName}", Toast.LENGTH_LONG).show()
                 return
@@ -655,6 +655,28 @@ class ApkImportActivity : ComponentActivity() {
             .show()
     }
 
+    /**
+     * RuntimeBroker selection is ABI-specific. Prefer the installed package's
+     * extracted native-library directory (which reflects Android's chosen ABI),
+     * then fall back to the APK ABI list ordered by this device's preference.
+     */
+    private fun runtimeAbiFor(info: ImportedApkInfo): String? {
+        val supported = android.os.Build.SUPPORTED_ABIS.toList()
+        val nativeLibraryDir = runCatching {
+            packageManager.getApplicationInfo(info.packageName, 0).nativeLibraryDir
+        }.getOrNull().orEmpty()
+        val installedAbi = when {
+            nativeLibraryDir.contains("arm64", ignoreCase = true) -> "arm64-v8a"
+            nativeLibraryDir.contains("/arm", ignoreCase = true) -> "armeabi-v7a"
+            nativeLibraryDir.contains("x86_64", ignoreCase = true) -> "x86_64"
+            nativeLibraryDir.contains("/x86", ignoreCase = true) -> "x86"
+            else -> null
+        }
+        return installedAbi?.takeIf { it in supported }
+            ?: supported.firstOrNull { it in info.nativeAbis }
+            ?: supported.firstOrNull()
+    }
+
     private fun assessImportedApk(info: ImportedApkInfo): ApkRuntimeAssessment {
         val archive = File(filesDir, "imported-apks/${info.fileName}")
         val missing = info.requiredFeatures
@@ -801,7 +823,7 @@ class ApkImportActivity : ComponentActivity() {
             statusView.text = "APK удалён из NextVRera; запуск отменён."
             return
         }
-        val broker = runCatching { AndroidRuntimeBrokerProbe.inspect(this) }.getOrNull()
+        val broker = runCatching { AndroidRuntimeBrokerProbe.inspect(this, runtimeAbiFor(info)) }.getOrNull()
         if (broker?.endXrIsLikelySelected != true) {
             statusView.text = "RuntimeBroker больше не подтверждает EndXR. Игра не запущена; повтори preflight."
             Toast.makeText(this, statusView.text, Toast.LENGTH_LONG).show()
