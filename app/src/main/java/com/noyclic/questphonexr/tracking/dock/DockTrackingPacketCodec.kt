@@ -6,11 +6,14 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.EOFException
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.nio.charset.StandardCharsets
 
 enum class DockPacketDecodeFailure {
     EMPTY_PAYLOAD,
     PAYLOAD_TOO_LARGE,
+    INVALID_FRAME_LENGTH,
     INVALID_MAGIC,
     UNSUPPORTED_VERSION,
     INVALID_SESSION_LENGTH,
@@ -83,6 +86,44 @@ object DockTrackingPacketCodec {
             "Encoded Dock Station packet exceeds the maximum payload size."
         }
         return payload
+    }
+
+    /**
+     * Writes one length-prefixed frame for a byte-stream transport such as TLS/TCP.
+     * The caller owns the stream and is responsible for closing it.
+     */
+    fun writeFrame(output: OutputStream, packet: DockTrackingPacket) {
+        val payload = encode(packet)
+        val data = DataOutputStream(output)
+        data.writeInt(payload.size)
+        data.write(payload)
+        data.flush()
+    }
+
+    /**
+     * Reads exactly one length-prefixed frame without closing the caller's stream.
+     * Invalid lengths are rejected before allocating the payload buffer.
+     */
+    fun readFrame(input: InputStream): DockPacketDecodeResult {
+        val data = DataInputStream(input)
+        val length = try {
+            data.readInt()
+        } catch (_: IOException) {
+            return DockPacketDecodeResult.Rejected(DockPacketDecodeFailure.TRUNCATED_PAYLOAD)
+        }
+        if (length <= 0) {
+            return DockPacketDecodeResult.Rejected(DockPacketDecodeFailure.INVALID_FRAME_LENGTH)
+        }
+        if (length > MAX_PAYLOAD_BYTES) {
+            return DockPacketDecodeResult.Rejected(DockPacketDecodeFailure.PAYLOAD_TOO_LARGE)
+        }
+        val payload = ByteArray(length)
+        try {
+            data.readFully(payload)
+        } catch (_: IOException) {
+            return DockPacketDecodeResult.Rejected(DockPacketDecodeFailure.TRUNCATED_PAYLOAD)
+        }
+        return decode(payload)
     }
 
     fun decode(payload: ByteArray): DockPacketDecodeResult {
