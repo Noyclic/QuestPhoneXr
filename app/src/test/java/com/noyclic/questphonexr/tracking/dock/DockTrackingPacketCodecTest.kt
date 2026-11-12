@@ -131,7 +131,7 @@ class DockTrackingPacketCodecTest {
     fun decodeRejectsUnknownSideCode() {
         val encoded = DockTrackingPacketCodec.encode(packet(1L, 100L))
         // Header: magic/version/session/sequence/timestamp/geometry/rotation/mirror/count.
-        // The first hand starts immediately after the fixed 43-byte header plus session ID.
+        // The first hand starts after the length-prefixed session and fixed packet metadata.
         val handOffset = 4 + 4 + 1 + SESSION_ID.length + 8 + 8 + 4 + 4 + 4 + 1 + 1
         encoded[handOffset + 8] = 99
 
