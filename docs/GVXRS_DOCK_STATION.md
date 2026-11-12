@@ -42,7 +42,7 @@ Each packet contains:
 - A station-local track ID, handedness and confidence for each hand.
 - Exactly 21 MediaPipe-order landmarks per hand.
 
-The validator rejects unsupported versions, malformed dimensions, invalid rotations, duplicate track IDs, malformed landmark counts, non-finite/outlier coordinates and invalid confidence. The sequence guard rejects stale/out-of-order packets and packets from another paired session.
+The validator rejects unsupported versions, malformed dimensions, invalid rotations, duplicate track IDs, malformed landmark counts, non-finite/outlier coordinates and invalid confidence. The sequence guard rejects stale/out-of-order packets and packets from another paired session. `DockTrackingPacketCodec` serializes the contract into a bounded, big-endian binary payload and rejects malformed framing, oversized payloads, truncation, unknown enum values and trailing bytes. It is a wire codec, not encryption or authentication.
 
 **Clock rule:** `captureTimestampNanos` belongs to the sender's monotonic clock. It must not be directly subtracted from the Redmi's monotonic clock. The future connection handshake must estimate clock offset/drift; until then, receiver arrival time is used for local freshness decisions and the sender sequence is used only for ordering.
 
@@ -82,7 +82,7 @@ The existing single-camera tracker and its standalone mode must remain functiona
 - Include heartbeat, disconnect reason, protocol negotiation and reconnect behavior.
 - Never require continuous raw video transmission for normal operation.
 
-A transport choice (for example, a paired encrypted stream with latest-frame replacement) will be made when the Android connection layer is implemented. The packet model must remain independent of that choice.
+A transport choice (for example, a paired encrypted stream with latest-frame replacement) will be made when the Android connection layer is implemented. The packet model must remain independent of that choice. `DockLatestPacketBuffer` now implements the receiver-side one-slot policy: every accepted packet replaces the previous sample, reads return it only inside a configurable freshness window (250 ms by default), and expiry clears it so stale pinch/grip state cannot persist. Receiver-local elapsed-realtime is used for freshness; sender monotonic timestamps are never compared directly to the receiver clock.
 
 ## Low-end G37 profile
 
@@ -98,8 +98,8 @@ The receiving Redmi should also show per-source freshness and confidence so a sl
 
 ## Delivery stages
 
-1. **Packet contract and tests:** implemented in `tracking/dock/DockTrackingProtocol.kt`; no camera/network side effects.
-2. **Pairing and transport:** discovery, explicit pairing, authentication, encrypted local connection and bounded latest-state delivery.
+1. **Packet contract, codec and latest-state buffer:** implemented in `tracking/dock/`; JVM tests cover validation, binary round trips, malformed framing, replay rejection, packet replacement and freshness expiry. No camera/network side effects yet.
+2. **Pairing and transport:** discovery, explicit pairing, authentication, encrypted local connection, reconnect handling and bounded latest-state delivery over a real socket.
 3. **Dock Station camera mode:** role selection, camera permission, economical inference profile and diagnostics.
 4. **Calibration UI:** camera IDs, intrinsics/extrinsics, saved profile and calibration quality gates.
 5. **Hand fusion:** source association, confidence arbitration, short dropout handoff and stale-input neutralization.
@@ -108,4 +108,4 @@ The receiving Redmi should also show per-source freshness and confidence so a sl
 
 ## Current implementation boundary
 
-The packet data classes, structural validator, and per-session sequence guard are implemented and covered by JVM unit tests. Pairing, transport, camera streaming, calibration, fusion and a Dock Station UI are **not implemented yet**. The current change does not alter the MediaPipe path or OpenXR output.
+The packet data classes, structural validator, per-session sequence guard, bounded binary codec and one-slot freshness buffer are implemented with JVM unit tests. Pairing, encrypted transport, camera streaming, calibration, fusion and a Dock Station UI are **not implemented yet**. The current change does not alter the MediaPipe path or OpenXR output.
