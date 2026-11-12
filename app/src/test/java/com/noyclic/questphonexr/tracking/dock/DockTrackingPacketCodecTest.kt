@@ -1,6 +1,9 @@
 package com.noyclic.questphonexr.tracking.dock
 
 import org.junit.Assert.assertArrayEquals
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -26,6 +29,46 @@ class DockTrackingPacketCodecTest {
         assertTrue(decoded is DockPacketDecodeResult.Success)
         assertEquals(original, (decoded as DockPacketDecodeResult.Success).packet)
         assertTrue("landmark payload should remain compact", encoded.size < 700)
+    }
+
+    @Test
+    fun lengthPrefixedStreamFrameRoundTripsWithoutClosingTheStream() {
+        val original = packet(9L, 900L)
+        val output = ByteArrayOutputStream()
+
+        DockTrackingPacketCodec.writeFrame(output, original)
+        val decoded = DockTrackingPacketCodec.readFrame(ByteArrayInputStream(output.toByteArray()))
+
+        assertEquals(original, (decoded as DockPacketDecodeResult.Success).packet)
+    }
+
+    @Test
+    fun streamReaderRejectsInvalidLengthBeforeAllocating() {
+        val output = ByteArrayOutputStream()
+        DataOutputStream(output).writeInt(2_049)
+
+        val decoded = DockTrackingPacketCodec.readFrame(ByteArrayInputStream(output.toByteArray()))
+
+        assertEquals(
+            DockPacketDecodeFailure.PAYLOAD_TOO_LARGE,
+            (decoded as DockPacketDecodeResult.Rejected).reason
+        )
+    }
+
+    @Test
+    fun streamReaderRejectsTruncatedLengthPrefixedPayload() {
+        val output = ByteArrayOutputStream()
+        DataOutputStream(output).apply {
+            writeInt(8)
+            write(byteArrayOf(1, 2, 3))
+        }
+
+        val decoded = DockTrackingPacketCodec.readFrame(ByteArrayInputStream(output.toByteArray()))
+
+        assertEquals(
+            DockPacketDecodeFailure.TRUNCATED_PAYLOAD,
+            (decoded as DockPacketDecodeResult.Rejected).reason
+        )
     }
 
     @Test
@@ -95,6 +138,16 @@ class DockTrackingPacketCodecTest {
         assertEquals(
             DockPacketDecodeFailure.INVALID_HAND_SIDE,
             (DockTrackingPacketCodec.decode(encoded) as DockPacketDecodeResult.Rejected).reason
+        )
+    }
+
+    @Test
+    fun encodingIsDeterministicForTheSamePacket() {
+        val packet = packet(8L, 800L)
+
+        assertArrayEquals(
+            DockTrackingPacketCodec.encode(packet),
+            DockTrackingPacketCodec.encode(packet)
         )
     }
 
