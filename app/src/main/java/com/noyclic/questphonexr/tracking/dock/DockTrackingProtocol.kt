@@ -134,7 +134,7 @@ object DockTrackingPacketValidator {
         return null
     }
 
-    private fun isValidSessionId(value: String): Boolean =
+    internal fun isValidSessionId(value: String): Boolean =
         value.length in MIN_SESSION_ID_LENGTH..MAX_SESSION_ID_LENGTH &&
             value.all {
                 it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' || it == '_'
@@ -165,7 +165,9 @@ class DockTrackingSequenceGuard(
     private var lastCaptureTimestampNanos = -1L
 
     init {
-        require(expectedSessionId.length in 8..64) { "Invalid Dock Station session ID." }
+        require(DockTrackingPacketValidator.isValidSessionId(expectedSessionId)) {
+            "Invalid Dock Station session ID."
+        }
     }
 
     @Synchronized
