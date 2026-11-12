@@ -202,12 +202,6 @@ object DockTrackingPacketCodec {
         DockHandSide.UNKNOWN -> 2
     }
 
-    private fun DockHandSide.Companion.fromWireCode(code: Int): DockHandSide? = when (code) {
-        0 -> DockHandSide.LEFT
-        1 -> DockHandSide.RIGHT
-        2 -> DockHandSide.UNKNOWN
-        else -> null
-    }
 }
 
 /**
@@ -284,11 +278,4 @@ class DockLatestPacketBuffer(
         const val MAX_CONFIGURABLE_MAX_AGE_MS = 5_000L
         const val NANOS_PER_MILLISECOND = 1_000_000L
     }
-}
-
-private fun DockHandSide.Companion.fromWireCode(code: Int): DockHandSide? = when (code) {
-    0 -> DockHandSide.LEFT
-    1 -> DockHandSide.RIGHT
-    2 -> DockHandSide.UNKNOWN
-    else -> null
 }
