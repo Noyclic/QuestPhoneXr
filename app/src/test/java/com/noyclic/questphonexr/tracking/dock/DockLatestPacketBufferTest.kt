@@ -44,6 +44,21 @@ class DockLatestPacketBufferTest {
     }
 
     @Test
+    fun rejectsOutOfOrderReceiverClockSamplesWithoutConsumingSequence() {
+        val buffer = DockLatestPacketBuffer(SESSION_ID)
+        val first = packet(1L, 1_000L)
+        val second = packet(2L, 2_000L)
+
+        assertNull(buffer.offer(first, 20_000_000L))
+        assertEquals(
+            DockPacketRejection.INVALID_RECEIVE_TIMESTAMP,
+            buffer.offer(second, 19_000_000L)
+        )
+        assertNull(buffer.offer(second, 21_000_000L))
+        assertEquals(second, buffer.latestFresh(22_000_000L))
+    }
+
+    @Test
     fun rejectsBadReceiveTimestampAndDoesNotStorePacket() {
         val buffer = DockLatestPacketBuffer(SESSION_ID)
         val sample = packet(1L, 1_000L)
