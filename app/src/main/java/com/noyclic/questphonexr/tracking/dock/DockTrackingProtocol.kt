@@ -10,7 +10,16 @@ package com.noyclic.questphonexr.tracking.dock
 enum class DockHandSide {
     LEFT,
     RIGHT,
-    UNKNOWN
+    UNKNOWN;
+
+    companion object {
+        internal fun fromWireCode(code: Int): DockHandSide? = when (code) {
+            0 -> LEFT
+            1 -> RIGHT
+            2 -> UNKNOWN
+            else -> null
+        }
+    }
 }
 
 /** Normalized landmark in the station camera's upright image coordinate frame. */
@@ -62,6 +71,7 @@ enum class DockPacketRejection {
     INVALID_SESSION_ID,
     INVALID_SEQUENCE,
     INVALID_CAPTURE_TIMESTAMP,
+    INVALID_RECEIVE_TIMESTAMP,
     INVALID_FRAME_SIZE,
     INVALID_SENSOR_ROTATION,
     TOO_MANY_HANDS,
