@@ -137,6 +137,13 @@ class DockTrackingProtocolTest {
     }
 
     @Test
+    fun sequenceGuardRejectsMalformedExpectedSessionIdentifiers() {
+        val result = runCatching { DockTrackingSequenceGuard("invalid session") }
+
+        assertTrue(result.isFailure)
+    }
+
+    @Test
     fun resetStartsANewSequenceWindowForTheSamePairedSession() {
         val guard = DockTrackingSequenceGuard(SESSION_ID)
 
