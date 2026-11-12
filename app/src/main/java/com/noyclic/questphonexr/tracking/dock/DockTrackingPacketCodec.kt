@@ -262,6 +262,7 @@ class DockLatestPacketBuffer(
 
     private val sequenceGuard = DockTrackingSequenceGuard(expectedSessionId)
     private val maxAgeNanos: Long
+    private var lastReceiveElapsedRealtimeNanos = -1L
 
     @Volatile
     private var latest: ReceivedPacket? = null
@@ -279,12 +280,15 @@ class DockLatestPacketBuffer(
         packet: DockTrackingPacket,
         receivedAtElapsedRealtimeNanos: Long
     ): DockPacketRejection? {
-        if (receivedAtElapsedRealtimeNanos <= 0L) {
+        if (receivedAtElapsedRealtimeNanos <= 0L ||
+            receivedAtElapsedRealtimeNanos < lastReceiveElapsedRealtimeNanos
+        ) {
             return DockPacketRejection.INVALID_RECEIVE_TIMESTAMP
         }
         val rejection = sequenceGuard.accept(packet)
         if (rejection != null) return rejection
 
+        lastReceiveElapsedRealtimeNanos = receivedAtElapsedRealtimeNanos
         // Latest-state semantics: replace, never enqueue behind an older frame.
         latest = ReceivedPacket(packet, receivedAtElapsedRealtimeNanos)
         return null
