@@ -42,6 +42,10 @@ treated as a hand-landmark provider until it can emit the shared ordered hand-la
   <https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker>
 - **LiteRT 2.x + a custom hand model** is the planned second full hand provider. The model can remain in `.tflite` format; new Android inference work should target the `CompiledModel` API, which is Google's recommended modern runtime for CPU/GPU/NPU acceleration. We will benchmark each accelerator and fall back explicitly; device support is not assumed from the chipset name.
   <https://developers.google.com/edge/litert/android>
+- **First LiteRT model candidate — RTMPose-Hand-LiteRT.** It produces the 21 standard wrist/finger keypoints and is distributed under Apache-2.0. The published Android results report about 4 ms GPU inference on Pixel 8a for a 256×256 FP16 model (~28 MB), but the same page says the CPU XNNPACK path declined that graph. Its preprocessing is top-down: a centered single-hand crop is expected. Therefore EndXR still needs a reliable ROI/crop stage, and neither the Pixel timing nor GPU support can be assumed on Redmi Note 13 / Adreno 610.
+  <https://huggingface.co/litert-community/RTMPose-Hand-LiteRT>
+- **Small quantized model candidate — STMicro hand_landmarks.** The model card describes an INT8 TFLite model with RGB input and per-keypoint `(x,y,confidence)` output, under Apache-2.0. Published latency is from an STM32N6 NPU, not an Android phone; it is a candidate to inspect and benchmark, not an established fast Android option.
+  <https://huggingface.co/STMicroelectronics/hand_landmarks>
 - **ML Kit Pose Detection** is an auxiliary body/wrist source, not a direct replacement for articulated hand tracking. Its 33-point body skeleton includes hand points, but it does not provide the 21 finger-joint landmarks expected by the hand-frame contract. The API is currently beta and can change.
   <https://developers.google.com/ml-kit/vision/pose-detection>
 - **OpenCV** can assist with motion, foreground/ROI detection and reacquisition, but it is not a hand-landmark model by itself.
@@ -82,6 +86,12 @@ Android's NNAPI was deprecated in Android 15. New accelerator work should theref
 5. Add a device capability probe and benchmark runner for camera, CPU/GPU delegate, memory,
    thermals, sustained latency, and tracking-loss rate.
 6. Compare thermal load, battery use, occlusion recovery and false-loss behavior on real phones.
+
+Model acceptance must be based on the target device, not a benchmark from another SoC. For each
+candidate, record cold-start and warm inference latency (p50/p95), end-to-end camera-to-landmark
+latency, frame-loss rate, confidence stability during occlusion, RAM, thermal drift and battery
+cost. Test CPU and each supported accelerator separately. Do not make the new adapter active by
+default until its quality and sustained performance beat or complement the MediaPipe baseline.
 
 No alternative tracker is claimed to be operational until its adapter is registered as READY and
 tested on physical hardware.
