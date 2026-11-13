@@ -68,6 +68,10 @@ internal object EndXrTrackingInputBridge {
 
     fun clearFrames() = providerManager.clearFrames()
 
-    fun diagnosticSnapshot(): TrackingProviderManagerSnapshot =
-        providerManager.snapshot(SystemClock.uptimeMillis())
+    fun diagnosticSnapshot(): TrackingProviderManagerSnapshot {
+        // Android's mocked SystemClock throws in local JVM tests. Diagnostics must
+        // remain readable there, while production continues to use receiver uptime.
+        val nowUptimeMs = runCatching { SystemClock.uptimeMillis() }.getOrDefault(0L)
+        return providerManager.snapshot(nowUptimeMs)
+    }
 }
