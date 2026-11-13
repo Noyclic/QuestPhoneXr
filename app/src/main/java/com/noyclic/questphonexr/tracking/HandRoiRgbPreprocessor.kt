@@ -50,23 +50,31 @@ object HandRoiRgbPreprocessor {
                 val x0 = floor(sourceX).toInt().coerceIn(crop.leftPx, cropRight)
                 val x1 = (x0 + 1).coerceAtMost(cropRight)
                 val xWeight = (sourceX - x0).coerceIn(0f, 1f)
-                val pixels = sampleFourRotatedPixels(
-                    sourceArgb, rawDimensions.first, rawDimensions.second,
-                    x0, x1, y0, y1, rotation
+                val topLeft = argbAtRotated(
+                    sourceArgb, rawDimensions.first, rawDimensions.second, x0, y0, rotation
+                )
+                val topRight = argbAtRotated(
+                    sourceArgb, rawDimensions.first, rawDimensions.second, x1, y0, rotation
+                )
+                val bottomLeft = argbAtRotated(
+                    sourceArgb, rawDimensions.first, rawDimensions.second, x0, y1, rotation
+                )
+                val bottomRight = argbAtRotated(
+                    sourceArgb, rawDimensions.first, rawDimensions.second, x1, y1, rotation
                 )
                 destinationRgb[outputIndex++] = interpolateChannel(
-                    pixels[0] ushr 16 and 0xff, pixels[1] ushr 16 and 0xff,
-                    pixels[2] ushr 16 and 0xff, pixels[3] ushr 16 and 0xff,
+                    topLeft ushr 16 and 0xff, topRight ushr 16 and 0xff,
+                    bottomLeft ushr 16 and 0xff, bottomRight ushr 16 and 0xff,
                     xWeight, yWeight
                 )
                 destinationRgb[outputIndex++] = interpolateChannel(
-                    pixels[0] ushr 8 and 0xff, pixels[1] ushr 8 and 0xff,
-                    pixels[2] ushr 8 and 0xff, pixels[3] ushr 8 and 0xff,
+                    topLeft ushr 8 and 0xff, topRight ushr 8 and 0xff,
+                    bottomLeft ushr 8 and 0xff, bottomRight ushr 8 and 0xff,
                     xWeight, yWeight
                 )
                 destinationRgb[outputIndex++] = interpolateChannel(
-                    pixels[0] and 0xff, pixels[1] and 0xff,
-                    pixels[2] and 0xff, pixels[3] and 0xff,
+                    topLeft and 0xff, topRight and 0xff,
+                    bottomLeft and 0xff, bottomRight and 0xff,
                     xWeight, yWeight
                 )
             }
@@ -109,24 +117,32 @@ object HandRoiRgbPreprocessor {
                 val x0 = floor(sourceX).toInt().coerceIn(crop.leftPx, cropRight)
                 val x1 = (x0 + 1).coerceAtMost(cropRight)
                 val xWeight = (sourceX - x0).coerceIn(0f, 1f)
-                val pixels = sampleFourRotatedPixels(
-                    sourceArgb, rawDimensions.first, rawDimensions.second,
-                    x0, x1, y0, y1, rotation
+                val topLeft = argbAtRotated(
+                    sourceArgb, rawDimensions.first, rawDimensions.second, x0, y0, rotation
+                )
+                val topRight = argbAtRotated(
+                    sourceArgb, rawDimensions.first, rawDimensions.second, x1, y0, rotation
+                )
+                val bottomLeft = argbAtRotated(
+                    sourceArgb, rawDimensions.first, rawDimensions.second, x0, y1, rotation
+                )
+                val bottomRight = argbAtRotated(
+                    sourceArgb, rawDimensions.first, rawDimensions.second, x1, y1, rotation
                 )
                 val pixelIndex = outputY * outputSizePx + outputX
                 val red = interpolateChannel(
-                    pixels[0] ushr 16 and 0xff, pixels[1] ushr 16 and 0xff,
-                    pixels[2] ushr 16 and 0xff, pixels[3] ushr 16 and 0xff,
+                    topLeft ushr 16 and 0xff, topRight ushr 16 and 0xff,
+                    bottomLeft ushr 16 and 0xff, bottomRight ushr 16 and 0xff,
                     xWeight, yWeight
                 )
                 val green = interpolateChannel(
-                    pixels[0] ushr 8 and 0xff, pixels[1] ushr 8 and 0xff,
-                    pixels[2] ushr 8 and 0xff, pixels[3] ushr 8 and 0xff,
+                    topLeft ushr 8 and 0xff, topRight ushr 8 and 0xff,
+                    bottomLeft ushr 8 and 0xff, bottomRight ushr 8 and 0xff,
                     xWeight, yWeight
                 )
                 val blue = interpolateChannel(
-                    pixels[0] and 0xff, pixels[1] and 0xff,
-                    pixels[2] and 0xff, pixels[3] and 0xff,
+                    topLeft and 0xff, topRight and 0xff,
+                    bottomLeft and 0xff, bottomRight and 0xff,
                     xWeight, yWeight
                 )
                 destinationNchw[pixelIndex] = (red - RTMPOSE_MEAN_R) / RTMPOSE_STD_R
@@ -148,22 +164,6 @@ object HandRoiRgbPreprocessor {
             90, 270 -> crop.sourceHeightPx to crop.sourceWidthPx
             else -> error("Unsupported source rotation: $rotation")
         }
-
-    private fun sampleFourRotatedPixels(
-        sourceArgb: IntArray,
-        rawWidth: Int,
-        rawHeight: Int,
-        x0: Int,
-        x1: Int,
-        y0: Int,
-        y1: Int,
-        rotation: Int
-    ): IntArray = intArrayOf(
-        argbAtRotated(sourceArgb, rawWidth, rawHeight, x0, y0, rotation),
-        argbAtRotated(sourceArgb, rawWidth, rawHeight, x1, y0, rotation),
-        argbAtRotated(sourceArgb, rawWidth, rawHeight, x0, y1, rotation),
-        argbAtRotated(sourceArgb, rawWidth, rawHeight, x1, y1, rotation)
-    )
 
     private fun argbAtRotated(
         sourceArgb: IntArray,
