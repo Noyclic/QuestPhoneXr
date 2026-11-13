@@ -54,6 +54,12 @@ treated as a hand-landmark provider until it can emit the shared ordered hand-la
 Android's NNAPI was deprecated in Android 15. New accelerator work should therefore not depend on NNAPI as the long-term path; LiteRT's current Android guidance centers on `CompiledModel`.
 <https://developer.android.com/ndk/guides/neuralnetworks/migration-guide>
 
+## LiteRT output decoding
+
+The ST candidate's official hand_spe postprocessor expects four outputs: hand type, normalized landmarks, hand-presence probability, and image-space landmarks. EndXR therefore decodes them by semantic role, validates their shapes and finite values, rejects low-presence samples, maps crop-pixel coordinates back to the camera, and emits no world-space points because the model does not provide calibrated hand-local meters.
+
+The decoder is a model adapter contract only. It does not claim that the ST model binary has been downloaded, that its concrete tensor metadata has been verified on-device, or that LiteRT inference is active. Before wiring a runtime runner, inspect the model's actual tensor names, shapes, dtypes and quantization parameters; use semantic output mapping rather than relying on output-list ordering.
+
 ## Selection rules
 
 - AUTO considers only READY or EXPERIMENTAL providers that have submitted a fresh frame.
