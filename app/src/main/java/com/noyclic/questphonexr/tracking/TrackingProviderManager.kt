@@ -234,10 +234,17 @@ class TrackingProviderManager(
         }
         if (previousReceiveTime != null) {
             val intervalMs = receivedAtUptimeMs - previousReceiveTime
-            state.recentFrameIntervalsMs.addLast(intervalMs)
-            state.recentFrameIntervalsTotalMs += intervalMs
-            while (state.recentFrameIntervalsMs.size > FRAME_INTERVAL_WINDOW_SIZE) {
-                state.recentFrameIntervalsTotalMs -= state.recentFrameIntervalsMs.removeFirst()
+            if (intervalMs > staleAfterMs) {
+                // A camera pause or app resume starts a new cadence sample window.
+                // Do not let one long interruption penalize the provider for 30 more frames.
+                state.recentFrameIntervalsMs.clear()
+                state.recentFrameIntervalsTotalMs = 0L
+            } else {
+                state.recentFrameIntervalsMs.addLast(intervalMs)
+                state.recentFrameIntervalsTotalMs += intervalMs
+                while (state.recentFrameIntervalsMs.size > FRAME_INTERVAL_WINDOW_SIZE) {
+                    state.recentFrameIntervalsTotalMs -= state.recentFrameIntervalsMs.removeFirst()
+                }
             }
         }
         state.lastReceivedAtUptimeMs = receivedAtUptimeMs

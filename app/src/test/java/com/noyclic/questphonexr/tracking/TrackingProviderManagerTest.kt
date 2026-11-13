@@ -336,6 +336,71 @@ class TrackingProviderManagerTest {
     }
 
     @Test
+    fun cadenceWindowDropsOldSamplesWhenFull() {
+        val manager = TrackingProviderManager(staleAfterMs = 5_000L)
+        var receivedAt = 100L
+        for (index in 0..31) {
+            if (index == 1) receivedAt += 1_000L
+            else if (index > 1) receivedAt += 50L
+            assertNotNull(
+                manager.publishFrame(
+                    TrackingProviderId.MEDIAPIPE,
+                    HandTrackingFrame(timestampMs = 10L + index, hands = emptyList()),
+                    receivedAtUptimeMs = receivedAt
+                )
+            )
+        }
+
+        val health = manager.snapshot(receivedAt)
+            .healthByProvider.getValue(TrackingProviderId.MEDIAPIPE)
+        // The one old 1000 ms interval is outside the 30-sample window.
+        assertEquals(50f, health.averageFrameIntervalMs!!, 0.001f)
+    }
+
+    @Test
+    fun longCameraPauseResetsCadenceWindowOnResume() {
+        val manager = TrackingProviderManager(staleAfterMs = 300L)
+        manager.publishFrame(
+            TrackingProviderId.MEDIAPIPE,
+            HandTrackingFrame(timestampMs = 10L, hands = emptyList()),
+            receivedAtUptimeMs = 100L
+        )
+        manager.publishFrame(
+            TrackingProviderId.MEDIAPIPE,
+            HandTrackingFrame(timestampMs = 20L, hands = emptyList()),
+            receivedAtUptimeMs = 150L
+        )
+        assertEquals(
+            20f,
+            manager.snapshot(150L).healthByProvider
+                .getValue(TrackingProviderId.MEDIAPIPE).estimatedFramesPerSecond!!,
+            0.001f
+        )
+
+        manager.publishFrame(
+            TrackingProviderId.MEDIAPIPE,
+            HandTrackingFrame(timestampMs = 30L, hands = emptyList()),
+            receivedAtUptimeMs = 600L
+        )
+        val resumed = manager.snapshot(600L)
+            .healthByProvider.getValue(TrackingProviderId.MEDIAPIPE)
+        assertNull(resumed.averageFrameIntervalMs)
+        assertNull(resumed.estimatedFramesPerSecond)
+
+        manager.publishFrame(
+            TrackingProviderId.MEDIAPIPE,
+            HandTrackingFrame(timestampMs = 40L, hands = emptyList()),
+            receivedAtUptimeMs = 650L
+        )
+        assertEquals(
+            20f,
+            manager.snapshot(650L).healthByProvider
+                .getValue(TrackingProviderId.MEDIAPIPE).estimatedFramesPerSecond!!,
+            0.001f
+        )
+    }
+
+    @Test
     fun rejectsOutOfOrderReceiveTimeWithoutCorruptingCadence() {
         val manager = TrackingProviderManager()
         assertNotNull(
