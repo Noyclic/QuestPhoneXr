@@ -102,8 +102,7 @@ class RtmposeLiteRtRunner(
                     }
 
                     // Warm-up compiles the GPU graph before any camera frame is sent to it.
-                    val inputBuffer = inputBuffers.single()
-                    inputBuffer.writeFloat(inputScratch)
+                    inputBuffers.single().writeFloat(inputScratch)
                     val warmupStarted = SystemClock.elapsedRealtimeNanos()
                     compiledModel.run(inputBuffers, outputBuffers)
                     val warmupOutputs = outputBuffers.map { it.readFloat() }
@@ -120,7 +119,7 @@ class RtmposeLiteRtRunner(
                             RtmposeRuntimeInfo(
                                 modelFile = modelFile,
                                 accelerator = Accelerator.GPU.name,
-                                inputElementCount = inputBufferSize(),
+                                inputElementCount = INPUT_ELEMENT_COUNT,
                                 outputElementCounts = warmupOutputs.map { it.size },
                                 warmupLatencyMs = warmupLatencyMs
                             )
@@ -134,7 +133,7 @@ class RtmposeLiteRtRunner(
                 }
             }
         } catch (error: RejectedExecutionException) {
-            initializationStarted = false
+            initializationStarted.set(false)
             callback(Result.failure(error))
         }
     }
