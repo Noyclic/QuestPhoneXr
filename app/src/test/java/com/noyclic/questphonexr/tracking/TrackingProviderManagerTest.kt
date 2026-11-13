@@ -202,6 +202,60 @@ class TrackingProviderManagerTest {
     }
 
     @Test
+    fun automaticSelectionUsesHysteresisForNearEqualProviderScores() {
+        val manager = TrackingProviderManager()
+        manager.updateAvailability(
+            TrackingProviderId.TFLITE_CUSTOM,
+            TrackingProviderAvailability.READY
+        )
+        val mediaPipe = HandTrackingFrame(
+            timestampMs = 10L,
+            hands = emptyList(),
+            pipelineLatencyMs = 60L
+        )
+        assertEquals(
+            TrackingProviderId.MEDIAPIPE,
+            manager.publishFrame(
+                TrackingProviderId.MEDIAPIPE,
+                mediaPipe,
+                qualityScore = 0.5f,
+                receivedAtUptimeMs = 100L
+            )?.providerId
+        )
+
+        // A marginally better score should not make active input bounce between providers.
+        val nearTie = HandTrackingFrame(
+            timestampMs = 11L,
+            hands = emptyList(),
+            pipelineLatencyMs = 60L
+        )
+        assertNull(
+            manager.publishFrame(
+                TrackingProviderId.TFLITE_CUSTOM,
+                nearTie,
+                qualityScore = 0.52f,
+                receivedAtUptimeMs = 105L
+            )
+        )
+        assertEquals(TrackingProviderId.MEDIAPIPE, manager.snapshot(105L).activeProvider)
+
+        // A clear measured improvement exceeds the switch margin and takes over.
+        val better = HandTrackingFrame(
+            timestampMs = 12L,
+            hands = emptyList(),
+            pipelineLatencyMs = 10L
+        )
+        val switched = manager.publishFrame(
+            TrackingProviderId.TFLITE_CUSTOM,
+            better,
+            qualityScore = 0.9f,
+            receivedAtUptimeMs = 110L
+        )
+        assertEquals(TrackingProviderId.TFLITE_CUSTOM, switched?.providerId)
+        assertEquals(TrackingProviderId.TFLITE_CUSTOM, manager.snapshot(110L).activeProvider)
+    }
+
+    @Test
     fun providerHealthTracksAcceptedAndRejectedObservations() {
         val manager = TrackingProviderManager()
         val accepted = HandTrackingFrame(
