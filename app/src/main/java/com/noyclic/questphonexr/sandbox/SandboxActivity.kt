@@ -1615,7 +1615,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         val choices = arrayOf(
             "AUTO — выбирать по качеству и задержке",
             "MediaPipe — подключён",
-            "Custom TFLite — пока не подключён",
+            "LiteRT model — пока не подключён",
             "GVXRS Dock Station — пока не подключён"
         )
 
@@ -1639,7 +1639,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                     }
                     2 -> Toast.makeText(
                         this,
-                        "Адаптер TFLite ещё не подключён. MediaPipe остаётся доступным.",
+                        "Адаптер LiteRT ещё не подключён. MediaPipe остаётся доступным.",
                         Toast.LENGTH_LONG
                     ).show()
                     3 -> Toast.makeText(

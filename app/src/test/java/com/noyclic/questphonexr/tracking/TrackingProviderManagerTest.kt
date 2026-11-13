@@ -15,7 +15,7 @@ class TrackingProviderManagerTest {
         val states = manager.snapshot(100L).statusByProvider
 
         assertEquals(TrackingProviderAvailability.READY, states[TrackingProviderId.MEDIAPIPE])
-        assertEquals(TrackingProviderAvailability.PLANNED, states[TrackingProviderId.TFLITE_CUSTOM])
+        assertEquals(TrackingProviderAvailability.PLANNED, states[TrackingProviderId.LITERT_CUSTOM])
         assertEquals(TrackingProviderAvailability.PLANNED, states[TrackingProviderId.GVXRS_DOCK])
     }
 
@@ -42,10 +42,10 @@ class TrackingProviderManagerTest {
         val manager = TrackingProviderManager()
         val frame = HandTrackingFrame(timestampMs = 10L, hands = emptyList())
 
-        assertFalse(manager.selectProvider(TrackingProviderId.TFLITE_CUSTOM))
+        assertFalse(manager.selectProvider(TrackingProviderId.LITERT_CUSTOM))
         assertNull(
             manager.publishFrame(
-                TrackingProviderId.TFLITE_CUSTOM,
+                TrackingProviderId.LITERT_CUSTOM,
                 frame,
                 receivedAtUptimeMs = 100L
             )
@@ -57,21 +57,21 @@ class TrackingProviderManagerTest {
         val manager = TrackingProviderManager()
         assertTrue(
             manager.updateAvailability(
-                TrackingProviderId.TFLITE_CUSTOM,
+                TrackingProviderId.LITERT_CUSTOM,
                 TrackingProviderAvailability.EXPERIMENTAL
             )
         )
-        assertTrue(manager.selectProvider(TrackingProviderId.TFLITE_CUSTOM))
+        assertTrue(manager.selectProvider(TrackingProviderId.LITERT_CUSTOM))
 
         val frame = HandTrackingFrame(timestampMs = 20L, hands = emptyList())
         val routed = manager.publishFrame(
-            TrackingProviderId.TFLITE_CUSTOM,
+            TrackingProviderId.LITERT_CUSTOM,
             frame,
             qualityScore = 0.8f,
             receivedAtUptimeMs = 200L
         )
 
-        assertEquals(TrackingProviderId.TFLITE_CUSTOM, routed?.providerId)
+        assertEquals(TrackingProviderId.LITERT_CUSTOM, routed?.providerId)
         assertEquals(TrackingSelectionMode.MANUAL, manager.snapshot(200L).mode)
     }
 
@@ -79,10 +79,10 @@ class TrackingProviderManagerTest {
     fun manualModeDoesNotSilentlyFallBackToMediaPipe() {
         val manager = TrackingProviderManager()
         manager.updateAvailability(
-            TrackingProviderId.TFLITE_CUSTOM,
+            TrackingProviderId.LITERT_CUSTOM,
             TrackingProviderAvailability.READY
         )
-        assertTrue(manager.selectProvider(TrackingProviderId.TFLITE_CUSTOM))
+        assertTrue(manager.selectProvider(TrackingProviderId.LITERT_CUSTOM))
 
         val mediaPipeFrame = HandTrackingFrame(timestampMs = 10L, hands = emptyList())
         assertNull(
@@ -99,7 +99,7 @@ class TrackingProviderManagerTest {
     fun automaticModePrefersHigherQualityFreshProviderWhenPriorityIsClose() {
         val manager = TrackingProviderManager()
         manager.updateAvailability(
-            TrackingProviderId.TFLITE_CUSTOM,
+            TrackingProviderId.LITERT_CUSTOM,
             TrackingProviderAvailability.READY
         )
         manager.publishFrame(
@@ -110,14 +110,14 @@ class TrackingProviderManagerTest {
         )
         val tfliteFrame = HandTrackingFrame(timestampMs = 11L, hands = emptyList())
         val routed = manager.publishFrame(
-            TrackingProviderId.TFLITE_CUSTOM,
+            TrackingProviderId.LITERT_CUSTOM,
             tfliteFrame,
             qualityScore = 1f,
             receivedAtUptimeMs = 105L
         )
 
-        assertEquals(TrackingProviderId.TFLITE_CUSTOM, routed?.providerId)
-        assertEquals(TrackingProviderId.TFLITE_CUSTOM, manager.snapshot(105L).activeProvider)
+        assertEquals(TrackingProviderId.LITERT_CUSTOM, routed?.providerId)
+        assertEquals(TrackingProviderId.LITERT_CUSTOM, manager.snapshot(105L).activeProvider)
     }
 
     @Test
@@ -170,7 +170,7 @@ class TrackingProviderManagerTest {
     fun autoModePrefersLowerLatencyProviderWhenQualityIsComparable() {
         val manager = TrackingProviderManager()
         manager.updateAvailability(
-            TrackingProviderId.TFLITE_CUSTOM,
+            TrackingProviderId.LITERT_CUSTOM,
             TrackingProviderAvailability.READY
         )
         manager.publishFrame(
@@ -190,22 +190,22 @@ class TrackingProviderManagerTest {
             pipelineLatencyMs = 25L
         )
         val routed = manager.publishFrame(
-            TrackingProviderId.TFLITE_CUSTOM,
+            TrackingProviderId.LITERT_CUSTOM,
             fasterFrame,
             qualityScore = 0.9f,
             receivedAtUptimeMs = 105L
         )
 
-        assertEquals(TrackingProviderId.TFLITE_CUSTOM, routed?.providerId)
+        assertEquals(TrackingProviderId.LITERT_CUSTOM, routed?.providerId)
         assertEquals(25L, manager.snapshot(105L)
-            .healthByProvider[TrackingProviderId.TFLITE_CUSTOM]?.latestPipelineLatencyMs)
+            .healthByProvider[TrackingProviderId.LITERT_CUSTOM]?.latestPipelineLatencyMs)
     }
 
     @Test
     fun automaticSelectionUsesHysteresisForNearEqualProviderScores() {
         val manager = TrackingProviderManager()
         manager.updateAvailability(
-            TrackingProviderId.TFLITE_CUSTOM,
+            TrackingProviderId.LITERT_CUSTOM,
             TrackingProviderAvailability.READY
         )
         val mediaPipe = HandTrackingFrame(
@@ -231,7 +231,7 @@ class TrackingProviderManagerTest {
         )
         assertNull(
             manager.publishFrame(
-                TrackingProviderId.TFLITE_CUSTOM,
+                TrackingProviderId.LITERT_CUSTOM,
                 nearTie,
                 qualityScore = 0.52f,
                 receivedAtUptimeMs = 105L
@@ -246,13 +246,13 @@ class TrackingProviderManagerTest {
             pipelineLatencyMs = 10L
         )
         val switched = manager.publishFrame(
-            TrackingProviderId.TFLITE_CUSTOM,
+            TrackingProviderId.LITERT_CUSTOM,
             better,
             qualityScore = 0.9f,
             receivedAtUptimeMs = 110L
         )
-        assertEquals(TrackingProviderId.TFLITE_CUSTOM, switched?.providerId)
-        assertEquals(TrackingProviderId.TFLITE_CUSTOM, manager.snapshot(110L).activeProvider)
+        assertEquals(TrackingProviderId.LITERT_CUSTOM, switched?.providerId)
+        assertEquals(TrackingProviderId.LITERT_CUSTOM, manager.snapshot(110L).activeProvider)
     }
 
     @Test

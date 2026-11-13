@@ -8,7 +8,7 @@ package com.noyclic.questphonexr.tracking
  */
 enum class TrackingProviderId(val wireId: String) {
     MEDIAPIPE("mediapipe"),
-    TFLITE_CUSTOM("tflite_custom"),
+    LITERT_CUSTOM("litert_custom"),
     GVXRS_DOCK("gvxrs_dock")
 }
 
@@ -373,8 +373,8 @@ class TrackingProviderManager(
                 )
             ),
             TrackingProviderDescriptor(
-                id = TrackingProviderId.TFLITE_CUSTOM,
-                displayName = "Custom TFLite model",
+                id = TrackingProviderId.LITERT_CUSTOM,
+                displayName = "LiteRT 2.x custom hand-landmark model",
                 description = "Reserved adapter for device-specific hand models; not connected yet.",
                 availability = TrackingProviderAvailability.PLANNED,
                 autoPriority = 75,

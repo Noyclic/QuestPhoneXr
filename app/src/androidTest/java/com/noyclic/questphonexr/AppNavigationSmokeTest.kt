@@ -274,7 +274,7 @@ class AppNavigationSmokeTest {
         )
         assertTrue(
             "Custom TFLite is not clearly marked as unavailable",
-            device.hasObject(By.textContains("Custom TFLite — пока не подключён"))
+            device.hasObject(By.textContains("LiteRT model — пока не подключён"))
         )
         assertTrue(
             "GVXRS Dock is not clearly marked as unavailable",
