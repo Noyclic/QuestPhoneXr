@@ -262,6 +262,36 @@ class AppNavigationSmokeTest {
                 report.contains("gles_last_texture_allocation_error=")
         )
 
+        val trackingSourceButton = By.text("Источник трекинга · AUTO / ручной")
+        assertTrue(
+            "Tracking provider selector is missing from Sandbox settings",
+            device.wait(Until.hasObject(trackingSourceButton), 5_000)
+        )
+        device.findObject(trackingSourceButton).click()
+        assertTrue(
+            "Tracking provider status and health diagnostics are missing",
+            device.wait(Until.hasObject(By.textContains("Статистика источников:")), 2_000)
+        )
+        assertTrue(
+            "Custom TFLite is not clearly marked as unavailable",
+            device.hasObject(By.textContains("Custom TFLite — пока не подключён"))
+        )
+        assertTrue(
+            "GVXRS Dock is not clearly marked as unavailable",
+            device.hasObject(By.textContains("GVXRS Dock Station — пока не подключён"))
+        )
+        device.findObject(By.text("MediaPipe — подключён")).click()
+        assertTrue(
+            "Selecting MediaPipe did not close the provider selector",
+            device.wait(Until.gone(By.text("MediaPipe — подключён")), 2_000)
+        )
+        device.findObject(trackingSourceButton).click()
+        device.findObject(By.textContains("AUTO — выбирать по качеству и задержке")).click()
+        assertTrue(
+            "Returning to AUTO did not close the provider selector",
+            device.wait(Until.gone(By.textContains("AUTO — выбирать по качеству и задержке")), 2_000)
+        )
+
         assertTrue(
             "Settings panel toggle did not appear",
             device.wait(Until.hasObject(By.text("Скрыть настройки")), 5_000)
