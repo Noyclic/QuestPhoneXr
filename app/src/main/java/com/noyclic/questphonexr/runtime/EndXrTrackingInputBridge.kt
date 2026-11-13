@@ -46,15 +46,25 @@ internal object EndXrTrackingInputBridge {
         return true
     }
 
-    fun selectProvider(providerId: TrackingProviderId): Boolean =
-        providerManager.selectProvider(providerId)
+    fun selectProvider(providerId: TrackingProviderId): Boolean {
+        val selected = providerManager.selectProvider(providerId)
+        if (selected) EndXrInputSnapshotStore.clear()
+        return selected
+    }
 
-    fun setAutoMode() = providerManager.setAutoMode()
+    fun setAutoMode() {
+        providerManager.setAutoMode()
+        EndXrInputSnapshotStore.clear()
+    }
 
     fun updateProviderAvailability(
         providerId: TrackingProviderId,
         availability: TrackingProviderAvailability
-    ): Boolean = providerManager.updateAvailability(providerId, availability)
+    ): Boolean {
+        val updated = providerManager.updateAvailability(providerId, availability)
+        if (updated) EndXrInputSnapshotStore.clear()
+        return updated
+    }
 
     fun clearFrames() = providerManager.clearFrames()
 
