@@ -63,6 +63,7 @@ import com.noyclic.questphonexr.tracking.HandTrackingPreset
 import com.noyclic.questphonexr.tracking.HandTrackingDelegatePreference
 import com.noyclic.questphonexr.tracking.HandTrackingPresetStore
 import com.noyclic.questphonexr.tracking.RtmposeModelStore
+import com.noyclic.questphonexr.tracking.RtmposeLiteRtRunner
 import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
 import com.noyclic.questphonexr.input.XrTrackingUdpSender
 import com.noyclic.questphonexr.vr.ViewerProfile
@@ -108,6 +109,7 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
     private val cameraExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
     private var cameraProvider: ProcessCameraProvider? = null
     private var handTracker: HandLandmarkerController? = null
+    private var rtmposeLiteRtRunner: RtmposeLiteRtRunner? = null
     @Volatile private var handTrackingStartPending = false
     private var cameraStatusMessage = "Камера рук: запускается"
 
@@ -965,6 +967,15 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 )
             )
             addView(
+                controlButton("Проверить LiteRT GPU · после установки модели") {
+                    probeRtmposeGpu()
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+            addView(
                 controlButton("Профиль MediaPipe") { showHandTrackingPresetDialog() },
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -1767,6 +1778,58 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         }
     }
 
+    private fun probeRtmposeGpu() {
+        rtmposeLiteRtRunner?.close()
+        val runner = RtmposeLiteRtRunner(applicationContext)
+        rtmposeLiteRtRunner = runner
+        Toast.makeText(this, "Проверяем модель и компиляцию LiteRT GPU…", Toast.LENGTH_SHORT).show()
+
+        runner.initialize { result ->
+            runOnUiThread {
+                if (isFinishing || isDestroyed) {
+                    runner.close()
+                    return@runOnUiThread
+                }
+                result.fold(
+                    onSuccess = { info ->
+                        AlertDialog.Builder(this)
+                            .setTitle("LiteRT GPU готов")
+                            .setMessage(
+                                "Ускоритель: ${info.accelerator}\n" +
+                                    "Warm-up: ${info.warmupLatencyMs} мс\n" +
+                                    "Вход: ${info.inputElementCount} значений\n" +
+                                    "Выходы: ${info.outputElementCounts.joinToString()}\n\n" +
+                                    "Это проверка загрузки и прогрева модели. Реальные landmarks ещё " +
+                                    "не подключены к камере и AUTO; MediaPipe остаётся активным."
+                            )
+                            .setNegativeButton("Закрыть", null)
+                            .setPositiveButton("Освободить GPU") { _, _ ->
+                                runner.close()
+                                if (rtmposeLiteRtRunner === runner) {
+                                    rtmposeLiteRtRunner = null
+                                }
+                            }
+                            .show()
+                    },
+                    onFailure = { error ->
+                        runner.close()
+                        if (rtmposeLiteRtRunner === runner) {
+                            rtmposeLiteRtRunner = null
+                        }
+                        AlertDialog.Builder(this)
+                            .setTitle("LiteRT GPU недоступен")
+                            .setMessage(
+                                (error.message ?: error.javaClass.simpleName) +
+                                    "\n\nMediaPipe не затронут и продолжает работать."
+                            )
+                            .setPositiveButton("Закрыть", null)
+                            .show()
+                    }
+                )
+            }
+        }
+    }
+
     private fun showHandTrackingDelegateDialog() {
         val preferences = HandTrackingDelegatePreference.entries.toTypedArray()
         var selectedIndex = preferences.indexOf(handTrackingDelegatePreference).coerceAtLeast(0)
@@ -2554,6 +2617,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         if (::browserPanel.isInitialized) browserPanel.destroyBrowser()
         trackingSender?.close()
         trackingSender = null
+        rtmposeLiteRtRunner?.close()
+        rtmposeLiteRtRunner = null
         if (!EndXrHandTrackingService.isRunning()) {
             cameraProvider?.unbindAll()
             handTracker?.close()
