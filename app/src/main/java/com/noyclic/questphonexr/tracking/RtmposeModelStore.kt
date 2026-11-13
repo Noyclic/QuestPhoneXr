@@ -24,7 +24,7 @@ object RtmposeModelStore {
     const val EXPECTED_SHA256 =
         "8b48a941de7b6f5ac61b43bb68b18f253bc651e0bcbc89a6d11bb5a5f9288160"
     const val MODEL_URL =
-        "https://huggingface.co/litert-community/RTMPose-Hand-LiteRT/resolve/main/rtmhand_fp16.tflite"
+        "https://huggingface.co/litert-community/RTMPose-Hand-LiteRT/resolve/377801fa47c9ffa77298f26128479ec21d9d9527/rtmhand_fp16.tflite"
 
     fun installedFile(context: Context): File =
         File(File(context.noBackupFilesDir, MODEL_DIRECTORY), MODEL_FILE_NAME)

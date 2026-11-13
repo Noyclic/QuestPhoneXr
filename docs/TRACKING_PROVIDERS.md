@@ -59,10 +59,10 @@ Android's NNAPI was deprecated in Android 15. New accelerator work should theref
 The selected artifact is RTMPose-Hand-LiteRT, pinned by byte size and SHA-256. It is downloaded only on explicit request into the app's private no-backup directory, written to a temporary file, verified, then atomically renamed. A failed or interrupted transfer never replaces an existing verified model.
 
 The isolated Google Play services LiteRT runner:
-- requests GPU support during LiteRT environment initialization;
-- refuses to initialize if the GPU accelerator is not available;
+- requests GPU support with the Java `LiteRtInitializationOptions.builder()` API for Play services 17.0.0;
+- verifies GPU compatibility by attempting to compile the GPU-only model, without calling `Environment.getAvailableAccelerators()` (unsafe with some older Play services runtime modules);
+- warms up the graph and records 30 inference-only samples; the Sandbox reports p50/p95 including output readback, not camera-to-hand latency or application FPS;
 - creates the CompiledModel and reusable TensorBuffers once on one dedicated thread;
-- performs a warm-up run before accepting camera frames;
 - uses a single reusable NCHW input scratch buffer with one-frame-in-flight leasing;
 - includes output readback in inference latency because GPU execution is asynchronous;
 - closes input/output buffers before the model and environment.

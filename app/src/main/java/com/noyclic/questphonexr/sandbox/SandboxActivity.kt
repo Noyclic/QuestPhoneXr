@@ -1782,27 +1782,71 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
         rtmposeLiteRtRunner?.close()
         val runner = RtmposeLiteRtRunner(applicationContext)
         rtmposeLiteRtRunner = runner
-        Toast.makeText(this, "Проверяем модель и компиляцию LiteRT GPU…", Toast.LENGTH_SHORT).show()
+
+        val loadingContent = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(20), dp(16), dp(20), dp(16))
+            addView(
+                android.widget.ProgressBar(this@SandboxActivity),
+                LinearLayout.LayoutParams(dp(36), dp(36))
+            )
+            addView(
+                TextView(this@SandboxActivity).apply {
+                    text = "Инициализируем Play services LiteRT и компилируем GPU-граф. " +
+                        "Первый запуск может занять время; MediaPipe продолжает работать."
+                    textSize = 14f
+                    setPadding(dp(16), 0, 0, 0)
+                },
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            )
+        }
+        val loadingDialog = AlertDialog.Builder(this)
+            .setTitle("Проверка LiteRT GPU")
+            .setView(loadingContent)
+            .setCancelable(false)
+            .setNegativeButton("Отмена") { _, _ ->
+                if (rtmposeLiteRtRunner === runner) {
+                    rtmposeLiteRtRunner = null
+                }
+                runner.close()
+            }
+            .create()
+        loadingDialog.show()
 
         runner.initialize { result ->
             runOnUiThread {
-                if (isFinishing || isDestroyed) {
+                loadingDialog.dismiss()
+                if (rtmposeLiteRtRunner !== runner || isFinishing || isDestroyed) {
                     runner.close()
                     return@runOnUiThread
                 }
                 result.fold(
                     onSuccess = { info ->
+                        val benchmark = info.benchmark
+                        val benchmarkText = String.format(
+                            Locale.US,
+                            "GPU inference p50: %.2f мс\\n" +
+                                "p95: %.2f мс\\n" +
+                                "Потолок одиночных crop-инференсов: %.1f/с",
+                            benchmark.p50Milliseconds,
+                            benchmark.p95Milliseconds,
+                            benchmark.estimatedSingleCropInferencesPerSecond
+                        )
                         AlertDialog.Builder(this)
                             .setTitle("LiteRT GPU готов")
                             .setMessage(
-                                "Ускоритель: ${info.accelerator}\n" +
-                                    "Warm-up: ${info.warmupLatencyMs} мс\n" +
-                                    "Вход: ${info.inputElementCount} значений\n" +
-                                    "Выходы: ${info.outputElementCounts.joinToString()}\n\n" +
-                                    "Это проверка загрузки и прогрева модели. Реальные landmarks ещё " +
-                                    "не подключены к камере и AUTO; MediaPipe остаётся активным."
+                                "Ускоритель: ${info.accelerator}\\n" +
+                                    "Warm-up: ${info.warmupLatencyMs} мс\\n" +
+                                    "Вход: ${info.inputElementCount} значений\\n" +
+                                    "Выходы: ${info.outputElementCounts.joinToString()}\\n" +
+                                    "Замер: ${benchmark.sampleCount} прогонов\\n" +
+                                    benchmarkText +
+                                    "\\n\\nЭто измерение одной модели без CameraX, ROI и второго crop. " +
+                                    "Оно не равно FPS приложения. Реальные landmarks ещё не подключены " +
+                                    "к камере и AUTO; MediaPipe остаётся активным."
                             )
-                            .setNegativeButton("Закрыть", null)
+                            .setNegativeButton("Оставить загруженным", null)
                             .setPositiveButton("Освободить GPU") { _, _ ->
                                 runner.close()
                                 if (rtmposeLiteRtRunner === runner) {
@@ -1820,7 +1864,8 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                             .setTitle("LiteRT GPU недоступен")
                             .setMessage(
                                 (error.message ?: error.javaClass.simpleName) +
-                                    "\n\nMediaPipe не затронут и продолжает работать."
+                                    "\\n\\nЕсли Play services только загружает GPU-модуль, " +
+                                    "перезапусти приложение и повтори проверку. MediaPipe не затронут."
                             )
                             .setPositiveButton("Закрыть", null)
                             .show()

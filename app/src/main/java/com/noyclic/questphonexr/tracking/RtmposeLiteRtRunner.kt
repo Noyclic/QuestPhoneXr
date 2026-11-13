@@ -20,7 +20,8 @@ data class RtmposeRuntimeInfo(
     val accelerator: String,
     val inputElementCount: Int,
     val outputElementCounts: List<Int>,
-    val warmupLatencyMs: Long
+    val warmupLatencyMs: Long,
+    val benchmark: RtmposeInferenceBenchmarkSummary
 )
 
 data class RtmposeInferenceResult(
@@ -88,6 +89,7 @@ class RtmposeLiteRtRunner(
                         .build()
                     val createdEnvironment = Tasks.await(LiteRt.initialize(appContext, options))
                     environment = createdEnvironment
+                    check(!closed.get()) { "RTMPose initialization was cancelled." }
 
                     val compiledModel = CompiledModel.create(
                         modelFile.absolutePath,
@@ -117,6 +119,29 @@ class RtmposeLiteRtRunner(
                     check(warmupOutputs.all { it.size == OUTPUT_ELEMENT_COUNT }) {
                         "RTMPose output tensors do not match [1,21,512]."
                     }
+
+                    // Run a short isolated benchmark after warm-up. Reading both outputs
+                    // synchronizes the asynchronous GPU queue; report inference-only timing,
+                    // not camera FPS or end-to-end hand tracking performance.
+                    val benchmarkSamplesNanos = LongArray(BENCHMARK_ITERATIONS)
+                    repeat(BENCHMARK_ITERATIONS) { index ->
+                        check(!closed.get()) { "RTMPose initialization was cancelled." }
+                        val sampleStartedNanos = SystemClock.elapsedRealtimeNanos()
+                        compiledModel.run(inputBuffers, outputBuffers)
+                        val simccX = outputBuffers[SIMCC_X_OUTPUT_INDEX].readFloat()
+                        val simccY = outputBuffers[SIMCC_Y_OUTPUT_INDEX].readFloat()
+                        check(simccX.size == OUTPUT_ELEMENT_COUNT &&
+                            simccY.size == OUTPUT_ELEMENT_COUNT
+                        ) { "RTMPose output tensor length changed during benchmark." }
+                        benchmarkSamplesNanos[index] =
+                            (SystemClock.elapsedRealtimeNanos() - sampleStartedNanos)
+                                .coerceAtLeast(1L)
+                    }
+                    val benchmark = RtmposeInferenceBenchmarkSummary.fromSamplesNanos(
+                        benchmarkSamplesNanos
+                    )
+                    check(!closed.get()) { "RTMPose initialization was cancelled." }
+
                     ready = true
                     callback(
                         Result.success(
@@ -125,7 +150,8 @@ class RtmposeLiteRtRunner(
                                 accelerator = Accelerator.GPU.name,
                                 inputElementCount = INPUT_ELEMENT_COUNT,
                                 outputElementCounts = warmupOutputs.map { it.size },
-                                warmupLatencyMs = warmupLatencyMs
+                                warmupLatencyMs = warmupLatencyMs,
+                                benchmark = benchmark
                             )
                         )
                     )
@@ -258,6 +284,7 @@ class RtmposeLiteRtRunner(
         const val EXPECTED_OUTPUT_COUNT = 2
         const val SIMCC_X_OUTPUT_INDEX = 0
         const val SIMCC_Y_OUTPUT_INDEX = 1
+        const val BENCHMARK_ITERATIONS = 30
         private const val NANOS_PER_MILLISECOND = 1_000_000L
     }
 }
