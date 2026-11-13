@@ -62,6 +62,7 @@ import com.noyclic.questphonexr.tracking.HandTrackingMetricsSnapshot
 import com.noyclic.questphonexr.tracking.HandTrackingPreset
 import com.noyclic.questphonexr.tracking.HandTrackingDelegatePreference
 import com.noyclic.questphonexr.tracking.HandTrackingPresetStore
+import com.noyclic.questphonexr.tracking.RtmposeModelStore
 import com.noyclic.questphonexr.input.PhysicalControllerSnapshot
 import com.noyclic.questphonexr.input.XrTrackingUdpSender
 import com.noyclic.questphonexr.vr.ViewerProfile
@@ -955,6 +956,15 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 )
             )
             addView(
+                controlButton("Установить LiteRT-модель · 27.8 МБ") {
+                    showRtmposeModelInstallDialog()
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+            addView(
                 controlButton("Профиль MediaPipe") { showHandTrackingPresetDialog() },
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -1654,6 +1664,107 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             }
             .setNegativeButton("Закрыть", null)
             .show()
+    }
+
+    private fun showRtmposeModelInstallDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Установка модели RTMPose-Hand")
+            .setMessage(
+                "Загрузка: около 27.8 МБ. Файл будет сохранён в приватном хранилище " +
+                    "и проверен по SHA-256. Это только установка модели: LiteRT пока не " +
+                    "подменяет MediaPipe и не включается в AUTO. Для инференса ещё нужна " +
+                    "проверка GPU на этом устройстве."
+            )
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Скачать") { _, _ ->
+                startRtmposeModelDownload()
+            }
+            .show()
+    }
+
+    private fun startRtmposeModelDownload() {
+        val progressText = TextView(this).apply {
+            text = "Подключаемся к Hugging Face…"
+            textSize = 14f
+            setPadding(dp(16), dp(12), dp(16), dp(8))
+        }
+        val progressBar = android.widget.ProgressBar(
+            this,
+            null,
+            android.R.attr.progressBarStyleHorizontal
+        ).apply {
+            max = 100
+            progress = 0
+            setPadding(dp(16), dp(8), dp(16), dp(16))
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(progressText)
+            addView(
+                progressBar,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(32)
+                )
+            )
+        }
+        val progressDialog = AlertDialog.Builder(this)
+            .setTitle("Загрузка LiteRT-модели")
+            .setView(content)
+            .setCancelable(false)
+            .create()
+        progressDialog.show()
+
+        val mainHandler = Handler(Looper.getMainLooper())
+        Thread({
+            try {
+                val installedFile = RtmposeModelStore.download(applicationContext) { downloaded, total ->
+                    val percent = if (total > 0L) {
+                        ((downloaded * 100L) / total).toInt().coerceIn(0, 100)
+                    } else {
+                        0
+                    }
+                    mainHandler.post {
+                        if (!isFinishing && !isDestroyed) {
+                            progressBar.progress = percent
+                            progressText.text = String.format(
+                                Locale.US,
+                                "%.1f / %.1f МБ · %d%%",
+                                downloaded / (1024f * 1024f),
+                                total / (1024f * 1024f),
+                                percent
+                            )
+                        }
+                    }
+                }
+                mainHandler.post {
+                    if (!isFinishing && !isDestroyed) {
+                        progressDialog.dismiss()
+                        Toast.makeText(
+                            this,
+                            "Модель проверена и установлена. MediaPipe по-прежнему активен.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        Log.i("QuestPhoneXR.RTMPose", "Verified model installed: ${installedFile.absolutePath}")
+                    }
+                }
+            } catch (error: Exception) {
+                mainHandler.post {
+                    if (!isFinishing && !isDestroyed) {
+                        progressDialog.dismiss()
+                        AlertDialog.Builder(this)
+                            .setTitle("Не удалось установить модель")
+                            .setMessage(error.message ?: error.javaClass.simpleName)
+                            .setPositiveButton("Закрыть", null)
+                            .show()
+                    }
+                    Log.e("QuestPhoneXR.RTMPose", "Model download or verification failed", error)
+                }
+            }
+        }, "EndXR-RTMPose-Download").apply {
+            isDaemon = true
+            start()
+        }
     }
 
     private fun showHandTrackingDelegateDialog() {
