@@ -7,7 +7,7 @@ import com.google.ai.edge.litert.CompiledModel
 import com.google.ai.edge.litert.Environment
 import com.google.ai.edge.litert.TensorBuffer
 import com.google.android.gms.litert.LiteRt
-import com.google.android.gms.litert.LiteRtDsl.initializationOptions
+import com.google.android.gms.litert.client.LiteRtInitializationOptions
 import com.google.android.gms.tasks.Tasks
 import java.io.Closeable
 import java.io.File
@@ -78,12 +78,16 @@ class RtmposeLiteRtRunner(
                         "Verified RTMPose model file is missing. Download it explicitly first."
                     }
 
-                    val options = initializationOptions { setEnableGpu(true) }
+                    // Use the Java builder form: LiteRT Play services 17.0.0 documents
+                    // the Kotlin DSL as unsafe for this release. Initialization may succeed
+                    // even when the GPU module is absent, so GPU availability is proven by
+                    // compiling the GPU-only model below rather than calling Environment
+                    // introspection APIs (which can SIGBUS on older Play services modules).
+                    val options = LiteRtInitializationOptions.builder()
+                        .setEnableGpu(true)
+                        .build()
                     val createdEnvironment = Tasks.await(LiteRt.initialize(appContext, options))
                     environment = createdEnvironment
-                    check(createdEnvironment.getAvailableAccelerators().contains(Accelerator.GPU)) {
-                        "LiteRT GPU accelerator is not available on this device."
-                    }
 
                     val compiledModel = CompiledModel.create(
                         modelFile.absolutePath,
