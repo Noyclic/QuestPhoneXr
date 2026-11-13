@@ -96,7 +96,7 @@ class TrackingProviderManagerTest {
     }
 
     @Test
-    fun automaticModePrefersHigherPriorityFreshProvider() {
+    fun automaticModePrefersHigherQualityFreshProviderWhenPriorityIsClose() {
         val manager = TrackingProviderManager()
         manager.updateAvailability(
             TrackingProviderId.TFLITE_CUSTOM,
@@ -105,14 +105,14 @@ class TrackingProviderManagerTest {
         manager.publishFrame(
             TrackingProviderId.MEDIAPIPE,
             HandTrackingFrame(timestampMs = 10L, hands = emptyList()),
-            qualityScore = 1f,
+            qualityScore = 0.2f,
             receivedAtUptimeMs = 100L
         )
         val tfliteFrame = HandTrackingFrame(timestampMs = 11L, hands = emptyList())
         val routed = manager.publishFrame(
             TrackingProviderId.TFLITE_CUSTOM,
             tfliteFrame,
-            qualityScore = 0.5f,
+            qualityScore = 1f,
             receivedAtUptimeMs = 105L
         )
 
