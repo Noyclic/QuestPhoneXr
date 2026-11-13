@@ -54,20 +54,20 @@ treated as a hand-landmark provider until it can emit the shared ordered hand-la
 Android's NNAPI was deprecated in Android 15. New accelerator work should therefore not depend on NNAPI as the long-term path; LiteRT's current Android guidance centers on `CompiledModel`.
 <https://developer.android.com/ndk/guides/neuralnetworks/migration-guide>
 
-## LiteRT output decoding
+## LiteRT model installation and runtime
 
-**Primary candidate: RTMPose-Hand-LiteRT.** Its published contract is:
-- Input: `[1,3,256,256]`, RGB, NCHW, ImageNet mean/std normalization.
-- Outputs: `simcc_x[1,21,512]` and `simcc_y[1,21,512]`; each keypoint coordinate is `argmax(bin) / 2`.
-- It predicts one centered hand; it does not expose a hand-presence score or handedness output.
-- The model card reports 28 MB FP16 and about 4 ms GPU inference on Pixel 8a. It also reports that CPU XNNPACK declined the graph. Those results do not predict performance or GPU compatibility on Redmi Note 13 / Adreno 610.
-- The model is Apache-2.0.
+The selected artifact is RTMPose-Hand-LiteRT, pinned by byte size and SHA-256. It is downloaded only on explicit request into the app's private no-backup directory, written to a temporary file, verified, then atomically renamed. A failed or interrupted transfer never replaces an existing verified model.
 
-EndXR now has a reusable square ROI crop, a caller-buffer RGB preprocessor, an RTMPose ImageNet-normalized NCHW path, and a SimCC decoder. The decoder requires an upstream ROI/presence confidence before publishing a frame and labels handedness as UNKNOWN; it does not mistake a confident argmax for proof that a hand is present. This makes the model a top-down landmark refiner, not a standalone full-frame hand detector.
+The isolated Google Play services LiteRT runner:
+- requests GPU support during LiteRT environment initialization;
+- refuses to initialize if the GPU accelerator is not available;
+- creates the CompiledModel and reusable TensorBuffers once on one dedicated thread;
+- performs a warm-up run before accepting camera frames;
+- uses a single reusable NCHW input scratch buffer with one-frame-in-flight leasing;
+- includes output readback in inference latency because GPU execution is asynchronous;
+- closes input/output buffers before the model and environment.
 
-**Secondary candidate: ST `hand_spe`.** ST's reference postprocessor handles four outputs (hand type, normalized landmarks, presence probability, image-space landmarks), while the model card summarizes the output as a single `[1,Kx3]` tensor. These descriptions conflict, and the actual model file metadata has not yet been verified. The separate ST decoder in EndXR is only an adapter contract for the four-output reference pipeline; do not bind it to a downloaded model until its actual tensor names, shapes, dtypes and quantization are inspected.
-
-The model runners are not active yet. No model binary is bundled, no LiteRT dependency has been added, and no device inference has been claimed. The next step is to validate the selected model artifact and its exact tensor signature, then add a background-thread `CompiledModel` runner with a GPU capability probe and a CPU/MediaPipe fallback. LiteRT resources and tensor buffers must be created once and reused rather than rebuilt for every camera frame.
+The runner is not registered as READY and does not modify AUTO selection. The model predicts one crop only and has no presence or handedness outputs; a separate detector/track source must supply the ROI and confidence. If GPU compilation fails, MediaPipe remains active. We intentionally do not fall back to CPU for this FP16 graph because its published CPU/XNNPACK path declines the model.
 
 ## Selection rules
 
@@ -97,15 +97,12 @@ The model runners are not active yet. No model binary is bundled, no LiteRT depe
 
 ## Next integration work
 
-1. Add device capability / benchmark probes and provider-specific model loading.
-2. Add reusable square ROI crop geometry from a detector's 21 landmarks, then verify a selected
-   top-down model's exact input/output tensor signature and coordinate mapping.
-3. Implement the LiteRT adapter only after selecting and validating an actual model.
-3. Connect GVXRS Dock pairing, authenticated transport and calibrated landmark conversion.
-4. Add a settings surface for AUTO / MANUAL selection and live provider health diagnostics.
-5. Add a device capability probe and benchmark runner for camera, CPU/GPU delegate, memory,
-   thermals, sustained latency, and tracking-loss rate.
-6. Compare thermal load, battery use, occlusion recovery and false-loss behavior on real phones.
+1. Add an explicit Sandbox action for downloading/verifying the pinned model and display progress/space requirements.
+2. Connect the runner to an upstream hand ROI source with one-frame-in-flight back-pressure; keep MediaPipe as the detector and default input source.
+3. Add model warmup and device benchmark reporting (GPU compile success, p50/p95 end-to-end latency, frame drops, thermal drift, memory and battery).
+4. Only register the RTMPose provider as EXPERIMENTAL after the runner is exercised on a physical Redmi Note 13.
+5. Connect GVXRS Dock pairing, authenticated transport, time synchronization and calibrated landmark conversion.
+
 
 Model acceptance must be based on the target device, not a benchmark from another SoC. For each
 candidate, record cold-start and warm inference latency (p50/p95), end-to-end camera-to-landmark

@@ -69,6 +69,8 @@ dependencies {
     implementation("androidx.camera:camera-view:$cameraXVersion")
 
     implementation("com.google.mediapipe:tasks-vision:1.1.1")
+    // Google Play services LiteRT CompiledModel runtime; GPU is probed at model load time.
+    implementation("com.google.android.gms:play-services-litert:17.0.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
