@@ -271,6 +271,95 @@ class TrackingProviderManagerTest {
     }
 
     @Test
+    fun providerHealthReportsMeasuredFrameCadence() {
+        val manager = TrackingProviderManager()
+        assertNotNull(
+            manager.publishFrame(
+                TrackingProviderId.MEDIAPIPE,
+                HandTrackingFrame(timestampMs = 10L, hands = emptyList()),
+                receivedAtUptimeMs = 100L
+            )
+        )
+        assertNotNull(
+            manager.publishFrame(
+                TrackingProviderId.MEDIAPIPE,
+                HandTrackingFrame(timestampMs = 20L, hands = emptyList()),
+                receivedAtUptimeMs = 150L
+            )
+        )
+
+        val health = manager.snapshot(150L)
+            .healthByProvider.getValue(TrackingProviderId.MEDIAPIPE)
+        assertEquals(50f, health.averageFrameIntervalMs!!, 0.001f)
+        assertEquals(20f, health.estimatedFramesPerSecond!!, 0.001f)
+    }
+
+    @Test
+    fun autoModePrefersSustainedCadenceWhenQualityAndLatencyAreComparable() {
+        val manager = TrackingProviderManager()
+        assertTrue(
+            manager.updateAvailability(
+                TrackingProviderId.LITERT_CUSTOM,
+                TrackingProviderAvailability.READY
+            )
+        )
+        fun publish(provider: TrackingProviderId, timestamp: Long, receivedAt: Long) =
+            manager.publishFrame(
+                provider,
+                HandTrackingFrame(
+                    timestampMs = timestamp,
+                    hands = emptyList(),
+                    pipelineLatencyMs = 25L
+                ),
+                qualityScore = 0.9f,
+                receivedAtUptimeMs = receivedAt
+            )
+
+        assertEquals(TrackingProviderId.MEDIAPIPE, publish(TrackingProviderId.MEDIAPIPE, 10L, 100L)?.providerId)
+        publish(TrackingProviderId.LITERT_CUSTOM, 10L, 100L)
+
+        // LiteRT produces a steady ~30 FPS stream while MediaPipe only updates
+        // every 100 ms. At the same comparison time, AUTO should prefer the
+        // sustained stream instead of rewarding only its per-frame inference time.
+        publish(TrackingProviderId.LITERT_CUSTOM, 20L, 133L)
+        publish(TrackingProviderId.LITERT_CUSTOM, 30L, 166L)
+        publish(TrackingProviderId.MEDIAPIPE, 20L, 200L)
+        publish(TrackingProviderId.LITERT_CUSTOM, 40L, 199L)
+        publish(TrackingProviderId.LITERT_CUSTOM, 50L, 232L)
+        publish(TrackingProviderId.LITERT_CUSTOM, 60L, 265L)
+        val selected = publish(TrackingProviderId.MEDIAPIPE, 30L, 300L)
+
+        assertEquals(TrackingProviderId.LITERT_CUSTOM, selected?.providerId)
+        val health = manager.snapshot(300L)
+            .healthByProvider.getValue(TrackingProviderId.LITERT_CUSTOM)
+        assertEquals(30f, health.estimatedFramesPerSecond!!, 0.01f)
+    }
+
+    @Test
+    fun rejectsOutOfOrderReceiveTimeWithoutCorruptingCadence() {
+        val manager = TrackingProviderManager()
+        assertNotNull(
+            manager.publishFrame(
+                TrackingProviderId.MEDIAPIPE,
+                HandTrackingFrame(timestampMs = 10L, hands = emptyList()),
+                receivedAtUptimeMs = 100L
+            )
+        )
+        assertNull(
+            manager.publishFrame(
+                TrackingProviderId.MEDIAPIPE,
+                HandTrackingFrame(timestampMs = 20L, hands = emptyList()),
+                receivedAtUptimeMs = 99L
+            )
+        )
+        val health = manager.snapshot(100L)
+            .healthByProvider.getValue(TrackingProviderId.MEDIAPIPE)
+        assertEquals(1L, health.rejectedFrames)
+        assertEquals(TrackingFrameRejection.OUT_OF_ORDER_RECEIVE_TIMESTAMP, health.lastRejection)
+        assertNull(health.averageFrameIntervalMs)
+    }
+
+    @Test
     fun providerHealthTracksAcceptedAndRejectedObservations() {
         val manager = TrackingProviderManager()
         val accepted = HandTrackingFrame(

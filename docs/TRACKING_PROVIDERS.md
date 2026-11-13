@@ -57,9 +57,12 @@ Android's NNAPI was deprecated in Android 15. New accelerator work should theref
 ## Selection rules
 
 - AUTO considers only READY or EXPERIMENTAL providers that have submitted a fresh frame.
-- AUTO scores measured frame quality (65%), source pipeline latency against a 200 ms budget
-  (30%), and a small configured provider preference (5%). This makes measured performance
-  more important than a hard-coded preference.
+- AUTO scores measured frame quality (55%), source pipeline latency against a 200 ms budget
+  (25%), sustained frame cadence against a 30 FPS target (15%), and a small configured
+  provider preference (5%). Cadence is measured from receiver-side uptime using a rolling
+  30-interval window, so a single fast inference does not outweigh a source that delivers
+  fewer usable frames per second. A provider without enough accepted samples starts with a
+  neutral cadence score until its rate can be measured.
 - Each provider tracks accepted/rejected observations, most recent frame age, latest and average
   pipeline latency, latest quality score, and its most recent rejection reason. These values are
   exported in EndXR diagnostics to support device-by-device comparisons.
@@ -70,9 +73,9 @@ Android's NNAPI was deprecated in Android 15. New accelerator work should theref
   landmark sets, invalid quality values, duplicate/out-of-order timestamps, and frames exceeding
   the provider's declared hand limit are rejected and counted.
 - MANUAL accepts only an available provider and never silently substitutes another tracker.
-- Frames older than 300 ms are not exposed. Providers use receiver-side uptime for freshness;
-  sender timestamps remain source-local and must not be compared across devices without clock
-  synchronization.
+- Frames older than 300 ms are not exposed. Providers use receiver-side uptime for freshness
+  and frame-cadence measurement; sender timestamps remain source-local and must not be compared
+  across devices without clock synchronization.
 - Out-of-order and duplicate timestamps, invalid quality values, and frames exceeding the
   provider's declared hand limit are rejected.
 - When a provider becomes unavailable its cached frame is discarded.

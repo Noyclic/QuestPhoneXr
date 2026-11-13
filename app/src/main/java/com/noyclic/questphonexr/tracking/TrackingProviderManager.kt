@@ -36,7 +36,8 @@ enum class TrackingFrameRejection {
     TOO_MANY_HANDS,
     INSUFFICIENT_LANDMARKS,
     INVALID_LANDMARK,
-    OUT_OF_ORDER_FRAME
+    OUT_OF_ORDER_FRAME,
+    OUT_OF_ORDER_RECEIVE_TIMESTAMP
 }
 
 data class TrackingProviderCapabilities(
@@ -82,6 +83,8 @@ data class TrackingProviderHealthSnapshot(
     val latestFrameAgeMs: Long?,
     val latestPipelineLatencyMs: Long?,
     val averagePipelineLatencyMs: Float,
+    val averageFrameIntervalMs: Float?,
+    val estimatedFramesPerSecond: Float?,
     val latestQualityScore: Float?,
     val lastRejection: TrackingFrameRejection?
 )
@@ -114,8 +117,16 @@ class TrackingProviderManager(
         var acceptedFrames: Long = 0L,
         var rejectedFrames: Long = 0L,
         var totalPipelineLatencyMs: Long = 0L,
+        var lastReceivedAtUptimeMs: Long? = null,
+        val recentFrameIntervalsMs = java.util.ArrayDeque<Long>(),
+        var recentFrameIntervalsTotalMs: Long = 0L,
         var lastRejection: TrackingFrameRejection? = null
-    )
+    ) {
+        fun averageFrameIntervalMs(): Float? {
+            if (recentFrameIntervalsMs.isEmpty()) return null
+            return recentFrameIntervalsTotalMs.toFloat() / recentFrameIntervalsMs.size.toFloat()
+        }
+    }
 
     private val providers = LinkedHashMap<TrackingProviderId, ProviderState>()
     private var mode = TrackingSelectionMode.AUTO
@@ -162,6 +173,9 @@ class TrackingProviderManager(
         state.descriptor = state.descriptor.copy(availability = availability)
         if (!availability.canPublishFrames) {
             state.latestFrame = null
+            state.lastReceivedAtUptimeMs = null
+            state.recentFrameIntervalsMs.clear()
+            state.recentFrameIntervalsTotalMs = 0L
             if (autoActiveProviderId == providerId) autoActiveProviderId = null
         }
         return true
@@ -214,6 +228,19 @@ class TrackingProviderManager(
         if (previous != null && frame.timestampMs <= previous.frame.timestampMs) {
             return reject(state, TrackingFrameRejection.OUT_OF_ORDER_FRAME)
         }
+        val previousReceiveTime = state.lastReceivedAtUptimeMs
+        if (previousReceiveTime != null && receivedAtUptimeMs <= previousReceiveTime) {
+            return reject(state, TrackingFrameRejection.OUT_OF_ORDER_RECEIVE_TIMESTAMP)
+        }
+        if (previousReceiveTime != null) {
+            val intervalMs = receivedAtUptimeMs - previousReceiveTime
+            state.recentFrameIntervalsMs.addLast(intervalMs)
+            state.recentFrameIntervalsTotalMs += intervalMs
+            while (state.recentFrameIntervalsMs.size > FRAME_INTERVAL_WINDOW_SIZE) {
+                state.recentFrameIntervalsTotalMs -= state.recentFrameIntervalsMs.removeFirst()
+            }
+        }
+        state.lastReceivedAtUptimeMs = receivedAtUptimeMs
 
         val published = PublishedTrackingFrame(
             providerId = providerId,
@@ -264,6 +291,10 @@ class TrackingProviderManager(
                     0f
                 } else {
                     state.totalPipelineLatencyMs.toFloat() / state.acceptedFrames.toFloat()
+                },
+                averageFrameIntervalMs = state.averageFrameIntervalMs(),
+                estimatedFramesPerSecond = state.averageFrameIntervalMs()?.let {
+                    1_000f / it
                 },
                 latestQualityScore = latest?.qualityScore,
                 lastRejection = state.lastRejection
@@ -346,16 +377,26 @@ class TrackingProviderManager(
         val latencyScore = 1f -
             (sample.frame.pipelineLatencyMs.toFloat() / AUTO_LATENCY_BUDGET_MS).coerceIn(0f, 1f)
         val preferenceScore = descriptor.autoPriority / 100f
+        val averageFrameIntervalMs = providers[descriptor.id]?.averageFrameIntervalMs()
+        // A source without enough samples starts neutral. Once measured, cadence is
+        // scored against 30 FPS; a 20 FPS stream remains viable but scores below 30 FPS.
+        val cadenceScore = averageFrameIntervalMs?.let {
+            (TARGET_FRAME_INTERVAL_MS / it).coerceIn(0f, 1f)
+        } ?: 0.5f
         return sample.qualityScore * QUALITY_WEIGHT +
             latencyScore * LATENCY_WEIGHT +
+            cadenceScore * CADENCE_WEIGHT +
             preferenceScore * PRIORITY_WEIGHT
     }
 
     companion object {
         const val DEFAULT_STALE_AFTER_MS = 300L
         private const val AUTO_LATENCY_BUDGET_MS = 200f
-        private const val QUALITY_WEIGHT = 0.65f
-        private const val LATENCY_WEIGHT = 0.30f
+        private const val TARGET_FRAME_INTERVAL_MS = 1_000f / 30f
+        private const val FRAME_INTERVAL_WINDOW_SIZE = 30
+        private const val QUALITY_WEIGHT = 0.55f
+        private const val LATENCY_WEIGHT = 0.25f
+        private const val CADENCE_WEIGHT = 0.15f
         private const val PRIORITY_WEIGHT = 0.05f
         private const val AUTO_SWITCH_MARGIN = 0.04f
 
