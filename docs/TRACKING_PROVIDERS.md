@@ -45,6 +45,9 @@ treated as a hand-landmark provider until it can emit the shared ordered hand-la
 - Each provider tracks accepted/rejected observations, most recent frame age, latest and average
   pipeline latency, latest quality score, and its most recent rejection reason. These values are
   exported in EndXR diagnostics to support device-by-device comparisons.
+- MediaPipe currently reports a neutral 0.5 quality baseline because its detection confidence is
+  not yet carried into the shared frame. This is not a measured accuracy score. Future adapters
+  should provide calibrated per-frame confidence where their model exposes it.
 - A provider must emit finite ordered landmarks and non-negative pipeline timing. Incomplete
   landmark sets, invalid quality values, duplicate/out-of-order timestamps, and frames exceeding
   the provider's declared hand limit are rejected and counted.
