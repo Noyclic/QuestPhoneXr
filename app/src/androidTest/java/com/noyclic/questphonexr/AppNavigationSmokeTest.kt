@@ -284,7 +284,9 @@ class AppNavigationSmokeTest {
         // outside the viewport when the diagnostic message is long, so explicitly
         // scroll before checking that the planned providers are visibly disabled.
         val providerChoices = UiScrollable(
-            UiSelector().className("android.widget.ListView")
+            UiSelector()
+                .classNameMatches(".*ListView")
+                .scrollable(true)
         ).setAsVerticalList().setMaxSearchSwipes(5)
         assertTrue(
             "LiteRT model is not clearly marked as unavailable",
