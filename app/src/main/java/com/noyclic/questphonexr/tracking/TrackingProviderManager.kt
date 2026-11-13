@@ -118,7 +118,7 @@ class TrackingProviderManager(
         var rejectedFrames: Long = 0L,
         var totalPipelineLatencyMs: Long = 0L,
         var lastReceivedAtUptimeMs: Long? = null,
-        val recentFrameIntervalsMs = java.util.ArrayDeque<Long>(),
+        val recentFrameIntervalsMs: java.util.ArrayDeque<Long> = java.util.ArrayDeque(),
         var recentFrameIntervalsTotalMs: Long = 0L,
         var lastRejection: TrackingFrameRejection? = null
     ) {
