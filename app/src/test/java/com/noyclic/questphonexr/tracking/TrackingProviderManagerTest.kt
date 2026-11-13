@@ -323,8 +323,8 @@ class TrackingProviderManagerTest {
         // sustained stream instead of rewarding only its per-frame inference time.
         publish(TrackingProviderId.LITERT_CUSTOM, 20L, 133L)
         publish(TrackingProviderId.LITERT_CUSTOM, 30L, 166L)
-        publish(TrackingProviderId.MEDIAPIPE, 20L, 200L)
         publish(TrackingProviderId.LITERT_CUSTOM, 40L, 199L)
+        publish(TrackingProviderId.MEDIAPIPE, 20L, 200L)
         publish(TrackingProviderId.LITERT_CUSTOM, 50L, 232L)
         publish(TrackingProviderId.LITERT_CUSTOM, 60L, 265L)
         publish(TrackingProviderId.MEDIAPIPE, 30L, 300L)
