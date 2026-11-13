@@ -333,7 +333,7 @@ class TrackingProviderManagerTest {
         assertEquals(TrackingProviderId.LITERT_CUSTOM, manager.snapshot(300L).activeProvider)
         val health = manager.snapshot(300L)
             .healthByProvider.getValue(TrackingProviderId.LITERT_CUSTOM)
-        assertEquals(30f, health.estimatedFramesPerSecond!!, 0.01f)
+        assertEquals(1_000f / 33f, health.estimatedFramesPerSecond!!, 0.001f)
     }
 
     @Test
