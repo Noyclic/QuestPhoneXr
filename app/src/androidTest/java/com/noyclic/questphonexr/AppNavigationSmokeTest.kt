@@ -279,6 +279,17 @@ class AppNavigationSmokeTest {
         )
         saveScreenshot(context, device, "sandbox-diagnostics-button.png")
 
+        // Android 15 can show an immersive full-screen education sheet the first
+        // time Sandbox hides system bars. It blocks taps on the app underneath.
+        val immersiveConfirmation = By.text("Got it")
+        if (device.wait(Until.hasObject(immersiveConfirmation), 1_000)) {
+            device.findObject(immersiveConfirmation).click()
+            assertTrue(
+                "Android immersive-mode confirmation did not close",
+                device.wait(Until.gone(immersiveConfirmation), 2_000)
+            )
+        }
+
         val externalProbeButton = By.text("Внешний OpenXR тест")
         assertTrue(
             "External OpenXR probe launcher is missing from Sandbox",
