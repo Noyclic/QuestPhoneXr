@@ -39,8 +39,15 @@ treated as a hand-landmark provider until it can emit the shared ordered hand-la
 ## Selection rules
 
 - AUTO considers only READY or EXPERIMENTAL providers that have submitted a fresh frame.
-- AUTO ranks candidates using the provider's configured priority and per-frame quality score.
-  These values are policy inputs, not proof that one model is faster or more accurate on a device.
+- AUTO scores measured frame quality (65%), source pipeline latency against a 200 ms budget
+  (30%), and a small configured provider preference (5%). This makes measured performance
+  more important than a hard-coded preference.
+- Each provider tracks accepted/rejected observations, most recent frame age, latest and average
+  pipeline latency, latest quality score, and its most recent rejection reason. These values are
+  exported in EndXR diagnostics to support device-by-device comparisons.
+- A provider must emit finite ordered landmarks and non-negative pipeline timing. Incomplete
+  landmark sets, invalid quality values, duplicate/out-of-order timestamps, and frames exceeding
+  the provider's declared hand limit are rejected and counted.
 - MANUAL accepts only an available provider and never silently substitutes another tracker.
 - Frames older than 300 ms are not exposed. Providers use receiver-side uptime for freshness;
   sender timestamps remain source-local and must not be compared across devices without clock
@@ -54,8 +61,10 @@ treated as a hand-landmark provider until it can emit the shared ordered hand-la
 1. Add device capability / benchmark probes and provider-specific model loading.
 2. Implement the TFLite adapter only after selecting and validating an actual model.
 3. Connect GVXRS Dock pairing, authenticated transport and calibrated landmark conversion.
-4. Add a settings surface for AUTO / MANUAL selection and per-provider diagnostics.
-5. Compare latency, stability, thermal load, battery use and false-loss behavior on real phones.
+4. Add a settings surface for AUTO / MANUAL selection and live provider health diagnostics.
+5. Add a device capability probe and benchmark runner for camera, CPU/GPU delegate, memory,
+   thermals, sustained latency, and tracking-loss rate.
+6. Compare thermal load, battery use, occlusion recovery and false-loss behavior on real phones.
 
 No alternative tracker is claimed to be operational until its adapter is registered as READY and
 tested on physical hardware.
