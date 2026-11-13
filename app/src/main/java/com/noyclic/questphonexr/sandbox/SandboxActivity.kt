@@ -1598,11 +1598,19 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             TrackingSelectionMode.MANUAL -> "Ручной выбор"
         }
         val activeLabel = snapshot.activeProvider?.wireId ?: "пока нет свежих кадров"
+        val providerHealth = snapshot.healthByProvider.entries.joinToString("\n") { entry ->
+            val health = entry.value
+            val age = health.latestFrameAgeMs?.let { "${it} ms" } ?: "—"
+            val latency = health.latestPipelineLatencyMs?.let { "${it} ms" } ?: "—"
+            val score = health.latestQualityScore?.toString() ?: "—"
+            "${entry.key.wireId}: ${health.availability.name.lowercase()} · age=$age · latency=$latency · quality=$score · accepted=${health.acceptedFrames} · rejected=${health.rejectedFrames}"
+        }
         val message = buildString {
             append("Режим: ").append(modeLabel).append('\n')
             append("Активный источник: ").append(activeLabel).append("\n\n")
             append("AUTO оценивает качество и задержку свежих кадров. ")
             append("Ручной режим не переключается на другой трекер без команды.")
+            append("\n\nСтатистика источников:\n").append(providerHealth)
         }
         val choices = arrayOf(
             "AUTO — выбирать по качеству и задержке",
