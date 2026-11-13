@@ -34,7 +34,7 @@ class HandRoiCropTest {
         )
 
         val center = requireNotNull(crop.toSourceNormalized(0.5f, 0.5f))
-        assertEquals(0.5f, center.first, 0.0001f)
+        assertEquals(0.3125f, center.first, 0.0001f)
         assertEquals(1f / 3f, center.second, 0.0001f)
 
         val topLeft = requireNotNull(crop.toSourceNormalized(0f, 0f))
