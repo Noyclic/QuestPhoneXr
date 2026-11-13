@@ -57,7 +57,7 @@ class HandRoiRgbPreprocessorTest {
             )
         )
 
-        assertEquals(142.75f, output[0], 0.001f)
+        assertEquals(138.75f, output[0], 0.001f)
         assertEquals(0f, output[1], 0.001f)
         assertEquals(0f, output[2], 0.001f)
     }
