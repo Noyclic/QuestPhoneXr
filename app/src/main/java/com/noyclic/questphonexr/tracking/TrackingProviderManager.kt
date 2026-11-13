@@ -120,6 +120,7 @@ class TrackingProviderManager(
     private val providers = LinkedHashMap<TrackingProviderId, ProviderState>()
     private var mode = TrackingSelectionMode.AUTO
     private var requestedProvider = TrackingProviderId.MEDIAPIPE
+    private var autoActiveProviderId: TrackingProviderId? = null
 
     init {
         require(staleAfterMs in 1L..5_000L) { "Tracking freshness window must be between 1 and 5000 ms." }
@@ -137,6 +138,7 @@ class TrackingProviderManager(
     @Synchronized
     fun setAutoMode() {
         mode = TrackingSelectionMode.AUTO
+        autoActiveProviderId = null
     }
 
     /** Selects a concrete provider only when its adapter is actually available. */
@@ -146,6 +148,7 @@ class TrackingProviderManager(
         if (!state.descriptor.availability.canPublishFrames) return false
         requestedProvider = providerId
         mode = TrackingSelectionMode.MANUAL
+        autoActiveProviderId = null
         return true
     }
 
@@ -157,7 +160,10 @@ class TrackingProviderManager(
     ): Boolean {
         val state = providers[providerId] ?: return false
         state.descriptor = state.descriptor.copy(availability = availability)
-        if (!availability.canPublishFrames) state.latestFrame = null
+        if (!availability.canPublishFrames) {
+            state.latestFrame = null
+            if (autoActiveProviderId == providerId) autoActiveProviderId = null
+        }
         return true
     }
 
@@ -233,6 +239,7 @@ class TrackingProviderManager(
     @Synchronized
     fun clearFrames() {
         providers.values.forEach { it.latestFrame = null }
+        autoActiveProviderId = null
     }
 
     @Synchronized
@@ -300,17 +307,34 @@ class TrackingProviderManager(
             return requested.latestFrame?.takeIf(::isFresh)
         }
 
-        return providers.values.asSequence()
+        val candidates = providers.values.asSequence()
             .filter { it.descriptor.availability.canPublishFrames }
             .mapNotNull { state ->
                 state.latestFrame?.takeIf(::isFresh)?.let { state.descriptor to it }
             }
-            .maxWithOrNull(
-                compareBy<Pair<TrackingProviderDescriptor, PublishedTrackingFrame>> {
-                    autoScore(it.first, it.second)
-                }.thenBy { it.second.receivedAtUptimeMs }
-            )
-            ?.second
+            .toList()
+        val best = candidates.maxWithOrNull(
+            compareBy<Pair<TrackingProviderDescriptor, PublishedTrackingFrame>> {
+                autoScore(it.first, it.second)
+            }.thenBy { it.second.receivedAtUptimeMs }
+        ) ?: run {
+            autoActiveProviderId = null
+            return null
+        }
+
+        val current = autoActiveProviderId?.let { activeId ->
+            candidates.firstOrNull { it.first.id == activeId }
+        }
+        if (current != null && current.first.id != best.first.id) {
+            val currentScore = autoScore(current.first, current.second)
+            val bestScore = autoScore(best.first, best.second)
+            // Avoid oscillating between two cameras/providers whose measured scores
+            // differ only by noise. A lost/stale active provider is replaced immediately.
+            if (bestScore < currentScore + AUTO_SWITCH_MARGIN) return current.second
+        }
+
+        autoActiveProviderId = best.first.id
+        return best.second
     }
 
     private fun autoScore(
@@ -333,6 +357,7 @@ class TrackingProviderManager(
         private const val QUALITY_WEIGHT = 0.65f
         private const val LATENCY_WEIGHT = 0.30f
         private const val PRIORITY_WEIGHT = 0.05f
+        private const val AUTO_SWITCH_MARGIN = 0.04f
 
         val DEFAULT_PROVIDERS = listOf(
             TrackingProviderDescriptor(
