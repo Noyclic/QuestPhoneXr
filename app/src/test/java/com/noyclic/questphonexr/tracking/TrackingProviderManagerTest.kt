@@ -256,6 +256,21 @@ class TrackingProviderManagerTest {
     }
 
     @Test
+    fun missingQualityScoreUsesNeutralBaseline() {
+        val manager = TrackingProviderManager()
+        manager.publishFrame(
+            TrackingProviderId.MEDIAPIPE,
+            HandTrackingFrame(timestampMs = 19L, hands = emptyList()),
+            receivedAtUptimeMs = 100L
+        )
+
+        val quality = manager.snapshot(100L)
+            .healthByProvider.getValue(TrackingProviderId.MEDIAPIPE)
+            .latestQualityScore
+        assertEquals(0.5f, quality!!, 0.001f)
+    }
+
+    @Test
     fun providerHealthTracksAcceptedAndRejectedObservations() {
         val manager = TrackingProviderManager()
         val accepted = HandTrackingFrame(
