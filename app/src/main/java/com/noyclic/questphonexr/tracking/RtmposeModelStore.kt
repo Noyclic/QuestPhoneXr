@@ -97,12 +97,20 @@ object RtmposeModelStore {
                 "RTMPose SHA-256 verification failed; downloaded file was discarded."
             }
 
-            Files.move(
-                temporary.toPath(),
-                destination.toPath(),
-                StandardCopyOption.REPLACE_EXISTING,
-                StandardCopyOption.ATOMIC_MOVE
-            )
+            try {
+                Files.move(
+                    temporary.toPath(),
+                    destination.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE
+                )
+            } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+                // The verified temporary file is in the same private directory, so the
+                // platform's same-filesystem rename is a safe fallback on older filesystems.
+                check(temporary.renameTo(destination)) {
+                    "Could not atomically install the verified RTMPose model."
+                }
+            }
             check(verify(destination)) { "RTMPose model failed its post-install verification." }
             return destination
         } finally {

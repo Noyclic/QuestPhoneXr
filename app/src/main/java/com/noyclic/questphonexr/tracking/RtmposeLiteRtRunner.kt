@@ -60,18 +60,17 @@ class RtmposeLiteRtRunner(
     private var inputBuffers: List<TensorBuffer> = emptyList()
     private var outputBuffers: List<TensorBuffer> = emptyList()
     @Volatile private var ready = false
-    @Volatile private var initializationStarted = false
+    private val initializationStarted = AtomicBoolean(false)
 
     fun initialize(callback: (Result<RtmposeRuntimeInfo>) -> Unit) {
         if (closed.get()) {
             callback(Result.failure(IllegalStateException("RTMPose runner is closed.")))
             return
         }
-        if (initializationStarted) {
+        if (!initializationStarted.compareAndSet(false, true)) {
             callback(Result.failure(IllegalStateException("RTMPose initialization was already requested.")))
             return
         }
-        initializationStarted = true
         try {
             executor.execute {
                 try {
@@ -128,7 +127,9 @@ class RtmposeLiteRtRunner(
                         )
                     )
                 } catch (error: Exception) {
+                    ready = false
                     closeResources()
+                    initializationStarted.set(false)
                     callback(Result.failure(error))
                 }
             }
@@ -173,9 +174,7 @@ class RtmposeLiteRtRunner(
                 try {
                     check(!closed.get()) { "RTMPose runner was closed before inference." }
                     val activeModel = checkNotNull(model)
-                    check(inputBufferSize() == INPUT_ELEMENT_COUNT) {
-                        "RTMPose input tensor does not match [1,3,256,256]."
-                    }
+                    // TensorBuffer.writeFloat validates the fixed model input length.
                     inputBuffers.single().writeFloat(inputScratch)
 
                     val startedAt = SystemClock.elapsedRealtimeNanos()
@@ -235,9 +234,6 @@ class RtmposeLiteRtRunner(
             executor.shutdown()
         }
     }
-
-    private fun inputBufferSize(): Int =
-        inputBuffers.singleOrNull()?.readFloat()?.size ?: 0
 
     /** Must be invoked on the owning executor after the model is no longer running. */
     private fun closeResources() {
