@@ -129,14 +129,16 @@ class HandRoiRgbPreprocessorTest {
     fun writesNchwPlanesInRgbChannelOrderWithoutAllocatingTail() {
         val source = intArrayOf(
             0xff0a0b0c.toInt(),
-            0xff141516.toInt()
+            0xff141516.toInt(),
+            0xff1e1f20.toInt(),
+            0xff28292a.toInt()
         )
-        val output = FloatArray(3 * 2 + 3) { -3f }
+        val output = FloatArray(3 * 4 + 3) { -3f }
 
         assertTrue(
             HandRoiRgbPreprocessor.writeRtmposeImageNetNchwFloat(
                 sourceArgb = source,
-                crop = HandRoiCrop(0, 0, 2, 1, 2),
+                crop = HandRoiCrop(0, 0, 2, 2, 2),
                 outputSizePx = 2,
                 destinationNchw = output
             )
@@ -146,7 +148,7 @@ class HandRoiRgbPreprocessorTest {
         assertEquals((10f - 123.675f) / 58.395f, output[0], 0.00001f)
         assertEquals((11f - 116.28f) / 57.12f, output[planeSize], 0.00001f)
         assertEquals((12f - 103.53f) / 57.375f, output[planeSize * 2], 0.00001f)
-        assertEquals(-3f, output[planeSize * 2 + 1], 0f)
+        assertEquals(-3f, output[planeSize * 3], 0f)
     }
 
     @Test
