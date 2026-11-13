@@ -259,6 +259,19 @@ internal object EndXrHandTrackingDiagnostics {
                     entry.key.wireId + ":" + entry.value.name.lowercase()
                 }
             ).append('\n')
+            append("service_tracking_provider_health=").append(
+                providerSnapshot.healthByProvider.entries.joinToString("|") { entry ->
+                    val health = entry.value
+                    entry.key.wireId +
+                        ":accepted=" + health.acceptedFrames +
+                        ":rejected=" + health.rejectedFrames +
+                        ":age_ms=" + (health.latestFrameAgeMs ?: -1L) +
+                        ":latency_ms=" + (health.latestPipelineLatencyMs ?: -1L) +
+                        ":avg_latency_ms=" + health.averagePipelineLatencyMs +
+                        ":quality=" + (health.latestQualityScore ?: -1f) +
+                        ":last_rejection=" + (health.lastRejection?.name ?: "none")
+                }
+            ).append('\n')
             append("service_left_natural_gesture=").append(lastLeftNaturalGesture.gesture.name).append('\n')
             append("service_left_natural_gesture_confidence=").append(lastLeftNaturalGesture.confidence).append('\n')
             append("service_left_natural_gesture_source=").append(if (lastLeftNaturalGesture.usedWorldLandmarks) "world" else "image_or_none").append('\n')
