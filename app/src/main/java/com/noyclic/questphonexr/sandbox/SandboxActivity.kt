@@ -1619,22 +1619,15 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             TrackingSelectionMode.MANUAL -> "Ручной выбор"
         }
         val activeLabel = snapshot.activeProvider?.wireId ?: "пока нет свежих кадров"
-        val providerHealth = snapshot.healthByProvider.entries.joinToString("\n") { entry ->
-            val health = entry.value
-            val age = health.latestFrameAgeMs?.let { "${it} ms" } ?: "—"
-            val latency = health.latestPipelineLatencyMs?.let { "${it} ms" } ?: "—"
-            val score = health.latestQualityScore?.toString() ?: "—"
-            val fps = health.estimatedFramesPerSecond?.let {
-                String.format(java.util.Locale.US, "%.1f", it)
-            } ?: "—"
-            "${entry.key.wireId}: ${health.availability.name.lowercase()} · age=$age · latency=$latency · quality=$score · fps=$fps · accepted=${health.acceptedFrames} · rejected=${health.rejectedFrames}"
-        }
+        // Keep the choice dialog compact so the four provider rows remain visible on
+        // small screens and Android UIAutomator can select them without relying on
+        // private AlertDialog ListView implementation details. Full per-provider health
+        // counters, age, latency, quality and FPS remain available in EndXR diagnostics.
         val message = buildString {
             append("Режим: ").append(modeLabel).append('\n')
             append("Активный источник: ").append(activeLabel).append("\n\n")
-            append("AUTO оценивает качество и задержку свежих кадров. ")
+            append("AUTO оценивает качество, задержку и FPS свежих кадров. ")
             append("Ручной режим не переключается на другой трекер без команды.")
-            append("\n\nСтатистика источников:\n").append(providerHealth)
         }
         val choices = arrayOf(
             "AUTO — выбирать по качеству и задержке",

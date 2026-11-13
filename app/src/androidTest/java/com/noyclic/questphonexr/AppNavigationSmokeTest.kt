@@ -277,28 +277,24 @@ class AppNavigationSmokeTest {
         )
         device.findObject(trackingSourceButton).click()
         assertTrue(
-            "Tracking provider status and health diagnostics are missing",
-            device.wait(Until.hasObject(By.textContains("Статистика источников:")), 2_000)
+            "Tracking provider mode is missing",
+            device.wait(Until.hasObject(By.textContains("Режим:")), 2_000)
         )
-        // AlertDialog.setItems is backed by a ListView. Its lower choices can be
-        // outside the viewport when the diagnostic message is long, so explicitly
-        // scroll before checking that the planned providers are visibly disabled.
-        val providerChoices = UiScrollable(
-            UiSelector()
-                .classNameMatches(".*ListView")
-                .scrollable(true)
-        ).setAsVerticalList().setMaxSearchSwipes(5)
         assertTrue(
-            "LiteRT model is not clearly marked as unavailable",
-            providerChoices.scrollIntoView(UiSelector().textContains("LiteRT model"))
+            "AUTO provider choice is missing",
+            device.wait(Until.hasObject(By.text("AUTO — выбирать по качеству и задержке")), 2_000)
+        )
+        assertTrue(
+            "MediaPipe provider choice is missing",
+            device.wait(Until.hasObject(By.text("MediaPipe — подключён")), 2_000)
+        )
+        assertTrue(
+            "LiteRT is not clearly marked as unavailable",
+            device.wait(Until.hasObject(By.text("LiteRT model — пока не подключён")), 2_000)
         )
         assertTrue(
             "GVXRS Dock is not clearly marked as unavailable",
-            providerChoices.scrollIntoView(UiSelector().textContains("GVXRS Dock Station"))
-        )
-        assertTrue(
-            "Could not return provider choices to the top",
-            providerChoices.scrollToBeginning(5)
+            device.wait(Until.hasObject(By.text("GVXRS Dock Station — пока не подключён")), 2_000)
         )
         device.findObject(By.text("MediaPipe — подключён")).click()
         assertTrue(
