@@ -19,7 +19,9 @@ internal object EndXrTrackingInputBridge {
     fun publish(
         providerId: TrackingProviderId,
         frame: HandTrackingFrame,
-        qualityScore: Float = 1f
+        // MediaPipe currently does not expose its detection confidence in HandTrackingFrame.
+        // Use a neutral baseline instead of awarding it a fabricated maximum score.
+        qualityScore: Float = 0.5f
     ): Boolean {
         val now = SystemClock.uptimeMillis()
         val selected = providerManager.publishFrame(
