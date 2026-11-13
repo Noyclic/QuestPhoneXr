@@ -56,12 +56,18 @@ Android's NNAPI was deprecated in Android 15. New accelerator work should theref
 
 ## LiteRT output decoding
 
-The paired `HandRoiRgbPreprocessor` writes caller-owned reusable RGB float buffers from ARGB camera pixels with bilinear resizing. It intentionally leaves quantization to `TensorBuffer.writeFloat()`, so input zero-points are not guessed in the image pipeline. The caller must reuse source/destination arrays and perform bitmap pixel extraction on the camera/analyzer worker, never on the UI thread.
+**Primary candidate: RTMPose-Hand-LiteRT.** Its published contract is:
+- Input: `[1,3,256,256]`, RGB, NCHW, ImageNet mean/std normalization.
+- Outputs: `simcc_x[1,21,512]` and `simcc_y[1,21,512]`; each keypoint coordinate is `argmax(bin) / 2`.
+- It predicts one centered hand; it does not expose a hand-presence score or handedness output.
+- The model card reports 28 MB FP16 and about 4 ms GPU inference on Pixel 8a. It also reports that CPU XNNPACK declined the graph. Those results do not predict performance or GPU compatibility on Redmi Note 13 / Adreno 610.
+- The model is Apache-2.0.
 
+EndXR now has a reusable square ROI crop, a caller-buffer RGB preprocessor, an RTMPose ImageNet-normalized NCHW path, and a SimCC decoder. The decoder requires an upstream ROI/presence confidence before publishing a frame and labels handedness as UNKNOWN; it does not mistake a confident argmax for proof that a hand is present. This makes the model a top-down landmark refiner, not a standalone full-frame hand detector.
 
-The ST candidate's official hand_spe postprocessor expects four outputs: hand type, normalized landmarks, hand-presence probability, and image-space landmarks. EndXR therefore decodes them by semantic role, validates their shapes and finite values, rejects low-presence samples, maps crop-pixel coordinates back to the camera, and emits no world-space points because the model does not provide calibrated hand-local meters.
+**Secondary candidate: ST `hand_spe`.** ST's reference postprocessor handles four outputs (hand type, normalized landmarks, presence probability, image-space landmarks), while the model card summarizes the output as a single `[1,Kx3]` tensor. These descriptions conflict, and the actual model file metadata has not yet been verified. The separate ST decoder in EndXR is only an adapter contract for the four-output reference pipeline; do not bind it to a downloaded model until its actual tensor names, shapes, dtypes and quantization are inspected.
 
-The decoder is a model adapter contract only. It does not claim that the ST model binary has been downloaded, that its concrete tensor metadata has been verified on-device, or that LiteRT inference is active. Before wiring a runtime runner, inspect the model's actual tensor names, shapes, dtypes and quantization parameters; use semantic output mapping rather than relying on output-list ordering.
+The model runners are not active yet. No model binary is bundled, no LiteRT dependency has been added, and no device inference has been claimed. The next step is to validate the selected model artifact and its exact tensor signature, then add a background-thread `CompiledModel` runner with a GPU capability probe and a CPU/MediaPipe fallback. LiteRT resources and tensor buffers must be created once and reused rather than rebuilt for every camera frame.
 
 ## Selection rules
 

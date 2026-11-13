@@ -107,6 +107,63 @@ class HandRoiRgbPreprocessorTest {
     }
 
     @Test
+    fun writesRtmposeNchwImageNetNormalizedRgbPlanes() {
+        val source = intArrayOf(0xff7b7480.toInt())
+        val output = FloatArray(3)
+
+        assertTrue(
+            HandRoiRgbPreprocessor.writeRtmposeImageNetNchwFloat(
+                sourceArgb = source,
+                crop = HandRoiCrop(0, 0, 1, 1, 1),
+                outputSizePx = 1,
+                destinationNchw = output
+            )
+        )
+
+        assertEquals((123f - 123.675f) / 58.395f, output[0], 0.00001f)
+        assertEquals((116f - 116.28f) / 57.12f, output[1], 0.00001f)
+        assertEquals((128f - 103.53f) / 57.375f, output[2], 0.00001f)
+    }
+
+    @Test
+    fun writesNchwPlanesInRgbChannelOrderWithoutAllocatingTail() {
+        val source = intArrayOf(
+            0xff0a0b0c.toInt(),
+            0xff141516.toInt()
+        )
+        val output = FloatArray(3 * 2 + 3) { -3f }
+
+        assertTrue(
+            HandRoiRgbPreprocessor.writeRtmposeImageNetNchwFloat(
+                sourceArgb = source,
+                crop = HandRoiCrop(0, 0, 2, 1, 2),
+                outputSizePx = 2,
+                destinationNchw = output
+            )
+        )
+
+        val planeSize = 4
+        assertEquals((10f - 123.675f) / 58.395f, output[0], 0.00001f)
+        assertEquals((11f - 116.28f) / 57.12f, output[planeSize], 0.00001f)
+        assertEquals((12f - 103.53f) / 57.375f, output[planeSize * 2], 0.00001f)
+        assertEquals(-3f, output[planeSize * 2 + 1], 0f)
+    }
+
+    @Test
+    fun rejectsTooSmallNchwBufferWithoutWriting() {
+        val output = FloatArray(2) { 9f }
+        assertFalse(
+            HandRoiRgbPreprocessor.writeRtmposeImageNetNchwFloat(
+                sourceArgb = intArrayOf(0xff000000.toInt()),
+                crop = HandRoiCrop(0, 0, 1, 1, 1),
+                outputSizePx = 1,
+                destinationNchw = output
+            )
+        )
+        assertArrayEquals(floatArrayOf(9f, 9f), output, 0f)
+    }
+
+    @Test
     fun preservesDestinationTailForLargerReusableBuffers() {
         val output = FloatArray(18) { -7f }
         val success = HandRoiRgbPreprocessor.writeRgbFloat(
