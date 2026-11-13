@@ -80,6 +80,9 @@ import com.noyclic.questphonexr.runtime.EndXrRuntimeBridge
 import com.noyclic.questphonexr.runtime.EndXrInputSnapshotStore
 import com.noyclic.questphonexr.runtime.EndXrHandInputEncoder
 import com.noyclic.questphonexr.runtime.EndXrHandTrackingService
+import com.noyclic.questphonexr.runtime.EndXrTrackingInputBridge
+import com.noyclic.questphonexr.tracking.TrackingProviderId
+import com.noyclic.questphonexr.tracking.TrackingSelectionMode
 import com.noyclic.questphonexr.runtime.EndXrRuntimeState
 
 /** Phone-first 3D sandbox for testing stereo viewing, Joy-Con input and object grabbing. */
@@ -945,6 +948,13 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 )
             )
             addView(
+                controlButton("Источник трекинга · AUTO / ручной") { showTrackingProviderDialog() },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+            addView(
                 controlButton("Профиль MediaPipe") { showHandTrackingPresetDialog() },
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -1578,6 +1588,60 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
                 }
             }
             .setNegativeButton("Отмена", null)
+            .show()
+    }
+
+    private fun showTrackingProviderDialog() {
+        val snapshot = EndXrTrackingInputBridge.diagnosticSnapshot()
+        val modeLabel = when (snapshot.mode) {
+            TrackingSelectionMode.AUTO -> "Автоматический выбор"
+            TrackingSelectionMode.MANUAL -> "Ручной выбор"
+        }
+        val activeLabel = snapshot.activeProvider?.wireId ?: "пока нет свежих кадров"
+        val message = buildString {
+            append("Режим: ").append(modeLabel).append('\n')
+            append("Активный источник: ").append(activeLabel).append("\n\n")
+            append("AUTO оценивает качество и задержку свежих кадров. ")
+            append("Ручной режим не переключается на другой трекер без команды.")
+        }
+        val choices = arrayOf(
+            "AUTO — выбирать по качеству и задержке",
+            "MediaPipe — подключён",
+            "Custom TFLite — пока не подключён",
+            "GVXRS Dock Station — пока не подключён"
+        )
+
+        AlertDialog.Builder(this)
+            .setTitle("Источник отслеживания рук")
+            .setMessage(message)
+            .setItems(choices) { _, which ->
+                when (which) {
+                    0 -> {
+                        EndXrTrackingInputBridge.setAutoMode()
+                        Toast.makeText(this, "Включён автоматический выбор источника", Toast.LENGTH_SHORT).show()
+                        updateStatus()
+                    }
+                    1 -> {
+                        if (EndXrTrackingInputBridge.selectProvider(TrackingProviderId.MEDIAPIPE)) {
+                            Toast.makeText(this, "Выбран MediaPipe", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(this, "MediaPipe сейчас недоступен", Toast.LENGTH_LONG).show()
+                        }
+                        updateStatus()
+                    }
+                    2 -> Toast.makeText(
+                        this,
+                        "Адаптер TFLite ещё не подключён. MediaPipe остаётся доступным.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    3 -> Toast.makeText(
+                        this,
+                        "GVXRS Dock: пока есть протокол пакетов, но нет живого подключения.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            .setNegativeButton("Закрыть", null)
             .show()
     }
 
