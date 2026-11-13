@@ -31,6 +31,7 @@ import com.noyclic.questphonexr.tracking.HandLandmarkerController
 import com.noyclic.questphonexr.tracking.HandCameraPreference
 import com.noyclic.questphonexr.tracking.HandTrackingFrame
 import com.noyclic.questphonexr.tracking.HandTrackingMetricsSnapshot
+import com.noyclic.questphonexr.tracking.TrackingProviderId
 import com.noyclic.questphonexr.tracking.NaturalGestureResult
 import com.google.mediapipe.tasks.core.Delegate
 import java.util.concurrent.Executors
@@ -64,6 +65,7 @@ internal object EndXrHandTrackingDiagnostics {
     @Volatile private var lastError = ""
     @Volatile private var latestFrame = HandTrackingFrame(0L, emptyList())
     @Volatile private var latestFrameReceivedAtMs = 0L
+    @Volatile private var latestProviderId = "none"
     @Volatile private var recoveryAttempt = 0
     @Volatile private var recoveryLimit = 3
     @Volatile private var lastRecoveryReason = ""
@@ -117,6 +119,8 @@ internal object EndXrHandTrackingDiagnostics {
         lastError = ""
         latestFrame = HandTrackingFrame(0L, emptyList())
         latestFrameReceivedAtMs = 0L
+        latestProviderId = "none"
+        EndXrTrackingInputBridge.clearFrames()
         recoveryAttempt = 0
         recoveryLimit = 3
         lastRecoveryReason = ""
@@ -161,6 +165,7 @@ internal object EndXrHandTrackingDiagnostics {
     }
 
     fun markStopped() {
+        EndXrTrackingInputBridge.clearFrames()
         // Keep the failure reason visible after stopSelf() triggers onDestroy().
         // A new start calls begin(), which resets the previous error.
         if (cameraState != "error") cameraState = "stopped"
@@ -177,7 +182,7 @@ internal object EndXrHandTrackingDiagnostics {
         lastRightNaturalGesture = right
     }
 
-    fun onFrame(frame: HandTrackingFrame) {
+    fun onFrame(frame: HandTrackingFrame, providerId: String) {
         val previous = lastResultTimestampMs
         if (previous > 0L && frame.timestampMs > previous) {
             resultFps = (1000f / (frame.timestampMs - previous)).coerceAtMost(240f)
@@ -187,6 +192,7 @@ internal object EndXrHandTrackingDiagnostics {
         resultCount += 1L
         latestFrame = frame
         latestFrameReceivedAtMs = android.os.SystemClock.uptimeMillis()
+        latestProviderId = providerId
     }
 
     fun latestHandFrame(): HandTrackingFrame = latestFrame
@@ -203,6 +209,7 @@ internal object EndXrHandTrackingDiagnostics {
 
     fun report(): String {
         val snapshot = metrics
+        val providerSnapshot = EndXrTrackingInputBridge.diagnosticSnapshot()
         val timestamp = lastResultTimestampMs
         val resultAgeMs = if (timestamp > 0L) {
             (android.os.SystemClock.uptimeMillis() - timestamp).coerceAtLeast(0L)
@@ -239,6 +246,15 @@ internal object EndXrHandTrackingDiagnostics {
             append("service_hand_result_fps=").append(resultFps).append('\n')
             append("service_last_result_hands=").append(lastResultHands).append('\n')
             append("service_last_result_age_ms=").append(resultAgeMs).append('\n')
+            append("service_tracking_active_provider=").append(latestProviderId).append('\n')
+            append("service_tracking_selection_mode=").append(providerSnapshot.mode.name).append('\n')
+            append("service_tracking_requested_provider=").append(providerSnapshot.requestedProvider.wireId).append('\n')
+            append("service_tracking_provider_reason=").append(providerSnapshot.reason).append('\n')
+            append("service_tracking_provider_catalog=").append(
+                providerSnapshot.statusByProvider.entries.joinToString(",") { entry ->
+                    entry.key.wireId + ":" + entry.value.name.lowercase()
+                }
+            ).append('\n')
             append("service_left_natural_gesture=").append(lastLeftNaturalGesture.gesture.name).append('\n')
             append("service_left_natural_gesture_confidence=").append(lastLeftNaturalGesture.confidence).append('\n')
             append("service_left_natural_gesture_source=").append(if (lastLeftNaturalGesture.usedWorldLandmarks) "world" else "image_or_none").append('\n')
@@ -473,19 +489,9 @@ class EndXrHandTrackingService : Service(), LifecycleOwner, SensorEventListener 
                         mirrorFrontCamera = useFrontCamera,
                         onFrame = { frame ->
                             if (activeOrPending && generation == cameraGeneration) {
-                                EndXrHandTrackingDiagnostics.onFrame(frame)
-                                val encoded = EndXrHandInputEncoder.encode(frame)
-                                EndXrHandTrackingDiagnostics.updateNaturalGestures(
-                                    encoded.leftGesture,
-                                    encoded.rightGesture
-                                )
-                                EndXrInputSnapshotStore.publishTrackingFrame(
-                                    leftRow = encoded.leftRow,
-                                    rightRow = encoded.rightRow,
-                                    leftPose = encoded.leftPose,
-                                    rightPose = encoded.rightPose,
-                                    leftJoints = encoded.leftJoints,
-                                    rightJoints = encoded.rightJoints
+                                EndXrTrackingInputBridge.publish(
+                                    providerId = TrackingProviderId.MEDIAPIPE,
+                                    frame = frame
                                 )
                             }
                         },
