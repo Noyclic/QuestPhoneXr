@@ -58,7 +58,7 @@ Android's NNAPI was deprecated in Android 15. New accelerator work should theref
 
 The selected artifact is RTMPose-Hand-LiteRT, pinned by byte size and SHA-256. It is downloaded only on explicit request into the app's private no-backup directory, written to a temporary file, verified, then atomically renamed. A failed or interrupted transfer never replaces an existing verified model.
 
-The isolated Google Play services LiteRT runner:
+The shared `HandRoiRgbPreprocessor` samples CameraX's raw ARGB pixel buffer at 0/90/180/270 degrees directly into the upright ROI, without allocating an intermediate rotated Bitmap. Its crop coordinates match MediaPipe's unmirrored, display-aligned landmark frame. The NCHW path applies RGB ImageNet normalization while writing the reusable input buffer.\n\nThe isolated Google Play services LiteRT runner:
 - requests GPU support with the Java `LiteRtInitializationOptions.builder()` API for Play services 17.0.0;
 - verifies GPU compatibility by attempting to compile the GPU-only model, without calling `Environment.getAvailableAccelerators()` (unsafe with some older Play services runtime modules);
 - warms up the graph and records 30 inference-only samples; the Sandbox reports p50/p95 including output readback, not camera-to-hand latency or application FPS;

@@ -92,6 +92,69 @@ class HandRoiRgbPreprocessorTest {
     }
 
     @Test
+    fun mapsNinetyDegreeRotatedCropIntoRawCameraPixelBuffer() {
+        val source = intArrayOf(
+            gray(1), gray(2),
+            gray(3), gray(4),
+            gray(5), gray(6)
+        )
+        val output = FloatArray(12)
+        assertTrue(
+            HandRoiRgbPreprocessor.writeRgbFloat(
+                sourceArgb = source,
+                crop = HandRoiCrop(0, 0, 2, 3, 2),
+                outputWidthPx = 2,
+                outputHeightPx = 2,
+                destinationRgb = output,
+                sourceRotationDegrees = 90
+            )
+        )
+        assertArrayEquals(
+            floatArrayOf(5f,5f,5f, 3f,3f,3f, 6f,6f,6f, 4f,4f,4f),
+            output,
+            0.001f
+        )
+    }
+
+    @Test
+    fun mapsTwoHundredSeventyDegreeRotatedNchwCropIntoRawCameraPixels() {
+        val source = intArrayOf(
+            gray(1), gray(2),
+            gray(3), gray(4),
+            gray(5), gray(6)
+        )
+        val output = FloatArray(12)
+        assertTrue(
+            HandRoiRgbPreprocessor.writeRtmposeImageNetNchwFloat(
+                sourceArgb = source,
+                crop = HandRoiCrop(0, 0, 2, 3, 2),
+                outputSizePx = 2,
+                destinationNchw = output,
+                sourceRotationDegrees = 270
+            )
+        )
+        floatArrayOf(2f,4f,1f,3f).forEachIndexed { index, value ->
+            assertEquals((value - 123.675f) / 58.395f, output[index], 0.0001f)
+        }
+    }
+
+    @Test
+    fun rejectsUnsupportedCameraRotationBeforeWriting() {
+        val output = FloatArray(12) { 7f }
+        assertFalse(
+            HandRoiRgbPreprocessor.writeRgbFloat(
+                sourceArgb = IntArray(4),
+                crop = HandRoiCrop(0, 0, 2, 2, 2),
+                outputWidthPx = 2,
+                outputHeightPx = 2,
+                destinationRgb = output,
+                sourceRotationDegrees = 45
+            )
+        )
+        assertArrayEquals(FloatArray(12) { 7f }, output, 0f)
+    }
+
+    @Test
     fun rejectsInvalidDimensionsAndShortBuffersWithoutWriting() {
         val crop = HandRoiCrop(0, 0, 2, 2, 2)
         val output = FloatArray(12) { -1f }
@@ -180,4 +243,7 @@ class HandRoiRgbPreprocessorTest {
         assertArrayEquals(floatArrayOf(1f, 2f, 3f), output.copyOfRange(0, 3), 0.001f)
         assertEquals(-7f, output[3], 0f)
     }
+    private fun gray(value: Int): Int =
+        (0xff shl 24) or (value shl 16) or (value shl 8) or value
+
 }
