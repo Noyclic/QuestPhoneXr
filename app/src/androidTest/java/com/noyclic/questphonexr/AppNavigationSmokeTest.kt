@@ -280,13 +280,23 @@ class AppNavigationSmokeTest {
             "Tracking provider status and health diagnostics are missing",
             device.wait(Until.hasObject(By.textContains("Статистика источников:")), 2_000)
         )
+        // AlertDialog.setItems is backed by a ListView. Its lower choices can be
+        // outside the viewport when the diagnostic message is long, so explicitly
+        // scroll before checking that the planned providers are visibly disabled.
+        val providerChoices = UiScrollable(
+            UiSelector().className("android.widget.ListView")
+        ).setAsVerticalList().setMaxSearchSwipes(5)
         assertTrue(
-            "Custom TFLite is not clearly marked as unavailable",
-            device.hasObject(By.textContains("LiteRT model — пока не подключён"))
+            "LiteRT model is not clearly marked as unavailable",
+            providerChoices.scrollIntoView(UiSelector().textContains("LiteRT model"))
         )
         assertTrue(
             "GVXRS Dock is not clearly marked as unavailable",
-            device.hasObject(By.textContains("GVXRS Dock Station — пока не подключён"))
+            providerChoices.scrollIntoView(UiSelector().textContains("GVXRS Dock Station"))
+        )
+        assertTrue(
+            "Could not return provider choices to the top",
+            providerChoices.scrollToBeginning(5)
         )
         device.findObject(By.text("MediaPipe — подключён")).click()
         assertTrue(
