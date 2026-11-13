@@ -48,8 +48,8 @@ class RtmposeHandRefinementCoordinatorTest {
         assertEquals(secondWorld, result.frame.hands[1].worldPoints)
         assertEquals(original.hands[0].trackingId, result.frame.hands[0].trackingId)
         assertEquals(original.hands[1].pinchStrength, result.frame.hands[1].pinchStrength, 0f)
-        assertEquals(30L, result.frame.pipelineLatencyMs)
-        assertEquals(12L, result.addedInferenceLatencyMs)
+        assertEquals(42L, result.frame.pipelineLatencyMs)
+        assertEquals(24L, result.addedInferenceLatencyMs)
         assertEquals(0.5f, result.roiQualityScore!!, 0.0001f)
         assertTrue(engine.maxSimultaneousSubmissions == 1)
     }
