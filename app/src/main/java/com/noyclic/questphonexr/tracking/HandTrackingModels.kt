@@ -22,16 +22,16 @@ data class PinchSignal(
     val isPinching: Boolean,
     /** Raw thumb/index distance divided by palm width; infinity means unavailable. */
     val normalizedDistanceRatio: Float = Float.POSITIVE_INFINITY,
-    /** True when the ratio came from MediaPipe's hand-local 3D world landmarks. */
+    /** True when the ratio came from provider-supplied hand-local 3D landmarks. */
     val usedWorldLandmarks: Boolean = false
 )
 
 /**
  * Measures thumb/index closure relative to palm width.
  *
- * Gesture input should be the newest raw MediaPipe image landmarks. The visual hand mesh
- * may be One Euro filtered separately; filtering both the mesh and this signal compounds
- * fingertip lag and can prevent a quick pinch from crossing the activation threshold.
+ * Gesture input should be the newest raw provider observation. The visual hand mesh may
+ * be filtered separately; filtering both the mesh and this signal compounds fingertip lag
+ * and can prevent a quick pinch from crossing the activation threshold.
  */
 class PinchEstimator(
     private val smoothing: Float = 0.55f,
@@ -54,7 +54,7 @@ class PinchEstimator(
         timestampMs: Long? = null,
         worldPoints: List<HandPoint> = emptyList()
     ): PinchSignal {
-        // MediaPipe can deliver callbacks late or repeat a source frame. A stale sample
+        // A provider can deliver callbacks late or repeat a source frame. A stale sample
         // must not advance smoothing, trigger/release a pinch, or move the timestamp
         // cursor backwards; otherwise the next valid sample gets the wrong time delta.
         if (timestampMs != null) {
@@ -79,9 +79,9 @@ class PinchEstimator(
         }
 
         // A 2D camera projection compresses the apparent palm width when the hand
-        // turns edge-on. Prefer MediaPipe's hand-local 3D distances when its palm
+        // turns edge-on. Prefer provider-supplied hand-local 3D distances when the palm
         // geometry is complete and physically plausible; fall back to image space
-        // for models/frames that do not provide usable world landmarks.
+        // for providers that do not supply usable local 3D landmarks.
         val worldThumb = worldPoints.getOrNull(4)
         val worldIndex = worldPoints.getOrNull(8)
         val worldIndexMcp = worldPoints.getOrNull(5)
@@ -224,7 +224,7 @@ data class TrackedHand(
     val pinchStrength: Float = 0f,
     val isPinching: Boolean = false,
     val side: HandSide = HandSide.UNKNOWN,
-    /** MediaPipe world landmarks are hand-local 3D points measured in meters. */
+    /** Provider-supplied hand-local 3D points, measured in meters when available. */
     val worldPoints: List<HandPoint> = emptyList(),
     /** Stable ID assigned by temporal hand association, zero for externally constructed samples. */
     val trackingId: Long = 0L,
@@ -232,9 +232,9 @@ data class TrackedHand(
     val pinchDistanceRatio: Float = Float.POSITIVE_INFINITY,
     /** True when pinchDistanceRatio was derived from world-space landmarks. */
     val pinchUsesWorldLandmarks: Boolean = false,
-    /** Latest unsmoothed MediaPipe image landmarks, used by low-latency gestures. */
+    /** Latest unsmoothed provider image landmarks, used by low-latency gestures. */
     val rawPoints: List<HandPoint> = points,
-    /** Latest unsmoothed MediaPipe hand-local 3D landmarks. */
+    /** Latest unsmoothed provider-supplied hand-local 3D landmarks. */
     val rawWorldPoints: List<HandPoint> = worldPoints,
     /** Source observation timestamp; -1 means use the enclosing frame timestamp. */
     val rawTimestampMs: Long = -1L
@@ -246,13 +246,13 @@ data class TrackedHand(
 data class HandTrackingFrame(
     val timestampMs: Long,
     val hands: List<TrackedHand>,
-    /** Camera conversion + MediaPipe callback latency, not model-only execution time. */
+    /** Provider pipeline latency through publication; not necessarily model-only time. */
     val pipelineLatencyMs: Long = 0L,
     val sourceWidthPx: Int = 0,
     val sourceHeightPx: Int = 0,
     val inputWidthPx: Int = 0,
     val inputHeightPx: Int = 0,
-    /** Time spent copying, orienting and letterboxing the accepted camera frame. */
+    /** Provider preprocessing duration, when measured; zero means unavailable. */
     val preprocessingLatencyMs: Long = 0L
 ) {
     val handCount: Int get() = hands.size
