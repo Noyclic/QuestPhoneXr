@@ -67,6 +67,8 @@ The shared `HandRoiRgbPreprocessor` samples CameraX's raw ARGB pixel buffer at 0
 - includes output readback in inference latency because GPU execution is asynchronous;
 - closes input/output buffers before the model and environment.
 
+The `RtmposeHandRefinementCoordinator` now provides the tested sequential-crop stage for a MediaPipe-detected frame: it snapshots the raw camera pixels, prepares one ROI at a time, and replaces only the 2D image landmarks for successful RTMPose results. MediaPipe handedness, world landmarks and pinch/controller state are preserved; failed or incomplete crop inference keeps the original MediaPipe points. The coordinator is not yet invoked from the persistent camera service, so this path remains an isolated adapter rather than a live provider.
+
 The runner is not registered as READY and does not modify AUTO selection. The model predicts one crop only and has no presence or handedness outputs; a separate detector/track source must supply the ROI and confidence. If GPU compilation fails, MediaPipe remains active. We intentionally do not fall back to CPU for this FP16 graph because its published CPU/XNNPACK path declines the model.
 
 ## Selection rules

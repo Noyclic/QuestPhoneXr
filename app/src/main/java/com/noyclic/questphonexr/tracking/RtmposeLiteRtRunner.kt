@@ -46,7 +46,7 @@ data class RtmposeInferenceResult(
 class RtmposeLiteRtRunner(
     context: Context,
     private val modelFile: File = RtmposeModelStore.installedFile(context)
-) : Closeable {
+) : Closeable, RtmposeHandInferenceEngine {
     private val appContext = context.applicationContext
     private val executor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "EndXR-RTMPose-LiteRT").apply { isDaemon = true }
@@ -172,14 +172,14 @@ class RtmposeLiteRtRunner(
      * Acquire the fixed NCHW buffer on the camera/analyzer worker. Returns null while the
      * provider is uninitialized, closed, or processing another frame.
      */
-    fun acquireInputBuffer(): FloatArray? {
+    override fun acquireInputBuffer(): FloatArray? {
         if (!ready || closed.get()) return null
         if (!inputLeaseActive.compareAndSet(false, true)) return null
         return inputScratch
     }
 
     /** Discard an acquired input lease when preprocessing fails. */
-    fun discardInputBuffer() {
+    override fun discardInputBuffer() {
         inputLeaseActive.set(false)
     }
 
@@ -187,7 +187,7 @@ class RtmposeLiteRtRunner(
      * Submit the currently leased input buffer. It is released after decode or failure.
      * Callback executes on the LiteRT worker thread, not the Android main thread.
      */
-    fun submit(
+    override fun submit(
         crop: HandRoiCrop,
         frameTimestampMs: Long,
         roiConfidence: Float,
