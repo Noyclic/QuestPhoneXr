@@ -207,12 +207,16 @@ internal object EndXrHandTrackingDiagnostics {
 
     fun latestHands(): Int = lastResultHands.coerceAtLeast(0)
 
+    private fun diagnosticUptimeMillis(): Long =
+        runCatching { android.os.SystemClock.uptimeMillis() }.getOrDefault(0L)
+
     fun report(): String {
         val snapshot = metrics
         val providerSnapshot = EndXrTrackingInputBridge.diagnosticSnapshot()
         val timestamp = lastResultTimestampMs
-        val resultAgeMs = if (timestamp > 0L) {
-            (android.os.SystemClock.uptimeMillis() - timestamp).coerceAtLeast(0L)
+        val nowUptimeMs = diagnosticUptimeMillis()
+        val resultAgeMs = if (timestamp > 0L && nowUptimeMs >= timestamp) {
+            nowUptimeMs - timestamp
         } else {
             -1L
         }
