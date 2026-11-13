@@ -262,7 +262,13 @@ class AppNavigationSmokeTest {
                 report.contains("gles_last_texture_allocation_error=")
         )
 
-        val trackingSourceButton = By.text("Источник трекинга · AUTO / ручной")
+        val trackingSourceLabel = "Источник трекинга · AUTO / ручной"
+        val settingsList = UiScrollable(UiSelector().scrollable(true)).setAsVerticalList()
+        assertTrue(
+            "Could not scroll Sandbox settings to the tracking provider selector",
+            settingsList.scrollIntoView(UiSelector().text(trackingSourceLabel))
+        )
+        val trackingSourceButton = By.text(trackingSourceLabel)
         assertTrue(
             "Tracking provider selector is missing from Sandbox settings",
             device.wait(Until.hasObject(trackingSourceButton), 5_000)
