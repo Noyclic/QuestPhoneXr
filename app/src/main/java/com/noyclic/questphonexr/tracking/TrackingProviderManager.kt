@@ -175,7 +175,7 @@ class TrackingProviderManager(
     fun publishFrame(
         providerId: TrackingProviderId,
         frame: HandTrackingFrame,
-        qualityScore: Float = 1f,
+        qualityScore: Float = 0.5f,
         receivedAtUptimeMs: Long
     ): PublishedTrackingFrame? {
         val state = providers[providerId] ?: return null
