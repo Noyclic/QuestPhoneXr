@@ -327,9 +327,10 @@ class TrackingProviderManagerTest {
         publish(TrackingProviderId.LITERT_CUSTOM, 40L, 199L)
         publish(TrackingProviderId.LITERT_CUSTOM, 50L, 232L)
         publish(TrackingProviderId.LITERT_CUSTOM, 60L, 265L)
-        val selected = publish(TrackingProviderId.MEDIAPIPE, 30L, 300L)
+        publish(TrackingProviderId.MEDIAPIPE, 30L, 300L)
 
-        assertEquals(TrackingProviderId.LITERT_CUSTOM, selected?.providerId)
+        // The incoming MediaPipe frame is accepted, but AUTO keeps LiteRT active.
+        assertEquals(TrackingProviderId.LITERT_CUSTOM, manager.snapshot(300L).activeProvider)
         val health = manager.snapshot(300L)
             .healthByProvider.getValue(TrackingProviderId.LITERT_CUSTOM)
         assertEquals(30f, health.estimatedFramesPerSecond!!, 0.01f)
