@@ -263,7 +263,9 @@ class AppNavigationSmokeTest {
         )
 
         val trackingSourceLabel = "Источник трекинга · AUTO / ручной"
-        val settingsList = UiScrollable(UiSelector().scrollable(true)).setAsVerticalList()
+        val settingsList = UiScrollable(UiSelector().scrollable(true))
+            .setAsVerticalList()
+            .setMaxSearchSwipes(10)
         assertTrue(
             "Could not scroll Sandbox settings to the tracking provider selector",
             settingsList.scrollIntoView(UiSelector().text(trackingSourceLabel))

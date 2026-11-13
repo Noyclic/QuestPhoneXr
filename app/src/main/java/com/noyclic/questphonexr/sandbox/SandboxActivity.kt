@@ -1603,7 +1603,10 @@ class SandboxActivity : ComponentActivity(), SensorEventListener, InputManager.I
             val age = health.latestFrameAgeMs?.let { "${it} ms" } ?: "—"
             val latency = health.latestPipelineLatencyMs?.let { "${it} ms" } ?: "—"
             val score = health.latestQualityScore?.toString() ?: "—"
-            "${entry.key.wireId}: ${health.availability.name.lowercase()} · age=$age · latency=$latency · quality=$score · accepted=${health.acceptedFrames} · rejected=${health.rejectedFrames}"
+            val fps = health.estimatedFramesPerSecond?.let {
+                String.format(java.util.Locale.US, "%.1f", it)
+            } ?: "—"
+            "${entry.key.wireId}: ${health.availability.name.lowercase()} · age=$age · latency=$latency · quality=$score · fps=$fps · accepted=${health.acceptedFrames} · rejected=${health.rejectedFrames}"
         }
         val message = buildString {
             append("Режим: ").append(modeLabel).append('\n')
